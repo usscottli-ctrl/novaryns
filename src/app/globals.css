@@ -262,6 +262,26 @@
   .bg-dark-module {
     background: linear-gradient(135deg, #0a0b0d 0%, #1d1e23 45%, #312e5c 100%);
   }
+
+  /* 面板内部滚动条:细、圆、贴合站点(工具页左参数栏 / 记录栏内部滚动用)。 */
+  .nv-panel-scroll {
+    scrollbar-width: thin;
+    scrollbar-color: var(--c-border2) transparent;
+  }
+  .nv-panel-scroll::-webkit-scrollbar {
+    width: 6px;
+    height: 6px;
+  }
+  .nv-panel-scroll::-webkit-scrollbar-track {
+    background: transparent;
+  }
+  .nv-panel-scroll::-webkit-scrollbar-thumb {
+    background: var(--c-border2);
+    border-radius: 999px;
+  }
+  .nv-panel-scroll::-webkit-scrollbar-thumb:hover {
+    background: var(--c-text4);
+  }
 }
 
 ::selection {

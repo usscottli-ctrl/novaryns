@@ -341,9 +341,10 @@ export function ToolWorkspace({
         <span className="font-semibold text-c-text">{name}</span>
       </nav>
 
-      <div className="mt-4 grid gap-5 lg:grid-cols-[320px_1fr] xl:grid-cols-[320px_1fr_280px]">
-        {/* 左:参数(撑到与中右两栏等高,操作区压到底部避免留白割裂) */}
-        <div className="flex flex-col gap-[18px] rounded-card border border-c-border bg-c-card p-5 shadow-card">
+      {/* 三栏等高:整行固定高度(lg+),各栏内部滚动 → 页面高度一致、图片不再浮在大空区 */}
+      <div className="mt-4 grid gap-5 lg:h-[calc(100vh-150px)] lg:min-h-[560px] lg:grid-cols-[320px_1fr] xl:grid-cols-[320px_1fr_280px]">
+        {/* 左:参数(头部/生成按钮钉住,中间参数区内部滚动) */}
+        <div className="flex flex-col gap-[18px] rounded-card border border-c-border bg-c-card p-5 shadow-card lg:h-full lg:overflow-hidden">
           <div className="flex items-center gap-3">
             <span
               className="grid h-11 w-11 flex-none place-items-center rounded-[10px]"
@@ -357,6 +358,8 @@ export function ToolWorkspace({
             </div>
           </div>
 
+          {/* 可滚动参数区(内容多时内部上下滚,头部与底部按钮不动) */}
+          <div className="nv-panel-scroll flex flex-col gap-[18px] lg:min-h-0 lg:flex-1 lg:overflow-y-auto lg:pr-1.5">
           {/* 上传 */}
           <div>
             <p className="mb-2 text-[12.5px] font-medium text-c-text2">{L("上传图片", "Upload image")}</p>
@@ -389,8 +392,9 @@ export function ToolWorkspace({
           </div>
 
           {controls}
+          </div>
 
-          <div className="mt-auto space-y-3 border-t border-c-line pt-4">
+          <div className="space-y-3 border-t border-c-line pt-4">
             <div className="flex items-center justify-between text-[12.5px]">
               <span className="text-c-text3">{L("预计消耗", "Est. cost")}</span>
               <span className="font-semibold text-acc">{L(`${cost} 积分 / 张`, `${cost} credits / image`)}</span>
@@ -419,7 +423,7 @@ export function ToolWorkspace({
         </div>
 
         {/* 中:处理结果 */}
-        <div className="flex min-h-[520px] flex-col rounded-card border border-c-border bg-c-card p-5 shadow-card">
+        <div className="flex min-h-[520px] flex-col rounded-card border border-c-border bg-c-card p-5 shadow-card lg:h-full lg:min-h-0">
           <div className="mb-4 flex items-center justify-between">
             <h2 className="text-[15px] font-semibold text-c-text">
               {shown ? L("记录详情", "Record details") : L("处理结果", "Result")}
@@ -529,7 +533,7 @@ export function ToolWorkspace({
         </div>
 
         {/* 右:本工具记录 */}
-        <aside className="hidden rounded-card border border-c-border bg-c-card p-4 shadow-card xl:flex xl:flex-col">
+        <aside className="hidden rounded-card border border-c-border bg-c-card p-4 shadow-card xl:flex xl:h-full xl:flex-col">
           <div className="mb-3 flex min-h-[28px] items-center gap-1.5">
             <Clock className="h-4 w-4 text-c-text3" />
             <span className="text-[13px] font-semibold text-c-text">{L("本工具记录", "Tool history")}</span>
@@ -552,7 +556,7 @@ export function ToolWorkspace({
               </button>
             )}
           </div>
-          <div className="min-h-0 flex-1 overflow-y-auto pr-0.5">
+          <div className="nv-panel-scroll min-h-0 flex-1 overflow-y-auto pr-0.5">
             {records === null && user ? (
               <div className="grid grid-cols-2 gap-2">
                 {Array.from({ length: 6 }).map((_, i) => (
