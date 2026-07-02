@@ -145,7 +145,6 @@ export const TOOL_COST = {
   cutout: 1, // Replicate BiRefNet
   upscale: 1, // Replicate Real-ESRGAN
   garment: 6, // gpt-image 编辑(服装提取)
-  garment3d: 16, // 3D 幽灵人台,成本最高
   avatar: 6, // gpt-image 编辑(头像/模特)
   dewrinkle: 6, // gpt-image 编辑(去皱)
   dewatermark: 6, // gpt-image 编辑(去水印)
@@ -437,4 +436,15 @@ export function resolutionCost(id: string): number {
 
 export function resolutionLongSide(id: string): number {
   return GENERATION_RESOLUTIONS.find((r) => r.id === id)?.longSide ?? 0;
+}
+
+// 3D 服装图专属分辨率计价(成本高于平面图):1K/2K=9、4K=18。
+// 放大长边复用 resolutionLongSide(2K=2048 / 4K=4096;1K 不放大)。
+export const GARMENT3D_COST: Record<string, number> = {
+  "1K": 9,
+  "2K": 9,
+  "4K": 18,
+};
+export function garment3dCost(id: string): number {
+  return GARMENT3D_COST[id] ?? GARMENT3D_COST["1K"];
 }

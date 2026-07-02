@@ -14,7 +14,7 @@ import { rateLimit } from "@/lib/rate-limit";
 import { bearer, emailFromToken } from "@/lib/supabase-admin";
 import { storageEnabled, uploadImage } from "@/lib/storage";
 import { getOpenAISettings } from "@/lib/settings";
-import { TOOL_COST } from "@/lib/mock-data";
+import { garment3dCost, resolutionLongSide } from "@/lib/mock-data";
 import { safeError } from "@/lib/api-error";
 
 // ---------------------------------------------------------------------------
@@ -30,8 +30,6 @@ import { safeError } from "@/lib/api-error";
 
 export const runtime = "nodejs";
 export const maxDuration = 300;
-
-const COST = TOOL_COST.garment3d;
 
 const CATEGORIES: Record<string, string> = {
   通用: "garment",
@@ -51,6 +49,7 @@ type Input = {
   prompt: string;
   category: string;
   ratio: string;
+  resolution: string;
 };
 
 function sizeForRatio(ratio: string): "auto" | "1024x1024" | "1536x1024" | "1024x1536" {
@@ -77,7 +76,34 @@ async function parseInput(request: Request): Promise<Input | null> {
     prompt: s("prompt").trim(),
     category: s("category").trim(),
     ratio: s("ratio").trim(),
+    resolution: s("resolution").trim() || "1K",
   };
+}
+
+// 出图后按分辨率档放大长边(sharp Lanczos);1K 不放大。
+async function upscaleTo(buf: Buffer, resolution: string): Promise<Buffer> {
+  const target = resolutionLongSide(resolution);
+  if (!target) return buf;
+  try {
+    const mod = (await import("sharp")) as unknown as {
+      default?: typeof import("sharp");
+    } & typeof import("sharp");
+    const sharp = mod.default ?? mod;
+    const meta = await sharp(buf).metadata();
+    const long = Math.max(meta.width ?? 0, meta.height ?? 0);
+    if (!long || long >= target) return buf;
+    const scale = target / long;
+    return await sharp(buf)
+      .resize(
+        Math.round((meta.width ?? 0) * scale),
+        Math.round((meta.height ?? 0) * scale),
+        { kernel: "lanczos3" }
+      )
+      .png()
+      .toBuffer();
+  } catch {
+    return buf;
+  }
 }
 
 async function toPng(buf: Buffer): Promise<Buffer> {
@@ -143,6 +169,8 @@ async function runJob(
       const b64 = r.data?.[0]?.b64_json;
       if (!b64) throw new Error("未返回 3D 图");
       out = Buffer.from(b64, "base64");
+      // 2K/4K:出图后服务端放大长边(1K 原生不放大)。
+      out = await upscaleTo(out, input.resolution);
     } catch (e) {
       if (useDb && cost > 0) await refundCredits(input.email, cost).catch(() => {});
       throw e;
@@ -193,7 +221,7 @@ async function runJob(
               gradient: "from-indigo-100 to-slate-100",
               style: null,
               ratio: input.ratio || null,
-              resolution: null,
+              resolution: input.resolution || null,
               source: srcUrl,
               parentId: null,
               parentIds: [],
@@ -249,7 +277,7 @@ export async function POST(request: Request) {
       input.email = tokenEmail;
     }
     const useDb = dbEnabled && input.email.length > 0;
-    const cost = COST;
+    const cost = garment3dCost(input.resolution);
 
     if (dbEnabled && (await isBanned(input.email, ip)))
       return NextResponse.json({ error: "账号或 IP 已被封禁" }, { status: 403 });
