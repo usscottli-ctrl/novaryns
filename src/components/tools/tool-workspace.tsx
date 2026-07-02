@@ -342,7 +342,7 @@ export function ToolWorkspace({
       </nav>
 
       {/* 三栏等高:整行固定高度(lg+),各栏内部滚动 → 页面高度一致、图片不再浮在大空区 */}
-      <div className="mt-4 grid gap-5 lg:h-[calc(100vh-150px)] lg:min-h-[560px] lg:grid-cols-[320px_1fr] xl:grid-cols-[320px_1fr_280px]">
+      <div className="mt-4 grid gap-5 lg:h-[890px] lg:grid-cols-[320px_1fr] xl:grid-cols-[320px_1fr_280px]">
         {/* 左:参数(头部/生成按钮钉住,中间参数区内部滚动) */}
         <div className="flex flex-col gap-[18px] rounded-card border border-c-border bg-c-card p-5 shadow-card lg:h-full lg:overflow-hidden">
           <div className="flex items-center gap-3">

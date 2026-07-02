@@ -573,7 +573,7 @@ export function GenerateClient({
         </div>
         <div
           className={cn(
-            "grid gap-5 lg:h-[calc(100vh-150px)] lg:min-h-[560px] lg:grid-cols-[320px_1fr]",
+            "grid gap-5 lg:h-[890px] lg:grid-cols-[320px_1fr]",
             historyOpen
               ? "xl:grid-cols-[320px_1fr_280px]"
               : "xl:grid-cols-[320px_1fr_46px]"
