@@ -790,12 +790,11 @@ export function GenerateClient({
               </div>
             )}
 
-            {/* Floating action button — pinned near the bottom of the first
-                screen, sitting on a white tray so it stays legible while it
-                floats over scrolling content. */}
-            <div className="sticky bottom-4 z-10 space-y-2 rounded-card border border-c-border bg-c-card/95 p-3 shadow-pop backdrop-blur">
+            {/* 生成按钮:与其它功能页(ToolWorkspace)一致的普通分隔区,
+                顶部细分隔线 + 按钮,不再是浮动白底卡片。 */}
+            <div className="space-y-3 border-t border-c-line pt-4">
               {error && (
-                <p className="rounded-lg border border-red-500/30 bg-red-500/10 px-3 py-2 text-xs text-red-600 dark:text-red-400 shadow">
+                <p className="rounded-lg border border-red-500/30 bg-red-500/10 px-3 py-2 text-xs text-red-600 dark:text-red-400">
                   {error}
                 </p>
               )}
@@ -805,7 +804,7 @@ export function GenerateClient({
                   asChild
                   variant="gradient"
                   size="lg"
-                  className="w-full shadow-xl"
+                  className="w-full shadow-btn"
                 >
                   <Link href="/account?tab=credits">{t("gen.insufficient")}</Link>
                 </Button>
@@ -815,7 +814,7 @@ export function GenerateClient({
                   disabled={loading}
                   variant="gradient"
                   size="lg"
-                  className="w-full shadow-xl"
+                  className="w-full shadow-btn"
                 >
                   {loading ? (
                     <Loader2 className="h-4 w-4 animate-spin" />
