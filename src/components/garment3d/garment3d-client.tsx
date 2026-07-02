@@ -3,7 +3,7 @@
 import * as React from "react";
 import { Box } from "lucide-react";
 import { ToolWorkspace, ToolChips } from "@/components/tools/tool-workspace";
-import { TOOL_COST } from "@/lib/mock-data";
+import { garment3dCost } from "@/lib/mock-data";
 import { useAuth } from "@/lib/auth-context";
 import { useI18n } from "@/lib/i18n/locale-context";
 import { authHeader } from "@/lib/supabase";
@@ -16,6 +16,7 @@ export function Garment3dClient() {
   const L = (z: string, e: string) => (locale === "en" ? e : z);
   const [view, setView] = React.useState("正面");
   const [material, setMaterial] = React.useState("真实");
+  const [resolution, setResolution] = React.useState("1K");
 
   const controls = (
     <>
@@ -41,6 +42,17 @@ export function Garment3dClient() {
         onChange={setMaterial}
         accent={ACCENT}
       />
+      <ToolChips
+        label={L("分辨率", "Resolution")}
+        options={[
+          { value: "1K", label: "1K" },
+          { value: "2K", label: "2K" },
+          { value: "4K", label: "4K" },
+        ]}
+        value={resolution}
+        onChange={setResolution}
+        accent={ACCENT}
+      />
     </>
   );
 
@@ -53,7 +65,7 @@ export function Garment3dClient() {
       accent={ACCENT}
       category="dress3d"
       regenLabel={L("以此图再生成 3D", "Regenerate 3D from this image")}
-      cost={TOOL_COST.garment3d}
+      cost={garment3dCost(resolution)}
       action={L("生成 3D 图", "Generate 3D")}
       controls={controls}
       onProcess={async (file) => {
@@ -63,6 +75,7 @@ export function Garment3dClient() {
         // 通过 prompt 文本影响输出,不改后端契约。
         fd.append("category", "通用");
         fd.append("ratio", "自动");
+        fd.append("resolution", resolution);
         const viewHint =
           view === "45°"
             ? "show the garment from a 45-degree angle"
