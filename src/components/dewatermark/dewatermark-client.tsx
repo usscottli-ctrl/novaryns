@@ -3,6 +3,7 @@
 import * as React from "react";
 import { Eraser } from "lucide-react";
 import { ToolWorkspace, ToolChips } from "@/components/tools/tool-workspace";
+import { TOOL_COST } from "@/lib/mock-data";
 import { useAuth } from "@/lib/auth-context";
 import { useI18n } from "@/lib/i18n/locale-context";
 import { authHeader } from "@/lib/supabase";
@@ -49,7 +50,7 @@ export function DewatermarkClient() {
       accent={ACCENT}
       category="dewatermark"
       regenLabel={L("以此图再去水印", "Remove watermark from this image")}
-      cost={6}
+      cost={TOOL_COST.dewatermark}
       action={L("一键去水印", "Remove Watermark")}
       controls={controls}
       onProcess={async (file) => {

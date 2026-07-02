@@ -3,6 +3,7 @@
 import * as React from "react";
 import { Wind } from "lucide-react";
 import { ToolWorkspace, ToolChips } from "@/components/tools/tool-workspace";
+import { TOOL_COST } from "@/lib/mock-data";
 import { useAuth } from "@/lib/auth-context";
 import { useI18n } from "@/lib/i18n/locale-context";
 import { authHeader } from "@/lib/supabase";
@@ -51,7 +52,7 @@ export function DewrinkleClient() {
       accent={ACCENT}
       category="dewrinkle"
       regenLabel={L("以此图再去皱", "De-wrinkle from this image")}
-      cost={6}
+      cost={TOOL_COST.dewrinkle}
       action={L("一键去皱", "De-wrinkle")}
       controls={controls}
       onProcess={async (file) => {

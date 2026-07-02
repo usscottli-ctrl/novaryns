@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import OpenAI from "openai";
-import { getAssistModelSettings } from "@/lib/settings";
+import { getOpenAISettings } from "@/lib/settings";
 import {
   getAssistSystem,
   getOptimizeSystem,
@@ -70,8 +70,8 @@ export async function POST(req: Request) {
   }
   const hasImage = !!imageDataUrl;
 
-  // 帮写模型三件套(后台「接口与模型」可配):模型/BaseURL/独立 Key(留空复用主 Key)
-  const { apiKey, model, baseURL } = await getAssistModelSettings();
+  // 帮写用 gpt-4o-mini(看图写,需视觉能力),复用主 OpenAI Key。
+  const { apiKey } = await getOpenAISettings();
   if (!apiKey) {
     const base = idea || "高级电商主图";
     return NextResponse.json({
@@ -82,7 +82,7 @@ export async function POST(req: Request) {
   try {
     const client = new OpenAI({
       apiKey,
-      baseURL: baseURL || undefined,
+      baseURL: process.env.OPENAI_BASE_URL || undefined,
     });
     // 分功能页写法指令(prompt-config.ts 可审计)。
     // 关键:帮写(write)时,若有功能页专用指令,**不叠加通用「写整图大片」系统**
@@ -116,7 +116,7 @@ export async function POST(req: Request) {
       : "(空,按产品/分类给通用电商主图提示词)";
     const text = `${ctx.join(";")}\n${label}:${idea || emptyHint}`;
     const resp = await client.chat.completions.create({
-      model,
+      model: "gpt-4o-mini",
       messages: [
         { role: "system", content: sys },
         {

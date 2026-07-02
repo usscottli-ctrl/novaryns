@@ -14,7 +14,7 @@ import { rateLimit } from "@/lib/rate-limit";
 import { bearer, emailFromToken } from "@/lib/supabase-admin";
 import { storageEnabled, uploadImage } from "@/lib/storage";
 import { getOpenAISettings } from "@/lib/settings";
-import { POINTS_PER_IMAGE } from "@/lib/mock-data";
+import { TOOL_COST } from "@/lib/mock-data";
 import { safeError } from "@/lib/api-error";
 
 // ---------------------------------------------------------------------------
@@ -27,7 +27,7 @@ import { safeError } from "@/lib/api-error";
 export const runtime = "nodejs";
 export const maxDuration = 280;
 
-const STYLE_COST = POINTS_PER_IMAGE;
+const STYLE_COST = TOOL_COST.style;
 
 const BASE_PROMPT =
   "Re-render the uploaded image into the target art style described below. Keep the main subject, overall composition, pose, layout and key recognizable elements intact — only change the artistic style, texture and rendering. Target style: ";

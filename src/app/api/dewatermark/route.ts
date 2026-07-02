@@ -14,7 +14,7 @@ import { rateLimit } from "@/lib/rate-limit";
 import { bearer, emailFromToken } from "@/lib/supabase-admin";
 import { storageEnabled, uploadImage } from "@/lib/storage";
 import { getOpenAISettings } from "@/lib/settings";
-import { POINTS_PER_IMAGE } from "@/lib/mock-data";
+import { TOOL_COST } from "@/lib/mock-data";
 import { safeError } from "@/lib/api-error";
 
 // 去水印:gpt-image-2 擦除图中的水印/logo/文字叠层/时间戳/站标等标记,并自然补全被遮挡的底图,
@@ -22,7 +22,7 @@ import { safeError } from "@/lib/api-error";
 export const runtime = "nodejs";
 export const maxDuration = 200;
 
-const COST = POINTS_PER_IMAGE;
+const COST = TOOL_COST.dewatermark;
 
 const BASE_PROMPT =
   "Remove ALL watermarks, logos, text overlays, timestamps, site/station marks and semi-transparent stamps from this image, and naturally reconstruct the underlying content behind them so the result looks clean and unmarked. Keep EVERYTHING ELSE strictly identical — the exact product/subject, colours, patterns, composition, background, lighting must stay the same. Only remove the watermark/overlay marks; do not restyle, recolor, crop or move anything.";

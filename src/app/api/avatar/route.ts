@@ -14,7 +14,7 @@ import { rateLimit } from "@/lib/rate-limit";
 import { bearer, emailFromToken } from "@/lib/supabase-admin";
 import { storageEnabled, uploadImage } from "@/lib/storage";
 import { getOpenAISettings, getCutoutSettings } from "@/lib/settings";
-import { POINTS_PER_IMAGE } from "@/lib/mock-data";
+import { TOOL_COST } from "@/lib/mock-data";
 import { safeError } from "@/lib/api-error";
 
 // ---------------------------------------------------------------------------
@@ -27,7 +27,7 @@ import { safeError } from "@/lib/api-error";
 export const runtime = "nodejs";
 export const maxDuration = 200;
 
-const AVATAR_COST = POINTS_PER_IMAGE; // 同生图成本(gpt-image edit 一次)
+const AVATAR_COST = TOOL_COST.avatar; // 同生图成本(gpt-image edit 一次)
 
 const BASE_PROMPT =
   "Cut out ONLY the head (with a little neck and shoulders) of the main subject in this image — a person, pet or cartoon character. Remove the body, any other subjects and the background completely. Output a clean, sharp head portrait in avatar / sticker style on a fully transparent background. Preserve the original face, hair, ears, expression and fine details exactly. No body, no extra subjects, no shadow, no border.";

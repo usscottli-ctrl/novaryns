@@ -3,6 +3,7 @@
 import * as React from "react";
 import { Box } from "lucide-react";
 import { ToolWorkspace, ToolChips } from "@/components/tools/tool-workspace";
+import { TOOL_COST } from "@/lib/mock-data";
 import { useAuth } from "@/lib/auth-context";
 import { useI18n } from "@/lib/i18n/locale-context";
 import { authHeader } from "@/lib/supabase";
@@ -52,7 +53,7 @@ export function Garment3dClient() {
       accent={ACCENT}
       category="dress3d"
       regenLabel={L("以此图再生成 3D", "Regenerate 3D from this image")}
-      cost={16}
+      cost={TOOL_COST.garment3d}
       action={L("生成 3D 图", "Generate 3D")}
       controls={controls}
       onProcess={async (file) => {
@@ -76,14 +77,39 @@ export function Garment3dClient() {
             : "true-to-life realistic fabric finish";
         fd.append("prompt", `${viewHint}; ${materialHint}`);
         if (user) fd.append("email", user.email);
-        const res = await fetch("/api/garment3d", {
+        // 异步任务:POST 秒回 jobId,再轮询 GET —— 3D 生成常 >100s,若同步等会被
+        // Cloudflare(免费版 100s)掐断成 HTML 524、前端 JSON.parse 崩在 "<"。
+        const startRes = await fetch("/api/garment3d", {
           method: "POST",
           headers: await authHeader(),
           body: fd,
         });
-        const data = await res.json();
-        if (!res.ok || !data.url) throw new Error(data.error ?? "生成失败");
-        return { url: data.url, user: data.user, creditsUsed: data.creditsUsed };
+        const start = await startRes.json();
+        if (!startRes.ok) throw new Error(start.error ?? L("生成失败", "Failed"));
+        const jobId: string | undefined = start.jobId;
+        if (!jobId) throw new Error(L("任务创建失败,请重试", "Could not start job"));
+
+        const deadline = Date.now() + 6 * 60 * 1000;
+        let data: { url?: string; user?: unknown; creditsUsed?: number } | null = null;
+        while (!data) {
+          await new Promise((r) => setTimeout(r, 2500));
+          if (Date.now() > deadline)
+            throw new Error(L("生成超时,请重试", "Timed out, please retry"));
+          const sres = await fetch(
+            `/api/garment3d?job=${encodeURIComponent(jobId)}`,
+            { cache: "no-store" }
+          );
+          const s = await sres.json();
+          if (s.status === "done") data = s;
+          else if (s.status === "error")
+            throw new Error(s.error ?? L("生成失败", "Failed"));
+        }
+        if (!data.url) throw new Error(L("生成失败", "Failed"));
+        return {
+          url: data.url,
+          user: data.user as never,
+          creditsUsed: data.creditsUsed,
+        };
       }}
     />
   );

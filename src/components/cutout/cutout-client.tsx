@@ -3,6 +3,7 @@
 import * as React from "react";
 import { Scissors } from "lucide-react";
 import { ToolWorkspace, ToolChips } from "@/components/tools/tool-workspace";
+import { TOOL_COST } from "@/lib/mock-data";
 import { useAuth } from "@/lib/auth-context";
 import { useI18n } from "@/lib/i18n/locale-context";
 import { authHeader } from "@/lib/supabase";
@@ -52,7 +53,7 @@ export function CutoutClient() {
       accent={ACCENT}
       category="cutout"
       regenLabel={L("以此图重新抠", "Re-cut from this image")}
-      cost={4}
+      cost={TOOL_COST.cutout}
       action={L("开始抠图", "Start cutout")}
       checker
       controls={controls}

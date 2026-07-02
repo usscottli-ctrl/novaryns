@@ -3,6 +3,7 @@
 import * as React from "react";
 import { Wand2 } from "lucide-react";
 import { ToolWorkspace, ToolChips } from "@/components/tools/tool-workspace";
+import { TOOL_COST } from "@/lib/mock-data";
 import { useAuth } from "@/lib/auth-context";
 import { useI18n } from "@/lib/i18n/locale-context";
 import { authHeader } from "@/lib/supabase";
@@ -51,7 +52,7 @@ export function UpscaleClient() {
       accent={ACCENT}
       category="upscale"
       regenLabel={L("以此图再放大", "Upscale from this image")}
-      cost={6}
+      cost={TOOL_COST.upscale}
       action={L("高清修复", "Upscale")}
       controls={controls}
       onProcess={async (file) => {

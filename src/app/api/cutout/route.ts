@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { TOOL_COST } from "@/lib/mock-data";
 import OpenAI, { toFile } from "openai";
 import {
   dbEnabled,
@@ -32,7 +33,7 @@ export const maxDuration = 120; // Replicate 冷启动可能需要 1-2 分钟
 
 // 抠图只保留「发丝级」(Replicate BiRefNet),统一 1 积分/张
 // (2026-06-17 用户去掉免费极速档:画布与 AI 抠图都只发丝级、扣 1 分)。
-const CUTOUT_COST = 1;
+const CUTOUT_COST = TOOL_COST.cutout;
 
 type CutoutInput = {
   bytes: Buffer;

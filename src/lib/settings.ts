@@ -177,54 +177,6 @@ export async function saveCutoutModel(model: string): Promise<void> {
   await setSetting(OAI_CUTOUT_MODEL, model.trim());
 }
 
-// ---- AI 帮写 / 文案模型(prompt-assist 等文本 LLM,后台可配) ----
-// 任意 OpenAI 兼容接口均可(OpenAI / DeepSeek / 各中转);Key 留空则复用主 OpenAI Key。
-const ASSIST_MODEL = "assist_model";
-const ASSIST_BASE_URL = "assist_base_url";
-const ASSIST_KEY_ENC = "assist_key_enc";
-
-export type AssistModelSettings = {
-  apiKey: string;
-  model: string;
-  baseURL: string;
-  keySource: "own" | "openai" | "none";
-};
-
-export async function getAssistModelSettings(): Promise<AssistModelSettings> {
-  const main = await getOpenAISettings();
-  let model = "gpt-4o-mini";
-  let baseURL = process.env.OPENAI_BASE_URL || "";
-  let own: string | null = null;
-  if (dbEnabled) {
-    const m = await getSetting(ASSIST_MODEL);
-    const b = await getSetting(ASSIST_BASE_URL);
-    const enc = await getSetting(ASSIST_KEY_ENC);
-    if (m && m.trim()) model = m.trim();
-    if (b && b.trim()) baseURL = b.trim();
-    own = enc ? decryptAtRest(enc) : null;
-  }
-  const apiKey = own || main.apiKey;
-  return {
-    apiKey,
-    model,
-    baseURL,
-    keySource: own ? "own" : main.apiKey ? "openai" : "none",
-  };
-}
-
-/** 明文项(模型名 / Base URL);空串 = 清除 → 回退默认(gpt-4o-mini / 跟随 OpenAI)。 */
-export async function saveAssistConfig(opts: {
-  model?: string;
-  baseUrl?: string;
-}): Promise<void> {
-  if (typeof opts.model === "string") await setSetting(ASSIST_MODEL, opts.model.trim());
-  if (typeof opts.baseUrl === "string") await setSetting(ASSIST_BASE_URL, opts.baseUrl.trim());
-}
-
-export async function saveAssistKey(plain: string): Promise<void> {
-  await setSetting(ASSIST_KEY_ENC, encryptAtRest(plain.trim()));
-}
-
 // ---------------------------------------------------------------------------
 // 抠图后端配置。首选自托管 rembg 服务(localhost:8090),不可用时兜底走 gpt-image。
 // 自托管服务真正加载的模型在服务端 start.sh 里设(CUTOUT_MODEL),这里只读不写——
@@ -576,13 +528,6 @@ export async function getAdminView() {
     wxpayAppid: p.wxpayAppid,
     // 品牌与白标(Pro):站点名复用向导 key `site_name`;Logo 用 `brand_logo`。
     // 均为非敏感明文,直接回显;留空 = 未覆盖 → 前台回退 env 默认。
-    // AI 帮写 / 文案模型(prompt-assist):模型名/BaseURL 明文回显;Key 只回显掩码。
-    assistModel: (await getSetting(ASSIST_MODEL)) ?? "",
-    assistBaseUrl: (await getSetting(ASSIST_BASE_URL)) ?? "",
-    assistKeyMasked: maskKey(
-      decryptAtRest((await getSetting(ASSIST_KEY_ENC)) ?? "") ?? ""
-    ),
-    assistKeyReady: !!(await getSetting(ASSIST_KEY_ENC)),
     brandName: (await getSetting(SITE_NAME_SETTING)) ?? "",
     brandLogo: (await getSetting(BRAND_LOGO_SETTING)) ?? "",
   };
