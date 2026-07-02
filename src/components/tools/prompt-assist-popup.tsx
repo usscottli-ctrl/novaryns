@@ -21,12 +21,13 @@ function nowStamp(): string {
 }
 
 /**
- * 「AI帮写 / 智能优化」贴按钮弹窗(全站统一,对标创次元):
- * - 紧挨触发按钮弹出(anchorRef 定位,优先右侧,放不下换左侧;小屏回退为底部弹层);
- * - 结果按时间留在历史里(带时间戳,不覆盖),点「使用该描述」填回提示词框;
- * - 底部可继续输入想法「免费·发送」再写一条;
- * - 带图(imageFile)时模型看图写,写出的提示词贴合该图。
- * 触发方式:页面设 run={mode,nonce}(nonce 变化即跑一次)并置 open=true。
+ * 「AI帮写 / 智能优化」统一组件(全站,对标创次元):
+ * - AI帮写(mode=write):贴按钮弹窗(anchorRef 定位,优先右侧;小屏底部弹层),
+ *   结果带时间戳留在历史,点「使用该描述」填回;底部可继续「免费·发送」。
+ * - 智能优化(mode=optimize):**独立居中弹窗**(竞品同款):优化结果放可编辑
+ *   文本框,下面一颗全宽「使用该描述」。
+ * - 带图(imageFile)时模型看图写;tool 决定后端的分功能页写法指令。
+ * 触发:页面设 run={mode,nonce}(nonce 变化即跑一次)并置 open=true。
  */
 export function PromptAssistPopup({
   open,
@@ -54,17 +55,25 @@ export function PromptAssistPopup({
 }) {
   const { locale } = useI18n();
   const L = (z: string, e: string) => (locale === "en" ? e : z);
+  // 帮写(历史面板)
   const [history, setHistory] = React.useState<Result[]>([]);
   const [busy, setBusy] = React.useState(false);
   const [input, setInput] = React.useState("");
   const [usedId, setUsedId] = React.useState<string | null>(null);
+  // 智能优化(独立居中弹窗)
+  const [view, setView] = React.useState<"write" | "optimize">("write");
+  const [optText, setOptText] = React.useState("");
+  const [optErr, setOptErr] = React.useState<string | null>(null);
+  const [optBusy, setOptBusy] = React.useState(false);
+  const [optUsed, setOptUsed] = React.useState(false);
+  // 定位
   const [pos, setPos] = React.useState<{ left: number; top: number } | null>(null);
   const [sheet, setSheet] = React.useState(false); // 小屏:底部弹层
   const lastNonce = React.useRef(0);
   const scrollRef = React.useRef<HTMLDivElement>(null);
 
-  const W = 380; // 弹窗宽
-  const H = 480; // 弹窗最大高
+  const W = 380; // 帮写弹窗宽
+  const H = 480; // 帮写弹窗最大高
 
   // 依据触发按钮位置计算弹窗坐标:优先右侧,放不下换左侧,再不行贴着钉在可视区内。
   const place = React.useCallback(() => {
@@ -88,7 +97,7 @@ export function PromptAssistPopup({
   }, [anchorRef]);
 
   React.useEffect(() => {
-    if (!open) return;
+    if (!open || view !== "write") return;
     place();
     const on = () => place();
     window.addEventListener("resize", on);
@@ -97,11 +106,14 @@ export function PromptAssistPopup({
       window.removeEventListener("resize", on);
       window.removeEventListener("scroll", on, true);
     };
-  }, [open, place]);
+  }, [open, view, place]);
 
-  const doAssist = React.useCallback(
-    async (mode: "write" | "optimize", idea: string) => {
-      setBusy(true);
+  // 调 /api/prompt-assist(带图走 multipart 看图写;tool 决定分功能页指令)
+  const callApi = React.useCallback(
+    async (
+      mode: "write" | "optimize",
+      idea: string
+    ): Promise<{ ok: boolean; text: string }> => {
       try {
         let res: Response;
         if (imageFile) {
@@ -124,36 +136,54 @@ export function PromptAssistPopup({
           });
         }
         const data = await res.json();
-        setHistory((h) => [
-          ...h,
-          res.ok && data.prompt
-            ? { id: `r-${Date.now()}`, mode, text: data.prompt as string, at: nowStamp() }
-            : {
-                id: `e-${Date.now()}`,
-                mode,
-                text: data.error || L("失败,请重试", "Failed, please retry"),
-                at: nowStamp(),
-                err: true,
-              },
-        ]);
+        if (res.ok && data.prompt) return { ok: true, text: data.prompt as string };
+        return { ok: false, text: data.error || L("失败,请重试", "Failed, please retry") };
       } catch {
-        setHistory((h) => [
-          ...h,
-          { id: `e-${Date.now()}`, mode, text: L("网络错误,请重试", "Network error"), at: nowStamp(), err: true },
-        ]);
-      } finally {
-        setBusy(false);
+        return { ok: false, text: L("网络错误,请重试", "Network error") };
       }
     },
     // eslint-disable-next-line react-hooks/exhaustive-deps
     [imageFile, category, tool]
   );
 
-  // 外部点「AI帮写 / 智能优化」(run.nonce 变化)→ 跑一次,结果进历史
+  // 帮写:结果进历史(不覆盖)
+  const doWrite = React.useCallback(
+    async (idea: string) => {
+      setBusy(true);
+      const r = await callApi("write", idea);
+      setHistory((h) => [
+        ...h,
+        { id: `${r.ok ? "r" : "e"}-${Date.now()}`, mode: "write", text: r.text, at: nowStamp(), err: !r.ok },
+      ]);
+      setBusy(false);
+    },
+    [callApi]
+  );
+
+  // 智能优化:结果进独立弹窗的可编辑文本框
+  const doOptimize = React.useCallback(
+    async (idea: string) => {
+      setOptBusy(true);
+      setOptErr(null);
+      setOptUsed(false);
+      const r = await callApi("optimize", idea);
+      if (r.ok) setOptText(r.text);
+      else {
+        setOptText("");
+        setOptErr(r.text);
+      }
+      setOptBusy(false);
+    },
+    [callApi]
+  );
+
+  // 外部点「AI帮写 / 智能优化」(run.nonce 变化)→ 按模式分流
   React.useEffect(() => {
     if (!run || run.nonce === lastNonce.current) return;
     lastNonce.current = run.nonce;
-    void doAssist(run.mode, currentPrompt);
+    setView(run.mode);
+    if (run.mode === "optimize") void doOptimize(currentPrompt);
+    else void doWrite(currentPrompt);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [run]);
 
@@ -163,13 +193,72 @@ export function PromptAssistPopup({
 
   if (!open) return null;
 
+  // ── 智能优化:独立居中弹窗(竞品同款) ──
+  if (view === "optimize") {
+    return (
+      <>
+        <div className="fixed inset-0 z-[54] bg-black/30" onClick={onClose} />
+        <div
+          role="dialog"
+          aria-label={L("智能优化", "Optimize")}
+          className="fixed left-1/2 top-1/2 z-[55] w-[min(560px,92vw)] -translate-x-1/2 -translate-y-1/2 rounded-2xl border border-c-border bg-c-card p-5 shadow-pop"
+        >
+          <div className="mb-3 flex items-center justify-between">
+            <h3 className="flex items-center gap-1.5 text-[16px] font-bold text-c-text">
+              <Sparkles className="h-4 w-4 text-acc" />
+              {L("智能优化", "Optimize")}
+            </h3>
+            <button
+              type="button"
+              onClick={onClose}
+              aria-label={L("关闭", "Close")}
+              className="grid h-7 w-7 place-items-center rounded-full text-c-text3 transition-colors hover:bg-c-subtle hover:text-c-text"
+            >
+              <X className="h-4 w-4" />
+            </button>
+          </div>
+          {optBusy ? (
+            <div className="flex items-center justify-center gap-2 py-14 text-[13px] text-c-text3">
+              <Loader2 className="h-4 w-4 animate-spin" />
+              {L("AI 正在优化…", "Optimizing…")}
+            </div>
+          ) : optErr ? (
+            <p className="py-10 text-center text-[13px] text-c-danger">{optErr}</p>
+          ) : (
+            <>
+              <textarea
+                value={optText}
+                onChange={(e) => setOptText(e.target.value)}
+                rows={7}
+                className="w-full resize-y rounded-xl border border-c-border2 bg-c-card px-3.5 py-3 text-[13.5px] leading-relaxed text-c-text focus-visible:border-acc focus-visible:outline-none"
+              />
+              <button
+                type="button"
+                onClick={() => {
+                  onUse(optText);
+                  setOptUsed(true);
+                }}
+                disabled={!optText.trim()}
+                className="mt-3 flex w-full items-center justify-center gap-1.5 rounded-[12px] bg-acc px-4 py-2.5 text-[14px] font-medium text-white transition-opacity hover:opacity-90 disabled:opacity-50"
+              >
+                {optUsed && <Check className="h-4 w-4" />}
+                {optUsed ? L("已填入 ✓", "Filled ✓") : L("使用该描述", "Use this")}
+              </button>
+            </>
+          )}
+        </div>
+      </>
+    );
+  }
+
+  // ── AI帮写:贴按钮弹窗(历史 + 底部继续发送) ──
   return (
     <>
       {/* 透明点击层:点外面关闭(竞品同款,不压暗页面) */}
       <div className="fixed inset-0 z-[54]" onClick={onClose} />
       <div
         role="dialog"
-        aria-label={L("AI 帮写", "AI write")}
+        aria-label={L("AI帮写", "AI write")}
         style={sheet ? undefined : pos ? { left: pos.left, top: pos.top, width: W } : { visibility: "hidden" }}
         className={cn(
           "fixed z-[55] flex flex-col overflow-hidden rounded-2xl border border-c-border bg-c-card shadow-pop",
@@ -199,7 +288,7 @@ export function PromptAssistPopup({
               <Sparkles className="h-7 w-7 text-c-text4" />
               <p className="max-w-[260px] text-[12.5px] leading-relaxed text-c-text3">
                 {L(
-                  "输入一句想法点「发送」,或直接点外面的「AI帮写 / 智能优化」,结果会留在这里,挑一条使用。",
+                  "输入一句想法点「发送」,结果会留在这里,挑一条使用。",
                   "Type an idea and send — results stay here, pick one to use."
                 )}
               </p>
@@ -208,8 +297,8 @@ export function PromptAssistPopup({
           {history.map((r) => (
             <div key={r.id}>
               <p className="mb-1 flex items-center gap-1 text-[11px] text-c-text4">
-                {r.mode === "write" ? <Wand2 className="h-3 w-3" /> : <Sparkles className="h-3 w-3" />}
-                {r.mode === "write" ? L("AI帮写", "AI write") : L("智能优化", "Optimize")} · {r.at}
+                <Wand2 className="h-3 w-3" />
+                {L("AI帮写", "AI write")} · {r.at}
               </p>
               <div className="rounded-xl bg-c-subtle2 p-3">
                 <p
@@ -258,7 +347,7 @@ export function PromptAssistPopup({
             value={input}
             onChange={(e) => setInput(e.target.value)}
             rows={1}
-            placeholder={L("补充想法,例如:换户外场景 / 更高级…", "Add an idea…")}
+            placeholder={L("补充想法,继续帮写…", "Add an idea…")}
             className="max-h-24 min-h-[38px] flex-1 resize-none rounded-[10px] border border-c-border2 bg-c-subtle2 px-3 py-2 text-[13px] text-c-text placeholder:text-c-text4 focus-visible:border-acc focus-visible:bg-c-card focus-visible:outline-none"
           />
           <button
@@ -279,7 +368,7 @@ export function PromptAssistPopup({
                 ]);
                 return;
               }
-              void doAssist("write", idea);
+              void doWrite(idea);
               setInput("");
             }}
             className="flex h-[38px] flex-none items-center gap-1.5 rounded-[10px] bg-acc px-3 text-[12.5px] font-semibold text-white transition-opacity hover:opacity-90 disabled:opacity-50"

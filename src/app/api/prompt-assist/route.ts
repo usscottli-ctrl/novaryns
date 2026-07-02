@@ -85,9 +85,12 @@ export async function POST(req: Request) {
       baseURL: baseURL || undefined,
     });
     const base = optimize ? await getOptimizeSystem() : await getAssistSystem();
-    // 分工具写法指令(prompt-config.ts 可审计):局改写改动指令、裂变写变化方向…
+    // 分功能页写法指令(prompt-config.ts 可审计)。必须声明最高优先级,
+    // 否则通用 system 的「写整图成品大片」会盖过功能页语义(如印花提取)。
     const hint = ASSIST_TOOL_HINTS[tool];
-    const sys = hint ? `${base}\n${hint}` : base;
+    const sys = hint
+      ? `${base}\n【当前功能页专用写法,优先级最高;与上文通用要求冲突时,一律以本条为准】${hint}`
+      : base;
     const ctx: string[] = [];
     if (category) ctx.push(`分类:${category}`);
     ctx.push(hasImage ? "已提供产品图(看图后据此写,做图生图/换背景)" : "无产品图(纯文字生成整图)");
