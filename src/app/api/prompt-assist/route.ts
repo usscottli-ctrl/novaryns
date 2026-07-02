@@ -84,18 +84,37 @@ export async function POST(req: Request) {
       apiKey,
       baseURL: baseURL || undefined,
     });
-    const base = optimize ? await getOptimizeSystem() : await getAssistSystem();
-    // 分功能页写法指令(prompt-config.ts 可审计)。必须声明最高优先级,
-    // 否则通用 system 的「写整图成品大片」会盖过功能页语义(如印花提取)。
+    // 分功能页写法指令(prompt-config.ts 可审计)。
+    // 关键:帮写(write)时,若有功能页专用指令,**不叠加通用「写整图大片」系统**
+    // ——否则那段又长又强势的通用系统会盖过功能页语义(印花提取被写成整图模特大片)。
+    // 直接以功能页要求为唯一系统。优化(optimize)只是润色,不冲突,追加即可。
     const hint = ASSIST_TOOL_HINTS[tool];
-    const sys = hint
-      ? `${base}\n【当前功能页专用写法,优先级最高;与上文通用要求冲突时,一律以本条为准】${hint}`
-      : base;
+    let sys: string;
+    if (optimize) {
+      const optBase = await getOptimizeSystem();
+      sys = hint
+        ? `${optBase}\n【当前功能页专用,优先级最高;与上文冲突时以本条为准】${hint}`
+        : optBase;
+    } else if (hint) {
+      sys =
+        "你是电商 AI 提示词助手。看懂用户上传的图片与补充想法后,严格只按下面这一条【功能页要求】来写。" +
+        "只输出要求的内容本身:中文、精炼、不解释、不加引号/前缀/Markdown。\n" +
+        `【功能页要求】${hint}`;
+    } else {
+      sys = await getAssistSystem();
+    }
     const ctx: string[] = [];
     if (category) ctx.push(`分类:${category}`);
-    ctx.push(hasImage ? "已提供产品图(看图后据此写,做图生图/换背景)" : "无产品图(纯文字生成整图)");
+    if (hasImage) {
+      ctx.push(hint ? "已提供图片(请看图后严格按功能页要求写)" : "已提供产品图(看图后据此写,做图生图/换背景)");
+    } else {
+      ctx.push(hint ? "未提供图片" : "无产品图(纯文字生成整图)");
+    }
     const label = optimize ? "待优化的提示词" : "用户的想法";
-    const text = `${ctx.join(";")}\n${label}:${idea || "(空,按产品/分类给通用电商主图提示词)"}`;
+    const emptyHint = hint
+      ? "(空,请看图按功能页要求给内容)"
+      : "(空,按产品/分类给通用电商主图提示词)";
+    const text = `${ctx.join(";")}\n${label}:${idea || emptyHint}`;
     const resp = await client.chat.completions.create({
       model,
       messages: [
