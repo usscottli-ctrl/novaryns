@@ -395,10 +395,6 @@ export function ToolWorkspace({
           </div>
 
           <div className="space-y-3 border-t border-c-line pt-4">
-            <div className="flex items-center justify-between text-[12.5px]">
-              <span className="text-c-text3">{L("预计消耗", "Est. cost")}</span>
-              <span className="font-semibold text-acc">{L(`${cost} 积分 / 张`, `${cost} credits / image`)}</span>
-            </div>
             <button
               type="button"
               onClick={run}
@@ -406,19 +402,15 @@ export function ToolWorkspace({
               className="flex w-full items-center justify-center gap-2 rounded-[11px] py-3 text-[14px] font-semibold text-white shadow-btn [background:var(--grad-acc)] transition-all hover:brightness-95 disabled:opacity-70"
             >
               {processing ? <Loader2 className="h-4 w-4 animate-spin" /> : null}
-              {processing ? L("处理中…", "Processing…") : action}
+              {processing
+                ? L("处理中…", "Processing…")
+                : ready && !user
+                  ? L(`登录并${action}`, `Sign in — ${action}`)
+                  : cost > 0
+                    ? L(`${action}(消耗 ${cost} 积分)`, `${action} (${cost} credits)`)
+                    : action}
             </button>
             {error && <p className="text-[12.5px] text-c-danger">{error}</p>}
-            {ready && !user && (
-              <button
-                type="button"
-                onClick={() => openAuth()}
-                className="text-[12.5px] font-medium text-acc hover:underline"
-              >
-                {L("登录后即可使用 →", "Sign in to use →")}
-              </button>
-            )}
-            <p className="text-center text-[11px] text-c-text4">{L(`💎 ${remaining} 积分剩余`, `💎 ${remaining} credits left`)}</p>
           </div>
         </div>
 

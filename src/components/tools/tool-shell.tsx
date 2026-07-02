@@ -84,7 +84,7 @@ export function ToolShell({
   /** 记录详情里那栏文字的标签(默认「提示词」;标题生成传「生成标题」)。 */
   promptLabel?: string;
 }) {
-  const { user, ready, remaining } = useAuth();
+  const { user, ready } = useAuth();
   const { openAuth } = useAuthModal();
   const { locale } = useI18n();
   const L = (z: string, e: string) => (locale === "en" ? e : z);
@@ -245,32 +245,22 @@ export function ToolShell({
           </div>
 
           <div className="space-y-3 border-t border-c-line pt-4">
-            <div className="flex items-center justify-between text-[12.5px]">
-              <span className="text-c-text3">{L("预计消耗", "Est. cost")}</span>
-              <span className="font-semibold text-acc">{L(`${cost} 积分`, `${cost} credits`)}</span>
-            </div>
             <button
               type="button"
-              onClick={onAction}
-              disabled={processing || disabled}
+              onClick={user ? onAction : () => openAuth()}
+              disabled={processing || (!!user && disabled)}
               className="flex w-full items-center justify-center gap-2 rounded-[11px] py-3 text-[14px] font-semibold text-white shadow-btn [background:var(--grad-acc)] transition-all hover:brightness-95 disabled:opacity-50"
             >
               {processing ? <Loader2 className="h-4 w-4 animate-spin" /> : null}
-              {processing ? L("处理中…", "Processing…") : actionLabel}
+              {processing
+                ? L("处理中…", "Processing…")
+                : ready && !user
+                  ? L(`登录并${actionLabel}`, `Sign in — ${actionLabel}`)
+                  : cost > 0
+                    ? L(`${actionLabel}(消耗 ${cost} 积分)`, `${actionLabel} (${cost} credits)`)
+                    : actionLabel}
             </button>
             {error && <p className="text-[12.5px] text-c-danger">{error}</p>}
-            {ready && !user && (
-              <button
-                type="button"
-                onClick={() => openAuth()}
-                className="text-[12.5px] font-medium text-acc hover:underline"
-              >
-                {L("登录后即可使用 →", "Sign in to use →")}
-              </button>
-            )}
-            <p className="text-center text-[11px] text-c-text4">
-              {L(`💎 ${remaining} 积分剩余`, `💎 ${remaining} credits left`)}
-            </p>
           </div>
         </div>
 
