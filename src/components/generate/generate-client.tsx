@@ -36,7 +36,7 @@ import { useAuth, type SessionUser } from "@/lib/auth-context";
 import { useAuthModal } from "@/lib/auth-modal-context";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
-import { PromptAssistPanel } from "@/components/generate/prompt-assist-panel";
+import { PromptAssistPopup } from "@/components/tools/prompt-assist-popup";
 import { SelectMenu } from "@/components/ui/select-menu";
 import { Media } from "@/components/media";
 import { GenLoader } from "@/components/gen-loader";
@@ -84,6 +84,7 @@ export function GenerateClient({
   const [bgMode, setBgMode] = useState(false);
   // AI 创作助手面板:开关 + 触发(点按钮时 nonce 变化 → 面板跑一次,结果进历史不覆盖)
   const [assistOpen, setAssistOpen] = useState(false);
+  const assistBtnRef = useRef<HTMLButtonElement>(null);
   const [assistRun, setAssistRun] = useState<{
     mode: "write" | "optimize";
     nonce: number;
@@ -663,6 +664,7 @@ export function GenerateClient({
                 <label className="text-sm font-medium">{t("gen.promptLabel")}</label>
                 <div className="flex items-center gap-1">
                   <button
+                    ref={assistBtnRef}
                     type="button"
                     onClick={() => openAssist("write")}
                     disabled={loading}
@@ -672,16 +674,19 @@ export function GenerateClient({
                     <Wand2 className="h-3.5 w-3.5" />
                     {t("gen.aiWrite")}
                   </button>
-                  <button
-                    type="button"
-                    onClick={() => openAssist("optimize")}
-                    disabled={loading}
-                    title={t("gen.optimizeHint")}
-                    className="flex items-center gap-1 rounded-md px-1.5 py-0.5 text-xs font-medium text-muted-foreground transition-opacity hover:text-foreground disabled:opacity-50"
-                  >
-                    <Sparkles className="h-3.5 w-3.5" />
-                    {t("gen.aiOptimize")}
-                  </button>
+                  {/* 智能优化:提示词有文字才显示(全站统一交互) */}
+                  {prompt.trim() && (
+                    <button
+                      type="button"
+                      onClick={() => openAssist("optimize")}
+                      disabled={loading}
+                      title={t("gen.optimizeHint")}
+                      className="flex items-center gap-1 rounded-md px-1.5 py-0.5 text-xs font-medium text-muted-foreground transition-opacity hover:text-foreground disabled:opacity-50"
+                    >
+                      <Sparkles className="h-3.5 w-3.5" />
+                      {t("gen.aiOptimize")}
+                    </button>
+                  )}
                 </div>
               </div>
               <Textarea
@@ -1228,9 +1233,11 @@ export function GenerateClient({
 
       </div>
 
-      <PromptAssistPanel
+      <PromptAssistPopup
         open={assistOpen}
         onClose={() => setAssistOpen(false)}
+        anchorRef={assistBtnRef}
+        tool="generate"
         category={category}
         currentPrompt={prompt}
         imageFile={files[0] ?? null}

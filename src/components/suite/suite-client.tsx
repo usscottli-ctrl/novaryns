@@ -16,7 +16,9 @@ import {
   ChevronRight,
   Clock,
   Check,
+  Wand2,
 } from "lucide-react";
+import { PromptAssistPopup } from "@/components/tools/prompt-assist-popup";
 import { authHeader } from "@/lib/supabase";
 import { useAuth } from "@/lib/auth-context";
 import { useAuthModal } from "@/lib/auth-modal-context";
@@ -58,7 +60,8 @@ type Shot = {
 export function SuiteClient() {
   const { user, ready, remaining, applyServerUser } = useAuth();
   const { openAuth } = useAuthModal();
-  const { t } = useI18n();
+  const { t, locale } = useI18n();
+  const L = (z: string, e: string) => (locale === "en" ? e : z);
   const fileRef = useRef<HTMLInputElement>(null);
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
@@ -71,6 +74,19 @@ export function SuiteClient() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [shots, setShots] = useState<Shot[]>([]);
+  // AI帮写/智能优化(贴按钮弹窗,全站统一;套图必传产品图)
+  const assistBtnRef = useRef<HTMLButtonElement>(null);
+  const [assistOpen, setAssistOpen] = useState(false);
+  const [assistRun, setAssistRun] = useState<{ mode: "write" | "optimize"; nonce: number } | null>(null);
+  function openAssist(mode: "write" | "optimize") {
+    if (!files[0]) {
+      setError(L("请先上传图片", "Upload an image first"));
+      return;
+    }
+    setError(null);
+    setAssistOpen(true);
+    setAssistRun({ mode, nonce: Date.now() });
+  }
   const [done, setDone] = useState(0);
   const [total, setTotal] = useState(13);
   const [finished, setFinished] = useState(false);
@@ -408,7 +424,41 @@ export function SuiteClient() {
           />
         </div>
         <div className="space-y-2">
-          <label className="text-sm font-medium">{t("suite.pointsLabel")}</label>
+          <div className="flex items-center justify-between">
+            <label className="text-sm font-medium">{t("suite.pointsLabel")}</label>
+            <div className="flex items-center gap-2">
+              {points.trim() && (
+                <button
+                  type="button"
+                  onClick={() => openAssist("optimize")}
+                  className="inline-flex items-center gap-1 rounded-md bg-acc-tint px-2 py-1 text-[11.5px] font-medium text-acc hover:brightness-95"
+                >
+                  <Sparkles className="h-3 w-3" />
+                  {L("智能优化", "Optimize")}
+                </button>
+              )}
+              <button
+                ref={assistBtnRef}
+                type="button"
+                onClick={() => openAssist("write")}
+                className="inline-flex items-center gap-1 text-[12px] font-medium text-acc hover:underline"
+              >
+                <Wand2 className="h-3.5 w-3.5" />
+                {L("AI帮写", "AI write")}
+              </button>
+            </div>
+          </div>
+          <PromptAssistPopup
+            open={assistOpen}
+            onClose={() => setAssistOpen(false)}
+            anchorRef={assistBtnRef}
+            tool="suite"
+            currentPrompt={points}
+            imageFile={files[0] ?? null}
+            imageThumb={previews[0] ?? ""}
+            run={assistRun}
+            onUse={(t2) => setPoints(t2)}
+          />
           <Textarea
             value={points}
             onChange={(e) => setPoints(e.target.value)}

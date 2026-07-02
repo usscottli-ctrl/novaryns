@@ -1,7 +1,11 @@
 import { NextResponse } from "next/server";
 import OpenAI from "openai";
-import { getOpenAISettings } from "@/lib/settings";
-import { getAssistSystem, getOptimizeSystem } from "@/lib/prompt-config";
+import { getAssistModelSettings } from "@/lib/settings";
+import {
+  getAssistSystem,
+  getOptimizeSystem,
+  ASSIST_TOOL_HINTS,
+} from "@/lib/prompt-config";
 import { emailFromToken, bearer } from "@/lib/supabase-admin";
 import { dbEnabled } from "@/lib/db";
 import { rateLimit } from "@/lib/rate-limit";
@@ -30,6 +34,7 @@ export async function POST(req: Request) {
   let idea = "";
   let category = "";
   let mode = "write"; // write=AI帮写(扩写) | optimize=智能优化(润色已写好的)
+  let tool = ""; // 功能页标识(suite/inpaint/…),据此附加分工具写法指令
   let imageDataUrl: string | null = null;
   const ct = req.headers.get("content-type") || "";
   try {
@@ -38,6 +43,7 @@ export async function POST(req: Request) {
       idea = (f.get("idea") ?? "").toString().slice(0, 600).trim();
       category = (f.get("category") ?? "").toString().slice(0, 40);
       mode = (f.get("mode") ?? "write").toString();
+      tool = (f.get("tool") ?? "").toString().slice(0, 40);
       const file = f.get("image");
       if (file instanceof File && file.size > 0 && file.size <= 8 * 1024 * 1024) {
         const buf = Buffer.from(await file.arrayBuffer());
@@ -48,10 +54,12 @@ export async function POST(req: Request) {
         idea?: string;
         category?: string;
         mode?: string;
+        tool?: string;
       };
       idea = (body.idea ?? "").toString().slice(0, 600).trim();
       category = (body.category ?? "").toString().slice(0, 40);
       mode = (body.mode ?? "write").toString();
+      tool = (body.tool ?? "").toString().slice(0, 40);
     }
   } catch {
     return NextResponse.json({ error: "请求格式不正确" }, { status: 400 });
@@ -62,7 +70,8 @@ export async function POST(req: Request) {
   }
   const hasImage = !!imageDataUrl;
 
-  const { apiKey } = await getOpenAISettings();
+  // 帮写模型三件套(后台「接口与模型」可配):模型/BaseURL/独立 Key(留空复用主 Key)
+  const { apiKey, model, baseURL } = await getAssistModelSettings();
   if (!apiKey) {
     const base = idea || "高级电商主图";
     return NextResponse.json({
@@ -73,16 +82,19 @@ export async function POST(req: Request) {
   try {
     const client = new OpenAI({
       apiKey,
-      baseURL: process.env.OPENAI_BASE_URL || undefined,
+      baseURL: baseURL || undefined,
     });
-    const sys = optimize ? await getOptimizeSystem() : await getAssistSystem();
+    const base = optimize ? await getOptimizeSystem() : await getAssistSystem();
+    // 分工具写法指令(prompt-config.ts 可审计):局改写改动指令、裂变写变化方向…
+    const hint = ASSIST_TOOL_HINTS[tool];
+    const sys = hint ? `${base}\n${hint}` : base;
     const ctx: string[] = [];
     if (category) ctx.push(`分类:${category}`);
     ctx.push(hasImage ? "已提供产品图(看图后据此写,做图生图/换背景)" : "无产品图(纯文字生成整图)");
     const label = optimize ? "待优化的提示词" : "用户的想法";
     const text = `${ctx.join(";")}\n${label}:${idea || "(空,按产品/分类给通用电商主图提示词)"}`;
     const resp = await client.chat.completions.create({
-      model: "gpt-4o-mini",
+      model,
       messages: [
         { role: "system", content: sys },
         {

@@ -1,7 +1,8 @@
 "use client";
 
 import * as React from "react";
-import { Stamp } from "lucide-react";
+import { Stamp, Wand2, Sparkles } from "lucide-react";
+import { PromptAssistPopup } from "@/components/tools/prompt-assist-popup";
 import { ToolWorkspace, ToolChips } from "@/components/tools/tool-workspace";
 import { SelectMenu } from "@/components/ui/select-menu";
 import { useAuth } from "@/lib/auth-context";
@@ -54,6 +55,24 @@ export function ExtractClient() {
   const [complete, setComplete] = React.useState("0");
   const [resolution, setResolution] = React.useState("1K");
   const [output, setOutput] = React.useState("透明底");
+  // 补充描述(选填,拼进提取提示词)+ AI帮写/智能优化(必传图)
+  const [extra, setExtra] = React.useState("");
+  // ToolWorkspace 持有输入图,经 onFileChange 镜像到这里给帮写弹窗看图用。
+  const [assistFile, setAssistFile] = React.useState<File | null>(null);
+  const [assistThumb, setAssistThumb] = React.useState("");
+  const [assistErr, setAssistErr] = React.useState<string | null>(null);
+  const assistBtnRef = React.useRef<HTMLButtonElement>(null);
+  const [assistOpen, setAssistOpen] = React.useState(false);
+  const [assistRun, setAssistRun] = React.useState<{ mode: "write" | "optimize"; nonce: number } | null>(null);
+  function openAssist(mode: "write" | "optimize") {
+    if (!assistFile) {
+      setAssistErr(L("请先上传图片", "Upload an image first"));
+      return;
+    }
+    setAssistErr(null);
+    setAssistOpen(true);
+    setAssistRun({ mode, nonce: Date.now() });
+  }
 
   const cost = resolutionCost(resolution);
 
@@ -158,6 +177,55 @@ export function ExtractClient() {
         onChange={setOutput}
         accent={ACCENT}
       />
+      {/* 补充描述(选填)+ AI帮写/智能优化 */}
+      <div>
+        <div className="mb-1.5 flex items-center justify-between">
+          <p className="text-[12.5px] font-medium text-c-text2">
+            {L("补充描述", "Extra prompt")}{" "}
+            <span className="text-[11px] font-normal text-c-text4">{L("(选填)", "(optional)")}</span>
+          </p>
+          <div className="flex items-center gap-2">
+            {extra.trim() && (
+              <button
+                type="button"
+                onClick={() => openAssist("optimize")}
+                className="inline-flex items-center gap-1 rounded-md bg-acc-tint px-2 py-1 text-[11.5px] font-medium text-acc hover:brightness-95"
+              >
+                <Sparkles className="h-3 w-3" />
+                {L("智能优化", "Optimize")}
+              </button>
+            )}
+            <button
+              ref={assistBtnRef}
+              type="button"
+              onClick={() => openAssist("write")}
+              className="inline-flex items-center gap-1 text-[12px] font-medium text-acc hover:underline"
+            >
+              <Wand2 className="h-3.5 w-3.5" />
+              {L("AI帮写", "AI write")}
+            </button>
+          </div>
+        </div>
+        <textarea
+          value={extra}
+          onChange={(e) => setExtra(e.target.value)}
+          rows={2}
+          placeholder={L("例如:只要中间的花卉图案,保留原配色", "e.g. only the floral motif, keep original colours")}
+          className="w-full resize-none rounded-field border border-c-border bg-c-card px-3 py-2 text-[13px] leading-relaxed text-c-text focus:border-acc focus:outline-none"
+        />
+        {assistErr && <p className="mt-1 text-[12px] text-c-danger">{assistErr}</p>}
+        <PromptAssistPopup
+          open={assistOpen}
+          onClose={() => setAssistOpen(false)}
+          anchorRef={assistBtnRef}
+          tool="extract"
+          currentPrompt={extra}
+          imageFile={assistFile}
+          imageThumb={assistThumb}
+          run={assistRun}
+          onUse={(t) => setExtra(t)}
+        />
+      </div>
     </>
   );
 
@@ -177,9 +245,14 @@ export function ExtractClient() {
       action={L("提取印花", "Extract print")}
       checker
       controls={controls}
+      onFileChange={(f, url) => {
+        setAssistFile(f);
+        setAssistThumb(url);
+      }}
       onProcess={async (file) => {
         const fd = new FormData();
         fd.append("image", file);
+        if (extra.trim()) fd.append("prompt", extra.trim());
         fd.append("bg", output === "白底" ? "white" : "transparent");
         fd.append("mode", mode); // basic | advanced
         fd.append("complete", complete); // 0 | 1
