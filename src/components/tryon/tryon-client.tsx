@@ -22,7 +22,7 @@ import { useAuthModal } from "@/lib/auth-modal-context";
 import { useI18n } from "@/lib/i18n/locale-context";
 import { authHeader } from "@/lib/supabase";
 import { downloadImage } from "@/lib/download";
-import { POINTS_PER_IMAGE } from "@/lib/mock-data";
+import { TOOL_COST } from "@/lib/mock-data";
 import {
   TRYON_MODELS,
   TRYON_SCENES,
@@ -84,7 +84,7 @@ export function TryonClient() {
   const allModels = customModel ? [customModel, ...models] : models;
   const model = allModels.find((x) => x.id === modelId);
   const scene = scenes.find((x) => x.id === sceneId);
-  const cost = POINTS_PER_IMAGE;
+  const cost = TOOL_COST.tryon;
 
   useEffect(() => {
     let on = true;

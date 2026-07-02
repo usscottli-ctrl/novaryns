@@ -14,7 +14,7 @@ import { rateLimit } from "@/lib/rate-limit";
 import { bearer, emailFromToken } from "@/lib/supabase-admin";
 import { storageEnabled, uploadImage } from "@/lib/storage";
 import { getOpenAISettings, getCutoutSettings } from "@/lib/settings";
-import { POINTS_PER_IMAGE } from "@/lib/mock-data";
+import { TOOL_COST } from "@/lib/mock-data";
 import { safeError } from "@/lib/api-error";
 
 // ---------------------------------------------------------------------------
@@ -28,7 +28,7 @@ import { safeError } from "@/lib/api-error";
 export const runtime = "nodejs";
 export const maxDuration = 200;
 
-const GARMENT_COST = POINTS_PER_IMAGE;
+const GARMENT_COST = TOOL_COST.garment;
 
 const BASE_PROMPT =
   "Extract ONLY the main garment / clothing item from this image (the top, dress, jacket, coat, pants, skirt or similar). Remove the model / person, any other items and the background completely. Lay the garment out flat, front-facing, neatly arranged like a clean e-commerce flat-lay product photo, on a fully transparent background. Faithfully preserve the garment's true shape, cut, colour, material, texture, prints, buttons and details. No body, no mannequin, no shadow, no border.";

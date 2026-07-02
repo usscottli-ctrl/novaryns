@@ -14,19 +14,24 @@ import { rateLimit } from "@/lib/rate-limit";
 import { bearer, emailFromToken } from "@/lib/supabase-admin";
 import { storageEnabled, uploadImage } from "@/lib/storage";
 import { getOpenAISettings } from "@/lib/settings";
-import { POINTS_PER_IMAGE } from "@/lib/mock-data";
+import { TOOL_COST } from "@/lib/mock-data";
 import { safeError } from "@/lib/api-error";
 
 // ---------------------------------------------------------------------------
 // 3D 服装图:把用户上传的服装照(穿在人身上/平铺均可)渲染成干净的「3D 幽灵模特」
 // 电商产品图 —— 像被隐形模特穿着、有立体体积感与自然褶皱,去掉真人、干净背景。
-// gpt-image-2 图生图(非透明)。落库 category="dress3d"。计费同生图(6)。
+// gpt-image-2 图生图(非透明)。落库 category="dress3d"。计费同 3D 档(16)。
+//
+// 异步任务模式:3D 生成常 >100s,而 image.novaryns.com 挂在 Cloudflare 免费版
+// (100s 硬超时)后面,同步返回会被掐断成 HTML 524、前端 JSON.parse 崩在 "<"。
+// 故 POST 立即返回 jobId(秒回,不撞超时),后台跑生成,前端轮询 GET ?job=<id>。
+// 单 pm2 fork 实例、内存 JOBS,与 generate-image 同套路。
 // ---------------------------------------------------------------------------
 
 export const runtime = "nodejs";
-export const maxDuration = 200;
+export const maxDuration = 300;
 
-const COST = POINTS_PER_IMAGE;
+const COST = TOOL_COST.garment3d;
 
 const CATEGORIES: Record<string, string> = {
   通用: "garment",
@@ -87,40 +92,31 @@ async function toPng(buf: Buffer): Promise<Buffer> {
   }
 }
 
-export async function POST(request: Request) {
-  let input: Input | null;
+// --- 异步任务存储 ---------------------------------------------------------
+type Job = {
+  status: "pending" | "done" | "error";
+  ts: number;
+  id?: string;
+  url?: string;
+  creditsUsed?: number;
+  user?: Awaited<ReturnType<typeof getUser>>;
+  error?: string;
+};
+const JOBS = new Map<string, Job>();
+function gcJobs() {
+  const cutoff = Date.now() - 20 * 60 * 1000;
+  JOBS.forEach((v, k) => {
+    if (v.ts < cutoff) JOBS.delete(k);
+  });
+}
+
+async function runJob(
+  jobId: string,
+  input: Input,
+  cost: number,
+  useDb: boolean
+) {
   try {
-    input = await parseInput(request);
-  } catch {
-    return NextResponse.json({ error: "请求格式不正确" }, { status: 400 });
-  }
-  if (!input) return NextResponse.json({ error: "缺少服装图片" }, { status: 400 });
-  if (input.bytes.length > 12 * 1024 * 1024)
-    return NextResponse.json({ error: "图片过大(请 < 12MB)" }, { status: 400 });
-
-  try {
-    const ip = clientIp(request);
-    if (!rateLimit(`garment3d:${ip}`, 40, 600_000))
-      return NextResponse.json({ error: "请求过于频繁,请稍后再试" }, { status: 429 });
-
-    if (dbEnabled) {
-      const tokenEmail = await emailFromToken(bearer(request));
-      if (!tokenEmail)
-        return NextResponse.json({ error: "请先登录后再操作" }, { status: 401 });
-      input.email = tokenEmail;
-    }
-    const useDb = dbEnabled && input.email.length > 0;
-    const cost = COST;
-
-    if (dbEnabled && (await isBanned(input.email, ip)))
-      return NextResponse.json({ error: "账号或 IP 已被封禁" }, { status: 403 });
-
-    if (useDb && cost > 0) {
-      const ok = await reserveCredits(input.email, cost);
-      if (!ok)
-        return NextResponse.json({ error: "积分不足,请充值后重试" }, { status: 402 });
-    }
-
     let out: Buffer;
     try {
       const { apiKey, model: genModel } = await getOpenAISettings();
@@ -128,7 +124,7 @@ export async function POST(request: Request) {
       const client = new OpenAI({
         apiKey,
         baseURL: process.env.OPENAI_BASE_URL || undefined,
-        timeout: 200_000,
+        timeout: 280_000,
         maxRetries: 0,
       });
       const png = await toPng(input.bytes);
@@ -148,8 +144,7 @@ export async function POST(request: Request) {
       if (!b64) throw new Error("未返回 3D 图");
       out = Buffer.from(b64, "base64");
     } catch (e) {
-      if (useDb && cost > 0)
-        await refundCredits(input.email, cost).catch(() => {});
+      if (useDb && cost > 0) await refundCredits(input.email, cost).catch(() => {});
       throw e;
     }
 
@@ -213,11 +208,87 @@ export async function POST(request: Request) {
       user = await getUser(input.email).catch(() => null);
     }
 
-    return NextResponse.json({ ok: true, id, url, creditsUsed: useDb ? cost : 0, user });
+    JOBS.set(jobId, {
+      status: "done",
+      ts: Date.now(),
+      id,
+      url,
+      creditsUsed: useDb ? cost : 0,
+      user,
+    });
+  } catch (e) {
+    console.error("[garment3d] job failed:", e instanceof Error ? e.message : e);
+    JOBS.set(jobId, {
+      status: "error",
+      ts: Date.now(),
+      error: safeError(e, "3D 服装图服务暂时不可用,请稍后重试"),
+    });
+  }
+}
+
+export async function POST(request: Request) {
+  let input: Input | null;
+  try {
+    input = await parseInput(request);
+  } catch {
+    return NextResponse.json({ error: "请求格式不正确" }, { status: 400 });
+  }
+  if (!input) return NextResponse.json({ error: "缺少服装图片" }, { status: 400 });
+  if (input.bytes.length > 12 * 1024 * 1024)
+    return NextResponse.json({ error: "图片过大(请 < 12MB)" }, { status: 400 });
+
+  try {
+    const ip = clientIp(request);
+    if (!rateLimit(`garment3d:${ip}`, 40, 600_000))
+      return NextResponse.json({ error: "请求过于频繁,请稍后再试" }, { status: 429 });
+
+    if (dbEnabled) {
+      const tokenEmail = await emailFromToken(bearer(request));
+      if (!tokenEmail)
+        return NextResponse.json({ error: "请先登录后再操作" }, { status: 401 });
+      input.email = tokenEmail;
+    }
+    const useDb = dbEnabled && input.email.length > 0;
+    const cost = COST;
+
+    if (dbEnabled && (await isBanned(input.email, ip)))
+      return NextResponse.json({ error: "账号或 IP 已被封禁" }, { status: 403 });
+
+    if (useDb && cost > 0) {
+      const ok = await reserveCredits(input.email, cost);
+      if (!ok)
+        return NextResponse.json({ error: "积分不足,请充值后重试" }, { status: 402 });
+    }
+
+    // 立即建任务并秒回 jobId,生成在后台跑(避免 Cloudflare 100s 超时掐断)。
+    gcJobs();
+    const jobId = `d3dj-${Date.now()}-${Math.floor(Math.random() * 1e6)}`;
+    JOBS.set(jobId, { status: "pending", ts: Date.now() });
+    void runJob(jobId, input, cost, useDb);
+    return NextResponse.json({ jobId });
   } catch (e) {
     return NextResponse.json(
       { error: safeError(e, "3D 服装图服务暂时不可用,请稍后重试") },
       { status: 500 }
     );
   }
+}
+
+export async function GET(request: Request) {
+  const jobId = new URL(request.url).searchParams.get("job");
+  if (!jobId) return NextResponse.json({ error: "缺少 job" }, { status: 400 });
+  const job = JOBS.get(jobId);
+  if (!job) return NextResponse.json({ status: "error", error: "任务不存在或已过期" });
+  if (job.status === "done")
+    return NextResponse.json({
+      status: "done",
+      ok: true,
+      id: job.id,
+      url: job.url,
+      creditsUsed: job.creditsUsed ?? 0,
+      user: job.user ?? null,
+    });
+  if (job.status === "error")
+    return NextResponse.json({ status: "error", error: job.error });
+  return NextResponse.json({ status: "pending" });
 }

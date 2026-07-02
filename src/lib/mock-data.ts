@@ -136,6 +136,26 @@ export const POINTS_PER_IMAGE = 6;
 // 需累计充值 ≥999 元解锁(见 db.ts HIGH_QUALITY_MIN_PAID_CENTS / SessionUser.canHigh)。
 export const HIGH_QUALITY_COST = 18;
 
+// ── 各工具单次积分「唯一价格表」──────────────────────────────────────────
+// 铁律:前端展示的 cost 与后端 route 实扣**都从这里取**,永不各写各的(历史上抠图
+// 显示4实扣1、头像显示4实扣6 就是两边硬编码飘了)。改价只改这一处。
+// 定价依据:抠图/变清晰走 Replicate 成本极低=1;gpt-image 编辑一次≈一张生图=6;
+// 3D 生成成本最高=16;局改/印花提取按分辨率走 resolutionCost,不在此表。
+export const TOOL_COST = {
+  cutout: 1, // Replicate BiRefNet
+  upscale: 1, // Replicate Real-ESRGAN
+  garment: 6, // gpt-image 编辑(服装提取)
+  garment3d: 16, // 3D 幽灵人台,成本最高
+  avatar: 6, // gpt-image 编辑(头像/模特)
+  dewrinkle: 6, // gpt-image 编辑(去皱)
+  dewatermark: 6, // gpt-image 编辑(去水印)
+  style: 6, // gpt-image 编辑(风格化)
+  tryon: 6, // gpt-image 编辑(试穿)
+  ipcheck: 1, // 侵权检测(纯查询)
+  printfile: 0, // 印刷文件导出(免费)
+} as const;
+export type ToolKey = keyof typeof TOOL_COST;
+
 // [已弃用] 旧的 build 期充值开关。前端门控已改成 SSR 注入的 PaymentProvider
 // (见 @/lib/payment-context + getPaymentStatus),后台 DB 开关 + env 兜底实时生效,
 // 两站一套代码。此常量保留仅为兼容,任何组件都不应再用它做门控。

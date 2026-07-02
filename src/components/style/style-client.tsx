@@ -3,6 +3,7 @@
 import * as React from "react";
 import { Palette } from "lucide-react";
 import { ToolWorkspace, ToolChips } from "@/components/tools/tool-workspace";
+import { TOOL_COST } from "@/lib/mock-data";
 import { useAuth } from "@/lib/auth-context";
 import { useI18n } from "@/lib/i18n/locale-context";
 import { authHeader } from "@/lib/supabase";
@@ -84,7 +85,7 @@ export function StyleClient() {
       accent={ACCENT}
       category="style"
       regenLabel={L("以此图再换风格", "Restyle from this image")}
-      cost={6}
+      cost={TOOL_COST.style}
       action={L("转换风格", "Apply style")}
       controls={controls}
       onProcess={async (file) => {

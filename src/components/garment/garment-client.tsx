@@ -3,6 +3,7 @@
 import * as React from "react";
 import { Shirt } from "lucide-react";
 import { ToolWorkspace, ToolChips } from "@/components/tools/tool-workspace";
+import { TOOL_COST } from "@/lib/mock-data";
 import { useAuth } from "@/lib/auth-context";
 import { useI18n } from "@/lib/i18n/locale-context";
 import { authHeader } from "@/lib/supabase";
@@ -50,7 +51,7 @@ export function GarmentClient() {
       accent={ACCENT}
       category="garment"
       regenLabel={L("以此图再提取", "Extract from this image")}
-      cost={8}
+      cost={TOOL_COST.garment}
       action={L("提取平铺图", "Extract flat lay")}
       controls={controls}
       onProcess={async (file) => {

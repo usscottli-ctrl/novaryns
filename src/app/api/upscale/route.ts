@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { TOOL_COST } from "@/lib/mock-data";
 import {
   dbEnabled,
   reserveCredits,
@@ -25,7 +26,7 @@ import { safeError } from "@/lib/api-error";
 export const runtime = "nodejs";
 export const maxDuration = 120; // Replicate 冷启动可能 1-2 分钟
 
-const UPSCALE_COST = 1; // 统一 1 积分/张(2x/4x 同价,Real-ESRGAN 成本极低)
+const UPSCALE_COST = TOOL_COST.upscale;
 const MODEL = process.env.REPLICATE_UPSCALE_MODEL || "nightmareai/real-esrgan";
 
 type UpscaleInput = {
