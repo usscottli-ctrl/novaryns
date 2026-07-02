@@ -14,7 +14,9 @@ import {
   Users,
   ZoomIn,
   RefreshCw,
+  Sparkles,
 } from "lucide-react";
+import { PromptAssistPopup } from "@/components/tools/prompt-assist-popup";
 import { useAuth, type SessionUser } from "@/lib/auth-context";
 import { useAuthModal } from "@/lib/auth-modal-context";
 import { useI18n } from "@/lib/i18n/locale-context";
@@ -64,7 +66,10 @@ export function TryonClient() {
   const [envFilter, setEnvFilter] = useState<SceneEnv | "all">("all");
   const [groupFilter, setGroupFilter] = useState<ModelGroup | "all">("all");
   const [genderFilter, setGenderFilter] = useState<Gender | "all">("all");
-  const [aiwriting, setAiwriting] = useState(false);
+  // AI帮写/智能优化(贴按钮弹窗,全站统一;看图写,必传服装图)
+  const assistBtnRef = useRef<HTMLButtonElement>(null);
+  const [assistOpen, setAssistOpen] = useState(false);
+  const [assistRun, setAssistRun] = useState<{ mode: "write" | "optimize"; nonce: number } | null>(null);
   const [processing, setProcessing] = useState(false);
   const [result, setResult] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -163,32 +168,13 @@ export function TryonClient() {
     }
   }
 
-  async function aiWrite() {
+  function openAssist(mode: "write" | "optimize") {
     if (!user) return openAuth();
     if (!top && !bottom)
-      return setError(L("请先上传上装或下装", "Upload a garment first"));
-    setAiwriting(true);
+      return setError(L("请先上传图片", "Upload an image first"));
     setError(null);
-    try {
-      const fd = new FormData();
-      fd.append("garment", (top ?? bottom)!.file);
-      if (modelId) fd.append("modelId", modelId);
-      if (sceneId) fd.append("sceneId", sceneId);
-      if (prompt.trim()) fd.append("idea", prompt.trim());
-      const res = await fetch("/api/tryon/aiwrite", {
-        method: "POST",
-        headers: await authHeader(),
-        body: fd,
-      });
-      const data = await res.json();
-      if (!res.ok || !data.prompt)
-        throw new Error(data.error ?? L("帮写失败", "Failed"));
-      setPrompt(data.prompt);
-    } catch (e) {
-      setError(e instanceof Error ? e.message : L("帮写失败", "Failed"));
-    } finally {
-      setAiwriting(false);
-    }
+    setAssistOpen(true);
+    setAssistRun({ mode, nonce: Date.now() });
   }
 
   async function generate() {
@@ -441,20 +427,39 @@ export function TryonClient() {
                     {L("(可留空)", "(optional)")}
                   </span>
                 </p>
-                <button
-                  type="button"
-                  onClick={aiWrite}
-                  disabled={aiwriting || (!top && !bottom)}
-                  className="flex items-center gap-1 text-[12px] font-medium text-acc transition-opacity hover:opacity-80 disabled:opacity-40"
-                >
-                  {aiwriting ? (
-                    <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                  ) : (
-                    <Wand2 className="h-3.5 w-3.5" />
+                <div className="flex items-center gap-2">
+                  {prompt.trim() && (
+                    <button
+                      type="button"
+                      onClick={() => openAssist("optimize")}
+                      className="inline-flex items-center gap-1 rounded-md bg-acc-tint px-2 py-1 text-[11.5px] font-medium text-acc hover:brightness-95"
+                    >
+                      <Sparkles className="h-3 w-3" />
+                      {L("智能优化", "Optimize")}
+                    </button>
                   )}
-                  {L("AI 帮写", "AI write")}
-                </button>
+                  <button
+                    ref={assistBtnRef}
+                    type="button"
+                    onClick={() => openAssist("write")}
+                    className="flex items-center gap-1 text-[12px] font-medium text-acc transition-opacity hover:opacity-80"
+                  >
+                    <Wand2 className="h-3.5 w-3.5" />
+                    {L("AI帮写", "AI write")}
+                  </button>
+                </div>
               </div>
+              <PromptAssistPopup
+                open={assistOpen}
+                onClose={() => setAssistOpen(false)}
+                anchorRef={assistBtnRef}
+                tool="tryon"
+                currentPrompt={prompt}
+                imageFile={(top ?? bottom)?.file ?? null}
+                imageThumb={(top ?? bottom)?.url ?? ""}
+                run={assistRun}
+                onUse={(t) => setPrompt(t)}
+              />
               <textarea
                 value={prompt}
                 onChange={(e) => setPrompt(e.target.value)}

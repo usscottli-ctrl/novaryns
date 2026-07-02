@@ -108,6 +108,7 @@ export function ToolWorkspace({
   accept = "image/png,image/jpeg,image/webp",
   uploadHint = "支持 JPG / PNG,最大 20MB",
   regenLabel = "以此图重新生成",
+  onFileChange,
 }: {
   name: string;
   desc: string;
@@ -123,6 +124,8 @@ export function ToolWorkspace({
   accept?: string;
   uploadHint?: string;
   regenLabel?: string;
+  /** 当前输入图变化时通知(AI帮写等需要拿到图的场景);null=清空 */
+  onFileChange?: (file: File | null, previewUrl: string) => void;
 }) {
   const { user, ready, remaining, consumeCredits, applyServerUser } = useAuth();
   const { openAuth } = useAuthModal();
@@ -209,8 +212,10 @@ export function ToolWorkspace({
     setResult("");
     setShown(null); // 上传新图 → 退出历史查看
     if (preview) URL.revokeObjectURL(preview);
+    const url = URL.createObjectURL(f);
     setFile(f);
-    setPreview(URL.createObjectURL(f));
+    setPreview(url);
+    onFileChange?.(f, url);
   }
 
   async function run() {
@@ -252,8 +257,10 @@ export function ToolWorkspace({
             ).blob();
       const f = new File([blob], "input.png", { type: blob.type || "image/png" });
       if (preview) URL.revokeObjectURL(preview);
+      const url2 = URL.createObjectURL(f);
       setFile(f);
-      setPreview(URL.createObjectURL(f));
+      setPreview(url2);
+      onFileChange?.(f, url2);
       setResult("");
       setShown(null);
       setError(null);

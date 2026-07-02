@@ -167,6 +167,11 @@ type View = {
   // 品牌与白标(Pro)
   brandName?: string;
   brandLogo?: string;
+  // AI 帮写 / 文案模型
+  assistModel?: string;
+  assistBaseUrl?: string;
+  assistKeyMasked?: string;
+  assistKeyReady?: boolean;
 };
 
 type UserActionPayload = {
@@ -329,6 +334,10 @@ export function AdminSettings() {
   // ── 品牌与白标(Pro)──
   const [brandName, setBrandName] = useState("");
   const [brandLogo, setBrandLogo] = useState("");
+  // ── AI 帮写 / 文案模型 ──
+  const [assistModel, setAssistModel] = useState("");
+  const [assistBaseUrl, setAssistBaseUrl] = useState("");
+  const [assistKeyInput, setAssistKeyInput] = useState("");
   const [keyInput, setKeyInput] = useState("");
   const [busy, setBusy] = useState(false);
   const [msg, setMsg] = useState<{ ok: boolean; text: string } | null>(null);
@@ -516,6 +525,8 @@ export function AdminSettings() {
     setWxpayCertSerial(v.wxpayCertSerial ?? "");
     setBrandName(v.brandName ?? "");
     setBrandLogo(v.brandLogo ?? "");
+    setAssistModel(v.assistModel ?? "");
+    setAssistBaseUrl(v.assistBaseUrl ?? "");
     setIsAdmin(true);
     void loadUsers(tok);
   }, [loadUsers]);
@@ -1501,6 +1512,122 @@ export function AdminSettings() {
               前往 Replicate 充值
               <ExternalLink className="h-3 w-3" />
             </a>
+          </div>
+
+          {/* AI 帮写 / 文案模型(prompt-assist 等文本 LLM):模型 / BaseURL / 独立 Key */}
+          <div className="space-y-3 rounded-2xl border border-border bg-card p-6 card-shadow">
+            <div className="flex items-center gap-2 text-sm font-semibold">
+              <MessageSquare className="h-4 w-4 text-primary" />
+              AI 帮写 / 文案模型
+            </div>
+            <p className="text-xs text-muted-foreground">
+              「AI帮写 / 智能优化 / 标题 / 套图规划」等文字能力用的文本模型。任意 OpenAI
+              兼容接口均可(OpenAI / DeepSeek / 中转);Key 留空则复用上方 OpenAI Key。
+            </p>
+            <label className="block text-[11px] font-medium text-muted-foreground">
+              模型名(留空 = gpt-4o-mini)
+            </label>
+            <Input
+              value={assistModel}
+              onChange={(e) => setAssistModel(e.target.value)}
+              placeholder="gpt-4o-mini"
+            />
+            <div className="flex flex-wrap gap-2">
+              {["gpt-4o-mini", "gpt-4o", "deepseek-chat"].map((m) => (
+                <button
+                  key={m}
+                  onClick={() => setAssistModel(m)}
+                  className={`rounded-full border px-3 py-1 text-xs transition-colors ${
+                    assistModel === m
+                      ? "border-primary bg-primary/10 text-primary"
+                      : "border-border text-muted-foreground hover:bg-secondary"
+                  }`}
+                >
+                  {m}
+                </button>
+              ))}
+            </div>
+            <label className="block text-[11px] font-medium text-muted-foreground">
+              Base URL(留空 = 跟随 OpenAI;DeepSeek 填 https://api.deepseek.com)
+            </label>
+            <Input
+              value={assistBaseUrl}
+              onChange={(e) => setAssistBaseUrl(e.target.value)}
+              placeholder="https://api.deepseek.com"
+            />
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() =>
+                void postSettings(
+                  { assistModel, assistBaseUrl },
+                  "帮写模型已保存"
+                )
+              }
+              disabled={busy}
+            >
+              {busy && <Loader2 className="h-4 w-4 animate-spin" />}
+              保存帮写模型
+            </Button>
+
+            {/* 独立 API Key(加密,选填) */}
+            <div className="mt-1 flex items-center justify-between border-t border-border pt-3 text-xs font-medium">
+              <span className="flex items-center gap-1.5">
+                <KeyRound className="h-3.5 w-3.5 text-primary" />
+                独立 API Key(选填)
+              </span>
+              <span className="text-muted-foreground">
+                当前:{view?.assistKeyReady ? view?.assistKeyMasked || "••••" : "未设置(复用 OpenAI Key)"}
+              </span>
+            </div>
+            <Input
+              type="password"
+              value={assistKeyInput}
+              onChange={(e) => setAssistKeyInput(e.target.value)}
+              placeholder="粘贴该接口的 API Key(提交前浏览器内 RSA 加密)"
+            />
+            <div className="flex items-center justify-between gap-2">
+              <p className="flex items-center gap-1.5 text-[11px] text-muted-foreground">
+                <ShieldCheck className="h-3.5 w-3.5 text-emerald-600" />
+                RSA 加密传输 + AES 加密存储,永不明文、不回显
+              </p>
+              <Button
+                variant="gradient"
+                size="sm"
+                onClick={() =>
+                  void saveEncrypted(
+                    "encryptedAssistKey",
+                    assistKeyInput,
+                    "帮写模型 Key 已加密更新",
+                    () => setAssistKeyInput("")
+                  )
+                }
+                disabled={busy || !assistKeyInput.trim()}
+              >
+                {busy && <Loader2 className="h-4 w-4 animate-spin" />}
+                加密更新 Key
+              </Button>
+            </div>
+            <div className="flex flex-wrap gap-2">
+              <a
+                href="https://platform.openai.com/settings/organization/billing/overview"
+                target="_blank"
+                rel="noreferrer"
+                className="inline-flex w-fit items-center gap-1.5 rounded-lg border border-border px-3 py-1.5 text-xs font-medium text-muted-foreground transition-colors hover:border-primary hover:text-primary"
+              >
+                OpenAI 注册 / 充值
+                <ExternalLink className="h-3 w-3" />
+              </a>
+              <a
+                href="https://platform.deepseek.com"
+                target="_blank"
+                rel="noreferrer"
+                className="inline-flex w-fit items-center gap-1.5 rounded-lg border border-border px-3 py-1.5 text-xs font-medium text-muted-foreground transition-colors hover:border-primary hover:text-primary"
+              >
+                DeepSeek 注册 / 充值
+                <ExternalLink className="h-3 w-3" />
+              </a>
+            </div>
           </div>
         </div>
       </div>

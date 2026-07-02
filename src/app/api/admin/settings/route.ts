@@ -20,6 +20,8 @@ import {
   saveWxpayCertSerial,
   saveWxpayAppid,
   saveBrand,
+  saveAssistConfig,
+  saveAssistKey,
 } from "@/lib/settings";
 import { isAdminToken, bearer } from "@/lib/supabase-admin";
 
@@ -71,6 +73,10 @@ export async function POST(req: Request) {
     // 品牌与白标(Pro,明文;空串=清除覆盖→回退 env 默认)
     brandName?: string;
     brandLogo?: string;
+    // AI 帮写 / 文案模型(明文;空串=清除→回退默认 gpt-4o-mini / 跟随 OpenAI)
+    assistModel?: string;
+    assistBaseUrl?: string;
+    encryptedAssistKey?: string;
     // 加密类(浏览器 RSA 密文)
     encryptedWechatSecret?: string;
     encryptedAlipayPrivateKey?: string;
@@ -217,6 +223,27 @@ export async function POST(req: Request) {
     // 注意:用 typeof 判断「字段是否出现」,空串也要写入(=清除),不能用真值跳过。
     if (typeof body.brandName === "string" || typeof body.brandLogo === "string") {
       await saveBrand({ name: body.brandName, logo: body.brandLogo });
+    }
+
+    // ---- AI 帮写 / 文案模型:明文 模型名/BaseURL(空串=清除→回退默认);Key 加密 ----
+    if (
+      typeof body.assistModel === "string" ||
+      typeof body.assistBaseUrl === "string"
+    ) {
+      await saveAssistConfig({
+        model: body.assistModel,
+        baseUrl: body.assistBaseUrl,
+      });
+    }
+    if (typeof body.encryptedAssistKey === "string" && body.encryptedAssistKey.trim()) {
+      const plain = await decryptField(body.encryptedAssistKey);
+      if (!plain) {
+        return NextResponse.json(
+          { error: "解密后的帮写模型 Key 无效" },
+          { status: 400 }
+        );
+      }
+      await saveAssistKey(plain);
     }
     return NextResponse.json(await getAdminView());
   } catch (e) {

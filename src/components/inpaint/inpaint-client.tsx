@@ -10,7 +10,10 @@ import {
   ArrowRight,
   RefreshCw,
   X,
+  Wand2,
+  Sparkles,
 } from "lucide-react";
+import { PromptAssistPopup } from "@/components/tools/prompt-assist-popup";
 import { useAuth } from "@/lib/auth-context";
 import { useAuthModal } from "@/lib/auth-modal-context";
 import { useI18n } from "@/lib/i18n/locale-context";
@@ -50,6 +53,20 @@ export function InpaintClient() {
   const [error, setError] = useState<string | null>(null);
 
   const cost = resolutionCost(resolution);
+
+  // AI帮写/智能优化(贴按钮弹窗,全站统一)
+  const assistBtnRef = useRef<HTMLButtonElement>(null);
+  const [assistOpen, setAssistOpen] = useState(false);
+  const [assistRun, setAssistRun] = useState<{ mode: "write" | "optimize"; nonce: number } | null>(null);
+  function openAssist(mode: "write" | "optimize") {
+    if (!file) {
+      setError(L("请先上传图片", "Upload an image first"));
+      return;
+    }
+    setError(null);
+    setAssistOpen(true);
+    setAssistRun({ mode, nonce: Date.now() });
+  }
 
   useEffect(() => {
     return () => {
@@ -373,6 +390,38 @@ export function InpaintClient() {
               <span className="text-c-danger">* </span>
               {L("改成什么", "Change to")}
             </p>
+            <div className="-mt-1 mb-1.5 flex items-center justify-end gap-2">
+              {prompt.trim() && (
+                <button
+                  type="button"
+                  onClick={() => openAssist("optimize")}
+                  className="inline-flex items-center gap-1 rounded-md bg-acc-tint px-2 py-1 text-[11.5px] font-medium text-acc hover:brightness-95"
+                >
+                  <Sparkles className="h-3 w-3" />
+                  {L("智能优化", "Optimize")}
+                </button>
+              )}
+              <button
+                ref={assistBtnRef}
+                type="button"
+                onClick={() => openAssist("write")}
+                className="inline-flex items-center gap-1 text-[12px] font-medium text-acc hover:underline"
+              >
+                <Wand2 className="h-3.5 w-3.5" />
+                {L("AI帮写", "AI write")}
+              </button>
+            </div>
+            <PromptAssistPopup
+              open={assistOpen}
+              onClose={() => setAssistOpen(false)}
+              anchorRef={assistBtnRef}
+              tool="inpaint"
+              currentPrompt={prompt}
+              imageFile={file}
+              imageThumb={imgUrl}
+              run={assistRun}
+              onUse={(t) => setPrompt(t)}
+            />
             <textarea
               value={prompt}
               onChange={(e) => setPrompt(e.target.value)}
