@@ -573,7 +573,7 @@ export function GenerateClient({
         </div>
         <div
           className={cn(
-            "grid gap-5 lg:grid-cols-[320px_1fr]",
+            "grid gap-5 lg:h-[calc(100vh-150px)] lg:min-h-[560px] lg:grid-cols-[320px_1fr]",
             historyOpen
               ? "xl:grid-cols-[320px_1fr_280px]"
               : "xl:grid-cols-[320px_1fr_46px]"
@@ -582,7 +582,7 @@ export function GenerateClient({
           {/* Control panel — Rodin 紧凑式(下拉参数) */}
           <div
             className={cn(
-              "h-fit space-y-5 rounded-card border border-c-border bg-c-card p-5 shadow-card",
+              "h-fit space-y-5 rounded-card border border-c-border bg-c-card p-5 shadow-card nv-panel-scroll lg:h-full lg:min-h-0 lg:overflow-y-auto",
               mobileTab === "result" && "hidden lg:block"
             )}
           >
@@ -856,7 +856,7 @@ export function GenerateClient({
           {/* Result canvas */}
           <div
             className={cn(
-              "min-h-[520px] rounded-card border border-c-border bg-c-card p-6 shadow-card",
+              "min-h-[520px] rounded-card border border-c-border bg-c-card p-6 shadow-card nv-panel-scroll lg:h-full lg:min-h-0 lg:overflow-y-auto",
               mobileTab === "params" && "hidden lg:block"
             )}
           >

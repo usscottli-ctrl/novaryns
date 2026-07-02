@@ -347,9 +347,9 @@ export function SuiteClient() {
             <span className="font-semibold text-c-text">{t("suite.title")}</span>
           </nav>
         </div>
-    <div className="grid gap-5 lg:grid-cols-[320px_1fr] xl:grid-cols-[320px_1fr_280px]">
+    <div className="grid gap-5 lg:h-[calc(100vh-150px)] lg:min-h-[560px] lg:grid-cols-[320px_1fr] xl:grid-cols-[320px_1fr_280px]">
       {/* 左:参数面板 */}
-      <div className="h-fit space-y-5 rounded-card border border-c-border bg-c-card p-5 shadow-card">
+      <div className="h-fit space-y-5 rounded-card border border-c-border bg-c-card p-5 shadow-card nv-panel-scroll lg:h-full lg:min-h-0 lg:overflow-y-auto">
         {/* 工具头:图标 + 名称 + 描述(与其它工具页一致) */}
         <div className="flex items-center gap-3">
           <span
@@ -515,8 +515,8 @@ export function SuiteClient() {
         </p>
       </div>
 
-      {/* 右:结果区 */}
-      <div className="min-h-[520px] rounded-card border border-c-border bg-c-card p-6 shadow-card">
+      {/* 中:结果区 */}
+      <div className="min-h-[520px] rounded-card border border-c-border bg-c-card p-6 shadow-card nv-panel-scroll lg:h-full lg:min-h-0 lg:overflow-y-auto">
         {shownRec ? (
           <div className="flex min-h-0 flex-1 flex-col">
             <div className="mb-4 flex items-center justify-between">
@@ -616,7 +616,7 @@ export function SuiteClient() {
       </div>
 
       {/* 右:本工具记录(套图历史) */}
-      <aside className="hidden rounded-card border border-c-border bg-c-card p-4 shadow-card xl:flex xl:flex-col">
+      <aside className="hidden rounded-card border border-c-border bg-c-card p-4 shadow-card xl:flex xl:h-full xl:flex-col">
         <div className="mb-3 flex min-h-[28px] items-center gap-1.5">
           <Clock className="h-4 w-4 text-c-text3" />
           <span className="text-[13px] font-semibold text-c-text">本工具记录</span>
@@ -639,7 +639,7 @@ export function SuiteClient() {
             </button>
           )}
         </div>
-        <div className="min-h-0 flex-1 overflow-y-auto pr-0.5">
+        <div className="nv-panel-scroll min-h-0 flex-1 overflow-y-auto pr-0.5">
           {recItems === null && user ? (
             <div className="grid grid-cols-2 gap-2">
               {Array.from({ length: 6 }).map((_, i) => (
