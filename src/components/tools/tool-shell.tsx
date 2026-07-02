@@ -219,7 +219,7 @@ export function ToolShell({
 
       <div
         className={cn(
-          "mt-4 grid gap-5 lg:h-[calc(100vh-150px)] lg:min-h-[560px]",
+          "mt-4 grid gap-5 lg:h-[890px]",
           threeCol
             ? "lg:grid-cols-[320px_1fr] xl:grid-cols-[320px_1fr_280px]"
             : "lg:grid-cols-[320px_1fr]"
