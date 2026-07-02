@@ -219,14 +219,14 @@ export function ToolShell({
 
       <div
         className={cn(
-          "mt-4 grid gap-5",
+          "mt-4 grid gap-5 lg:h-[calc(100vh-150px)] lg:min-h-[560px]",
           threeCol
             ? "lg:grid-cols-[320px_1fr] xl:grid-cols-[320px_1fr_280px]"
             : "lg:grid-cols-[320px_1fr]"
         )}
       >
-        {/* 左:参数(撑到与中右两栏等高,操作区压到底部避免留白割裂) */}
-        <div className="flex flex-col gap-[18px] rounded-card border border-c-border bg-c-card p-5 shadow-card">
+        {/* 左:参数(头部/生成按钮钉住,中间参数区内部滚动) */}
+        <div className="flex flex-col gap-[18px] rounded-card border border-c-border bg-c-card p-5 shadow-card lg:h-full lg:overflow-hidden">
           <div className="flex items-center gap-3">
             <span
               className="grid h-11 w-11 flex-none place-items-center rounded-[10px]"
@@ -240,9 +240,11 @@ export function ToolShell({
             </div>
           </div>
 
-          {left}
+          <div className="nv-panel-scroll flex flex-col gap-[18px] lg:min-h-0 lg:flex-1 lg:overflow-y-auto lg:pr-1.5">
+            {left}
+          </div>
 
-          <div className="mt-auto space-y-3 border-t border-c-line pt-4">
+          <div className="space-y-3 border-t border-c-line pt-4">
             <div className="flex items-center justify-between text-[12.5px]">
               <span className="text-c-text3">{L("预计消耗", "Est. cost")}</span>
               <span className="font-semibold text-acc">{L(`${cost} 积分`, `${cost} credits`)}</span>
@@ -273,7 +275,7 @@ export function ToolShell({
         </div>
 
         {/* 中:结果(shown 时切换成记录详情:原图/成品对比) */}
-        <section className="flex min-h-[520px] flex-col rounded-card border border-c-border bg-c-card p-5 shadow-card">
+        <section className="flex min-h-[520px] flex-col rounded-card border border-c-border bg-c-card p-5 shadow-card lg:h-full lg:min-h-0">
           <div className="mb-4 flex items-center justify-between">
             <h2 className="text-[15px] font-semibold text-c-text">
               {shown ? L("记录详情", "Record details") : resultTitle}
@@ -290,7 +292,7 @@ export function ToolShell({
               <span className="text-[12.5px] text-c-text3">{resultHint}</span>
             ) : null}
           </div>
-          <div className="flex min-h-0 flex-1 flex-col">
+          <div className="nv-panel-scroll flex min-h-0 flex-1 flex-col overflow-y-auto">
             {shown ? (
               <>
                 <div className="grid flex-1 grid-cols-2 gap-4">
@@ -375,13 +377,13 @@ export function ToolShell({
 
         {/* 右:自定义面板(标题生成的「图片列表」等),传了就替代本工具记录 */}
         {threeCol && rightPanel && (
-          <aside className="hidden rounded-card border border-c-border bg-c-card p-4 shadow-card xl:flex xl:flex-col">
+          <aside className="hidden rounded-card border border-c-border bg-c-card p-4 shadow-card xl:flex xl:h-full xl:flex-col">
             {rightPanel}
           </aside>
         )}
         {/* 右:本工具记录 */}
         {threeCol && !rightPanel && (
-          <aside className="hidden rounded-card border border-c-border bg-c-card p-4 shadow-card xl:flex xl:flex-col">
+          <aside className="hidden rounded-card border border-c-border bg-c-card p-4 shadow-card xl:flex xl:h-full xl:flex-col">
             <div className="mb-3 flex min-h-[28px] items-center gap-1.5">
               <Clock className="h-4 w-4 text-c-text3" />
               <span className="text-[13px] font-semibold text-c-text">
@@ -408,7 +410,7 @@ export function ToolShell({
                 </button>
               )}
             </div>
-            <div className="min-h-0 flex-1 overflow-y-auto pr-0.5">
+            <div className="nv-panel-scroll min-h-0 flex-1 overflow-y-auto pr-0.5">
               {records === null && user ? (
                 <div className="grid grid-cols-2 gap-2">
                   {Array.from({ length: 6 }).map((_, i) => (
