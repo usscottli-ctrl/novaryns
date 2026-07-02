@@ -1,0 +1,426 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* ---------------------------------------------------------------------------
+ * Design system tokens (brand-agnostic — name set via NEXT_PUBLIC_BRAND_NAME)
+ *  ink #101417 · graphite #20272c · pearl #f6f3ed · mist #dfe9e7
+ *  emerald #1b8a78 (brand) · lemon #d7ff68 (CTA) · coral #ff6f61 (error)
+ * ------------------------------------------------------------------------- */
+
+@layer base {
+  /* 新设计系统(2026-06,Claude Design 交付):靛蓝强调 #4F46E5 + 冷调中性灰 + Geist/Noto Sans SC。
+     保留 token 名、只换值 → 全站组件自动换皮;原始 hex 辅助变量供渐变/阴影/tint 直接用。 */
+  :root {
+    --background: 220 20% 97%; /* #F6F7F9 */
+    --foreground: 223 14% 10%; /* #16181D */
+    --card: 0 0% 100%;
+    --card-foreground: 223 14% 10%;
+    --primary: 243 75% 59%; /* #4F46E5 indigo */
+    --primary-foreground: 0 0% 100%;
+    --secondary: 220 16% 96%; /* #F4F5F7 填充 */
+    --secondary-foreground: 223 14% 10%;
+    --muted: 220 23% 97%; /* #F7F8FA */
+    --muted-foreground: 220 8% 58%; /* #8A909C */
+    --accent: 243 75% 59%;
+    --accent-foreground: 0 0% 100%;
+    --border: 228 15% 94%; /* #ECEDF1 发丝边 */
+    --input: 230 12% 90%; /* #E2E3E8 */
+    --ring: 243 75% 59%;
+    --radius: 0.625rem; /* 控件 10px;卡片用 rounded-2xl=16 */
+    --sb: 0 0% 0% / 0.18; /* 滚动条 thumb */
+    /* 原始 hex 辅助(组件/渐变/阴影/tint 直接用) */
+    --acc: #4f46e5;
+    --acc2: #6366f1;
+    --acc-tint: #eef0fe;
+    --acc-border: #d9dcfb;
+    --grad-acc: linear-gradient(180deg, #6366f1, #4f46e5);
+    --shadow-card: 0 1px 2px rgba(16, 18, 23, 0.04);
+    --shadow-btn: 0 8px 20px -7px rgba(79, 70, 229, 0.55);
+    --shadow-btn-hover: 0 10px 24px -7px rgba(79, 70, 229, 0.7);
+    --shadow-pop: 0 18px 44px -16px rgba(16, 18, 23, 0.42);
+    --shadow-toast: 0 12px 30px -10px rgba(0, 0, 0, 0.4);
+    --ring-focus: 0 0 0 3px rgba(79, 70, 229, 0.12);
+    /* 设计系统原始 hex token(组件按名直接用,与上面 HSL token 并存) */
+    --c-bg: #f6f7f9;
+    --c-card: #fff;
+    --c-subtle: #f4f5f7;
+    --c-subtle2: #f7f8fa;
+    --c-subtle3: #f0f1f4;
+    --c-track: #edeef1;
+    --c-border: #ecedf1;
+    --c-border2: #e2e3e8;
+    --c-border3: #e8e9ed;
+    --c-line: #f0f1f4;
+    --c-text: #16181d;
+    --c-text2: #3a3f4a;
+    --c-text3: #8a909c;
+    --c-text4: #9aa0ae;
+    --c-tint-b: #e9f2fe;
+    --c-tint-v: #f4ecfe;
+    --c-tint-a: #fbf1df;
+    --c-tint-g: #e7f6ee;
+    --c-tint-r: #fdecec;
+    --c-tint-gold: #fcf5e6;
+    --c-success: #1f9d57;
+    --c-success-strong: #34cca4;
+    --c-danger: #e5484d;
+    --c-warn: #c2882e;
+    --c-warn-bg: #fcf5e6;
+    --c-blue: #2e7cf6;
+    --c-violet: #7c3aed;
+    --c-gold: #a98a3e;
+    --c-disabled-fill: #c7c9d4;
+    --c-disabled-text: #c7cbd6;
+    --c-seg-inactive: #6b7280;
+  }
+
+  /* 深色主题(toggle .dark on <html>) */
+  .dark {
+    --background: 220 13% 5%; /* #0A0B0D */
+    --foreground: 228 15% 94%; /* #ECEDF1 */
+    --card: 228 11% 9%; /* #141519 */
+    --card-foreground: 228 15% 94%;
+    --primary: 239 84% 67%; /* #6366F1 暗背景下亮一档 */
+    --primary-foreground: 0 0% 100%;
+    --secondary: 230 9% 13%; /* #1D1E23 */
+    --secondary-foreground: 228 15% 94%;
+    --muted: 228 10% 10%; /* #17181C */
+    --muted-foreground: 222 5% 54%; /* #82868F */
+    --accent: 239 84% 67%;
+    --accent-foreground: 0 0% 100%;
+    --border: 232 10% 16%; /* #26272E */
+    --input: 233 8% 21%; /* #31323A */
+    --ring: 239 84% 67%;
+    --sb: 0 0% 100% / 0.2;
+    --acc: #6366f1;
+    --acc2: #818cf8;
+    --acc-tint: #1e1b3a;
+    --acc-border: #312e5c;
+    --grad-acc: linear-gradient(180deg, #818cf8, #6366f1);
+    --shadow-pop: 0 18px 44px -16px rgba(0, 0, 0, 0.6);
+    --shadow-toast: 0 12px 30px -10px rgba(0, 0, 0, 0.6);
+    --ring-focus: 0 0 0 3px rgba(99, 102, 241, 0.18);
+    /* 深色 hex token */
+    --c-bg: #0a0b0d;
+    --c-card: #141519;
+    --c-subtle: #1d1e23;
+    --c-subtle2: #17181c;
+    --c-subtle3: #1f2026;
+    --c-track: #1d1e23;
+    --c-border: #26272e;
+    --c-border2: #31323a;
+    --c-border3: #31323a;
+    --c-line: #1e1f24;
+    --c-text: #ecedf1;
+    --c-text2: #a6aab4;
+    --c-text3: #82868f;
+    --c-text4: #6e7179;
+    --c-tint-b: color-mix(in srgb, #2e7cf6 16%, transparent);
+    --c-tint-v: color-mix(in srgb, #7c3aed 16%, transparent);
+    --c-tint-a: color-mix(in srgb, #c2882e 16%, transparent);
+    --c-tint-g: color-mix(in srgb, #1f9d57 16%, transparent);
+    --c-tint-r: color-mix(in srgb, #e5484d 16%, transparent);
+    --c-tint-gold: color-mix(in srgb, #a98a3e 18%, transparent);
+    --c-warn-bg: color-mix(in srgb, #c2882e 16%, transparent);
+    --c-success: #34cca4;
+    --c-success-strong: #34cca4;
+    --c-danger: #ff6168;
+    --c-warn: #d9a648;
+    --c-blue: #4d92ff;
+    --c-violet: #9466f0;
+    --c-gold: #c5a35a;
+    --c-disabled-fill: #2a2b32;
+    --c-disabled-text: #4a4c54;
+    --c-seg-inactive: #82868f;
+  }
+
+  /* 强调色可切换(靛蓝默认 / 电光蓝 / 紫):运行时改 --acc 系列 */
+  [data-accent="blue"] {
+    --acc: #2e7cf6;
+    --acc2: #4d92ff;
+    --acc-tint: color-mix(in srgb, #2e7cf6 12%, #fff);
+    --acc-border: color-mix(in srgb, #2e7cf6 28%, #fff);
+    --grad-acc: linear-gradient(180deg, #4d92ff, #2e7cf6);
+    --shadow-btn: 0 8px 20px -7px rgba(46, 124, 246, 0.55);
+    --shadow-btn-hover: 0 10px 24px -7px rgba(46, 124, 246, 0.7);
+    --ring-focus: 0 0 0 3px rgba(46, 124, 246, 0.14);
+  }
+  [data-accent="violet"] {
+    --acc: #7c3aed;
+    --acc2: #9466f0;
+    --acc-tint: color-mix(in srgb, #7c3aed 12%, #fff);
+    --acc-border: color-mix(in srgb, #7c3aed 28%, #fff);
+    --grad-acc: linear-gradient(180deg, #9466f0, #7c3aed);
+    --shadow-btn: 0 8px 20px -7px rgba(124, 58, 237, 0.55);
+    --shadow-btn-hover: 0 10px 24px -7px rgba(124, 58, 237, 0.7);
+    --ring-focus: 0 0 0 3px rgba(124, 58, 237, 0.14);
+  }
+  .dark[data-accent="blue"],
+  [data-accent="blue"] .dark {
+    --acc-tint: color-mix(in srgb, #2e7cf6 20%, #0a0b0d);
+    --acc-border: color-mix(in srgb, #2e7cf6 36%, #0a0b0d);
+  }
+  .dark[data-accent="violet"],
+  [data-accent="violet"] .dark {
+    --acc-tint: color-mix(in srgb, #7c3aed 20%, #0a0b0d);
+    --acc-border: color-mix(in srgb, #7c3aed 36%, #0a0b0d);
+  }
+
+  * {
+    border-color: hsl(var(--border));
+  }
+
+  html {
+    scroll-behavior: smooth;
+  }
+
+  body {
+    background: hsl(var(--background));
+    color: hsl(var(--foreground));
+    -webkit-font-smoothing: antialiased;
+    text-rendering: optimizeLegibility;
+    font-variant-numeric: tabular-nums;
+  }
+
+  /* 细窄半透明滚动条(随主题) */
+  * {
+    scrollbar-width: thin;
+    scrollbar-color: hsl(var(--sb)) transparent;
+  }
+  ::-webkit-scrollbar {
+    width: 10px;
+    height: 10px;
+  }
+  ::-webkit-scrollbar-track {
+    background: transparent;
+  }
+  ::-webkit-scrollbar-thumb {
+    background: hsl(var(--sb));
+    border-radius: 8px;
+    border: 3px solid transparent;
+    background-clip: padding-box;
+  }
+  ::-webkit-scrollbar-thumb:hover {
+    background: hsl(var(--foreground) / 0.4);
+    background-clip: padding-box;
+  }
+  ::-webkit-scrollbar-corner {
+    background: transparent;
+  }
+}
+
+@layer utilities {
+  /* On-brand emerald emphasis (was a purple gradient). */
+  .text-gradient {
+    color: hsl(var(--accent));
+  }
+
+  /* 柔和靛蓝光晕,用于 hero / auth 背景。 */
+  .bg-aurora {
+    background:
+      radial-gradient(
+        44rem 30rem at 0% 0%,
+        rgba(99, 102, 241, 0.14),
+        transparent 60%
+      ),
+      radial-gradient(
+        26rem 22rem at 14% 10%,
+        rgba(79, 70, 229, 0.08),
+        transparent 62%
+      );
+  }
+
+  .bg-dots {
+    background-image: radial-gradient(
+      hsl(203 18% 8% / 0.08) 1px,
+      transparent 1px
+    );
+    background-size: 22px 22px;
+  }
+
+  /* Glass card per spec: translucent white + blur. */
+  .glass {
+    background-color: rgba(255, 255, 255, 0.78);
+    backdrop-filter: saturate(160%) blur(14px);
+  }
+
+  .card-shadow {
+    box-shadow:
+      0 1px 2px rgba(16, 20, 23, 0.04),
+      0 24px 80px -28px rgba(16, 20, 23, 0.12);
+  }
+
+  /* 高亮强调(如推荐档),靛蓝。 */
+  .glow {
+    box-shadow:
+      0 0 0 1px rgba(79, 70, 229, 0.25),
+      0 24px 60px -22px rgba(79, 70, 229, 0.32);
+  }
+
+  /* 深色特性 / CTA 模块:墨黑 → 靛蓝。 */
+  .bg-dark-module {
+    background: linear-gradient(135deg, #0a0b0d 0%, #1d1e23 45%, #312e5c 100%);
+  }
+}
+
+::selection {
+  background: rgba(79, 70, 229, 0.2);
+}
+
+.scrollbar-thin::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+.scrollbar-thin::-webkit-scrollbar-thumb {
+  background: hsl(var(--border));
+  border-radius: 999px;
+}
+
+/* ── 左侧导航栏 hover:高亮丸(背景丸淡入 + 从 .78 轻放大,克制不抢戏) ── */
+.rail-btn { position: relative; }
+.rail-btn::before {
+  content: "";
+  position: absolute;
+  inset: 2px;
+  border-radius: 12px;
+  background: rgba(255, 255, 255, 0.1);
+  opacity: 0;
+  transform: scale(0.78);
+  transition:
+    opacity 0.22s ease,
+    transform 0.22s cubic-bezier(0.34, 1.4, 0.64, 1);
+  z-index: -1;
+  pointer-events: none;
+}
+.rail-btn:hover::before {
+  opacity: 1;
+  transform: scale(1);
+}
+@media (prefers-reduced-motion: reduce) {
+  .rail-btn::before { transition: opacity 0.15s ease; transform: none; }
+  .rail-btn:hover::before { transform: none; }
+}
+
+/* 后台「会员详情」右侧抽屉:从右滑入 */
+@keyframes drawer-in {
+  from { opacity: 0; transform: translateX(24px); }
+  to { opacity: 1; transform: none; }
+}
+.drawer-in { animation: drawer-in 0.22s cubic-bezier(0.16, 1, 0.3, 1) both; }
+@media (prefers-reduced-motion: reduce) {
+  .drawer-in { animation: none; }
+}
+
+/* 首页 hero / showcase 轻盈飘动:6-8s 上下 6px,不同卡 phase 错开,永远在动但不抢戏 */
+@keyframes drift { 0%, 100% { transform: translateY(0); } 50% { transform: translateY(-6px); } }
+.hero-drift { animation: drift 6s ease-in-out infinite; will-change: transform; }
+.show-drift { animation: drift 7s ease-in-out infinite; will-change: transform; }
+
+/* 用户选了 reduced-motion 就关掉飘动,只保留切图 */
+@media (prefers-reduced-motion: reduce) {
+  .hero-drift, .show-drift { animation: none; }
+}
+
+/* ── 生成中加载特效:流光扫描(GenLoader Shimmer) ── */
+.gl-shim{
+  position:absolute; inset:0; pointer-events:none;
+  background:linear-gradient(110deg, transparent 30%, rgba(255,255,255,.78) 50%, transparent 70%);
+  background-size:220% 100%;
+  animation:gl-shim 1.5s ease-in-out infinite;
+}
+@keyframes gl-shim{ 0%{ background-position:160% 0; } 100%{ background-position:-60% 0; } }
+@media (prefers-reduced-motion: reduce){
+  .gl-shim{ animation:none; opacity:.35; }
+}
+
+/* ── 画布(固定深色)血缘链路点亮 + 蓝色流光 ── */
+/* 非链路上的节点/连线变暗,聚焦当前链路 */
+.react-flow__node.cw-dim { opacity: .32; filter: saturate(.7); transition: opacity .25s ease; }
+.react-flow__edge.cw-dim .react-flow__edge-path { stroke: rgba(255,255,255,.1); opacity: 1; transition: opacity .25s ease; }
+/* 普通连线(对齐原型 rgba(255,255,255,.28) width 2) */
+.react-flow__edge .react-flow__edge-path { stroke: rgba(255,255,255,.28); stroke-width: 2; }
+/* 点亮的链路连线:蓝色彗星流光朝生成方向流动(对齐原型 cw-on/comet) */
+.react-flow__edge.cw-flow .react-flow__edge-path {
+  stroke: #86c1ff;
+  stroke-width: 2.6;
+  filter: drop-shadow(0 0 7px rgba(78, 153, 255, .85));
+  stroke-dasharray: 12 96;
+  animation: cw-flow 1.5s linear infinite;
+}
+@keyframes cw-flow { to { stroke-dashoffset: -216; } }
+/* 拉线时的临时连线:蓝色实线带光(细线) */
+.react-flow__connection-path {
+  stroke: #5aa6ff; stroke-width: 2.6;
+  filter: drop-shadow(0 0 6px rgba(90, 166, 255, .95));
+}
+/* ── 自定义彗星连线(CometEdge):对齐原型 cw-tail/body/head/spark ── */
+.react-flow__edge path.cw-base { stroke: rgba(255,255,255,.28); stroke-width: 2; fill: none; }
+.react-flow__edge path.cw-dim2 { stroke: rgba(255,255,255,.1); }
+.react-flow__edge path.cw-on {
+  stroke: rgba(220,236,255,.72); stroke-width: 2.4;
+  filter: drop-shadow(0 0 4px rgba(104,160,255,.6));
+}
+.react-flow__edge path.cw-comet { fill: none; stroke-linecap: round; animation: cflow 1.35s linear infinite; }
+.react-flow__edge path.cw-tail { stroke: #4e99ff; stroke-width: 1.5; stroke-dasharray: 24 76; opacity: .58; filter: drop-shadow(0 0 7px rgba(78,153,255,.75)); animation-delay: .18s; }
+.react-flow__edge path.cw-body { stroke: #86c1ff; stroke-width: 3.1; stroke-dasharray: 15 85; opacity: .9; filter: drop-shadow(0 0 8px rgba(134,193,255,.95)); animation-delay: .08s; }
+.react-flow__edge path.cw-head { stroke: #f5fbff; stroke-width: 5.2; stroke-dasharray: 6 94; filter: drop-shadow(0 0 11px rgba(218,240,255,1)); }
+.react-flow__edge path.cw-spark { stroke: #b9ddff; stroke-width: 2.2; stroke-dasharray: 4 96; opacity: .78; filter: drop-shadow(0 0 8px rgba(185,221,255,.9)); animation-delay: -.58s; }
+@keyframes cflow { from { stroke-dashoffset: 100; } to { stroke-dashoffset: 0; } }
+/* 鼠标放到连线上:整条线提亮 + 微光,提示"可点击剪断"(剪刀图标由 JS 跟随光标渲染) */
+.react-flow__edge { cursor: pointer; }
+.react-flow__edge:hover path.cw-base {
+  stroke: rgba(235, 244, 255, .82);
+  stroke-width: 2.8;
+  filter: drop-shadow(0 0 6px rgba(134, 193, 255, .6));
+}
+@media (prefers-reduced-motion: reduce) {
+  .react-flow__edge.cw-flow .react-flow__edge-path { animation: none; stroke-dasharray: none; }
+  .react-flow__edge path.cw-comet { animation: none; display: none; }
+}
+/* 画布上下面板入场动画(对齐原型 inT/inB:顶部从上方滑落、底部从下方升起,带渐隐) */
+/* 顶部工具条入场:保留 translateX(-50%) 自居中(配合元素上的 -translate-x-1/2),只动 Y */
+@keyframes cz-inT { from { opacity: 0; transform: translate(-50%, -22px); } to { opacity: 1; transform: translateX(-50%); } }
+@keyframes cz-inB { from { opacity: 0; transform: translateY(28px); } to { opacity: 1; transform: none; } }
+.cz-anim-top { animation: cz-inT 0.24s both; }
+.cz-anim-bottom { animation: cz-inB 0.26s both; }
+/* 弹出菜单入场(大厂式:淡入 + 轻微缩放,从锚点方向长出)。复用:
+   .menu-pop(右键/光标处,origin 左上)·.menu-pop-up(向上弹,origin 底部)·.menu-pop-down(向下弹,origin 顶部) */
+@keyframes menu-pop-in { from { opacity: 0; transform: scale(0.96); } to { opacity: 1; transform: scale(1); } }
+.menu-pop { animation: menu-pop-in 0.13s cubic-bezier(0.16, 1, 0.3, 1) both; transform-origin: top left; }
+.menu-pop-up { animation: menu-pop-in 0.13s cubic-bezier(0.16, 1, 0.3, 1) both; transform-origin: bottom center; }
+.menu-pop-down { animation: menu-pop-in 0.13s cubic-bezier(0.16, 1, 0.3, 1) both; transform-origin: top center; }
+@media (prefers-reduced-motion: reduce) {
+  .menu-pop, .menu-pop-up, .menu-pop-down { animation: none; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .cz-anim-top, .cz-anim-bottom { animation: none; }
+}
+
+/* ── 设计系统动效 (spec A.6) ──────────────────────────────────────────────
+   nv-spin   加载转圈   · nv-shimmer 骨架微光 · nv-pulse 排队呼吸
+   nv-flow   链路流光   · nv-menu-up/down 下拉弹出
+   nv-floaty/nv-glow/nv-reveal/nv-reveal-x 落地页「随手拍→AI成片」对比展示 */
+@keyframes nv-spin { to { transform: rotate(360deg); } }
+@keyframes nv-shimmer { 0% { background-position: -200% 0; } 100% { background-position: 200% 0; } }
+@keyframes nv-pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.45; } }
+@keyframes nv-flow { to { stroke-dashoffset: -24; } }
+@keyframes nv-menu-up { from { opacity: 0; transform: translateY(6px) scale(0.985); } to { opacity: 1; transform: none; } }
+@keyframes nv-menu-down { from { opacity: 0; transform: translateY(-6px) scale(0.985); } to { opacity: 1; transform: none; } }
+@keyframes nv-floaty { 0%, 100% { transform: translateY(0); } 50% { transform: translateY(-8px); } }
+@keyframes nv-glow { 0%, 100% { opacity: 0.55; } 50% { opacity: 0.9; } }
+@keyframes nv-reveal { 0% { clip-path: inset(0 100% 0 0); } 100% { clip-path: inset(0 0 0 0); } }
+@keyframes nv-reveal-x { 0% { transform: translateX(0); } 100% { transform: translateX(var(--nv-reveal-x, 0)); } }
+
+.nv-spin { animation: nv-spin 0.7s linear infinite; }
+.nv-skeleton {
+  background: linear-gradient(90deg, var(--c-track) 25%, var(--c-subtle2) 37%, var(--c-track) 63%);
+  background-size: 200% 100%;
+  animation: nv-shimmer 1.4s ease-in-out infinite;
+}
+.nv-pulse { animation: nv-pulse 1.4s ease-in-out infinite; }
+.nv-menu-up { animation: nv-menu-up 0.16s cubic-bezier(0.16, 1, 0.3, 1) both; transform-origin: bottom center; }
+.nv-menu-down { animation: nv-menu-down 0.16s cubic-bezier(0.16, 1, 0.3, 1) both; transform-origin: top center; }
+@media (prefers-reduced-motion: reduce) {
+  .nv-spin, .nv-skeleton, .nv-pulse, .nv-menu-up, .nv-menu-down { animation: none; }
+}

@@ -1,0 +1,47 @@
+# Novaryns — one-command self-host: app + bundled Postgres + persistent volumes.
+#   git clone https://github.com/usscottli-ctrl/novaryns && cd novaryns && docker compose up -d
+# Then open http://localhost:3000 — the first-run wizard walks you through setup
+# (OpenAI API Key, optional Pro License Key, site name). No code edits needed.
+
+services:
+  db:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: novaryns
+      # ⚠️ Change this password for any internet-facing deployment.
+      POSTGRES_PASSWORD: novaryns
+      POSTGRES_DB: novaryns
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U novaryns -d novaryns"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+
+  app:
+    build: .
+    image: ghcr.io/usscottli-ctrl/novaryns:latest
+    restart: unless-stopped
+    ports:
+      - "3000:3000"
+    environment:
+      DATABASE_URL: postgres://novaryns:novaryns@db:5432/novaryns
+      # AES key for encrypting stored API keys at rest.
+      # ⚠️ Set a long random value BEFORE first run and never change it afterwards.
+      SETTINGS_SECRET: change-me-to-a-long-random-string
+      # Local disk media storage (no R2 needed). Mounted as a volume below.
+      MEDIA_DIR: /data/media
+      # Optional: Pro license (or enter it in the first-run wizard instead)
+      # NOVARYNS_EDITION: pro
+      # PRO_LICENSE_KEY: NOVA-XXXX-XXXX-XXXX-XXXX
+    volumes:
+      - appdata:/data
+    depends_on:
+      db:
+        condition: service_healthy
+
+volumes:
+  pgdata:
+  appdata:
