@@ -400,7 +400,7 @@ const zh: Dict = {
   gen: {
     title: "电商视觉生产工作台",
     subtitle: "上传你的产品图、写提示词，几秒生成可直接上架的电商商业视觉。",
-    uploadLabel: "产品图（可选 · 最多 {n} 张，上传后做图生图保留你的产品）",
+    uploadLabel: "产品图（可选 · 最多 {n} 张）",
     addImage: "添加图片",
     removeImage: "移除图片",
     selected: "已选 {n}/{m} · PNG/JPG/WebP，单张 ≤12MB",
@@ -1207,8 +1207,7 @@ const en: Dict = {
     title: "Visual Production Studio",
     subtitle:
       "Upload your product photo, write a prompt, and generate publish-ready commerce visuals in seconds.",
-    uploadLabel:
-      "Product photos (optional · up to {n}; image-to-image keeps your product)",
+    uploadLabel: "Product photos (optional · up to {n})",
     addImage: "Add image",
     removeImage: "Remove image",
     selected: "{n}/{m} selected · PNG/JPG/WebP, ≤12MB each",
