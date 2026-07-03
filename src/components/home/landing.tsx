@@ -386,27 +386,28 @@ export function Landing({ hot }: { hot: PickedTemplate[] }) {
               featured: false,
             },
             {
-              name: L("云端托管", "Cloud"),
-              price: L("¥3,999/年起", "from ¥3,999/yr"),
-              badge: { text: L("推荐", "Recommended"), kind: "gold" as const },
-              rows: [
-                L("免部署 · 自动更新", "Zero-ops · auto updates"),
-                L("弹性算力 · 优先队列", "Elastic compute · priority queue"),
-                L("绑定域名 · 白标", "Custom domain · white-label"),
-              ],
-              cta: { label: L("立即开始", "Get started"), onClick: start, primary: true, external: false },
-              featured: true,
-            },
-            {
               name: L("Pro 自托管", "Pro self-host"),
               price: L("¥1,999/年起", "from ¥1,999/yr"),
-              badge: { text: L("商业授权", "Commercial"), kind: "blue" as const },
+              badge: { text: L("推荐", "Recommended"), kind: "gold" as const },
+              tag: L("源码授权", "Source license"),
               rows: [
                 L("含 Pro 全部能力源码", "Full Pro source code"),
                 L("商业授权 · 可闭源自用", "Commercial license · closed-source OK"),
                 L("License Key 激活 · 优先支持", "License Key · priority support"),
               ],
-              cta: { label: L("了解 Pro", "Learn about Pro"), href: "/deploy", primary: false, external: false },
+              cta: { label: L("获取授权", "Get a license"), href: "/deploy", primary: true, external: false },
+              featured: true,
+            },
+            {
+              name: L("云端托管", "Cloud"),
+              price: L("¥3,999/年起", "from ¥3,999/yr"),
+              badge: { text: L("免运维", "Zero-ops"), kind: "blue" as const },
+              rows: [
+                L("免部署 · 自动更新", "Zero-ops · auto updates"),
+                L("弹性算力 · 优先队列", "Elastic compute · priority queue"),
+                L("绑定域名 · 白标", "Custom domain · white-label"),
+              ],
+              cta: { label: L("开通云端", "Go cloud"), href: "/deploy", primary: false, external: false },
               featured: false,
             },
           ].map((tier) => (
@@ -436,6 +437,11 @@ export function Landing({ hot }: { hot: PickedTemplate[] }) {
                     {tier.badge.text}
                   </span>
                 )}
+                {"tag" in tier && tier.tag && (
+                  <span className="rounded-[5px] bg-c-tint-b px-1.5 py-0.5 text-[10.5px] font-semibold text-c-blue">
+                    {tier.tag}
+                  </span>
+                )}
               </div>
               <p className="mt-2 text-[24px] font-extrabold tracking-tight text-c-text">
                 {tier.price}
@@ -454,13 +460,12 @@ export function Landing({ hot }: { hot: PickedTemplate[] }) {
                 ))}
               </ul>
               {tier.cta.primary ? (
-                <button
-                  type="button"
-                  onClick={tier.cta.onClick}
+                <Link
+                  href={tier.cta.href}
                   className="mt-6 inline-flex items-center justify-center gap-1.5 rounded-[11px] px-5 py-2.5 text-[14px] font-semibold text-white shadow-btn [background:var(--grad-acc)] transition-all hover:brightness-95"
                 >
                   {tier.cta.label}
-                </button>
+                </Link>
               ) : tier.cta.external ? (
                 <a
                   href={tier.cta.href}
