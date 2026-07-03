@@ -33,6 +33,22 @@ export const DEFAULT_SUITE_SYSTEM =
   "④风格参考天猫/京东精品详情页。text 字段放该张主标题文案。" +
   '只输出 JSON：{"product":"产品名","shots":[{"role","label","ratio","prompt","text"}...]}，shots 必须正好 13 个(1 main + 4 sub + 8 detail)。';
 
+// /suite 平台风格「覆盖段」:选了平台就追加在 DEFAULT_SUITE_SYSTEM 之后,声明优先级最高,
+// 覆盖上文的「天猫/京东风格」与「中文文案」,但不动 13 张结构与 JSON 输出格式。
+// taobao/天猫 = 默认(不追加,走上文原风格)。后台可逐个改。
+export const DEFAULT_SUITE_PLATFORM_HINTS: Record<string, string> = {
+  douyin:
+    "【目标平台=抖音电商。本段平台风格与文案语言要求优先级最高,与上文『天猫/京东精品详情页风格』冲突时一律以本段为准;13 张结构(1主图+4副图+8详情)与 JSON 输出格式保持不变】把整体风格改为**抖音种草风**:视觉冲击更强、氛围更浓、色彩饱满,主标题用更大更抓眼的大字报式艺术字,主打痛点与场景种草;文案仍**全中文**,更口语化有网感、卖点更煽动心动。",
+  pdd:
+    "【目标平台=拼多多。本段优先级最高,覆盖上文风格设定;13 张结构与 JSON 格式不变】风格改为**实惠促销风**:直白醒目、高对比(红黄促销色系为主),主标题超大突出价格感与优惠,卖点直给;文案**全中文**,朴实直接、强调性价比/到手价/限时/包邮,不玩虚的。",
+  xhs:
+    "【目标平台=小红书。本段优先级最高,覆盖上文风格;结构与 JSON 不变】风格改为**清新种草/ins 美学**:柔和色调、大量留白、真实生活使用场景,弱化促销感与大字报;主标题偏文艺生活化、少而美;文案**全中文**,真诚分享/种草口吻。",
+  amazon:
+    "【目标平台=亚马逊(跨境)。本段优先级最高,覆盖上文的『中国电商营销视觉/天猫京东风格/中文文案/整图含文字』设定;仅 13 张结构与 JSON 输出格式不变】重大调整:①**主图(role=main)必须纯白背景(RGB 255,255,255)、产品居中、不含任何文字/logo/水印/道具**(亚马逊主图硬性规则)——该张 prompt 改为『纯白背景、产品居中、无任何文字』的干净产品图,其 text 字段留空字符串;②副图(sub)与详情图(detail)可含**简洁英文标注**(feature callouts、使用场景、规格尺寸图);③整体极简专业、以产品为中心;④**所有文案改为全英文**(专业简洁的 feature 短语——材质/功能/规格,无夸张促销词),text 字段放英文主标题。",
+  global:
+    "【目标平台=跨境独立站/速卖通/Shein/TikTok Shop。本段优先级最高,覆盖上文的『中国电商/天猫京东风格/中文文案』;结构与 JSON 不变】风格改为**现代简约品牌风**:干净留白、生活场景、品牌调性;**所有文案改为全英文**,简洁有品牌感的标语 + 卖点短语;整图可含英文文字(区别于亚马逊主图无文字规则);text 字段放英文主标题。",
+};
+
 // /generate「AI 帮写」:把用户的简短想法扩写成完整的电商生图提示词的 system 指令。
 // 逻辑:不是"保留原图换底",而是"描述一张理想的专业成品大片",忠于产品本身但大胆重塑场景。
 export const DEFAULT_ASSIST_SYSTEM =
@@ -89,6 +105,7 @@ const K_SUITE_SYSTEM = "prompt_suite_system";
 const K_ASSIST_SYSTEM = "prompt_assist_system";
 const K_OPTIMIZE_SYSTEM = "prompt_optimize_system";
 const K_TITLE_SYSTEM = "prompt_title_system";
+const K_SUITE_PLATFORM_PREFIX = "prompt_suite_platform_";
 
 // 运行时:解析出 /generate 的风格表(DB 覆盖 merge 到默认上)
 export async function getStyleGuide(): Promise<Record<string, string>> {
@@ -113,6 +130,19 @@ export async function getSuiteSystem(): Promise<string> {
     /* default */
   }
   return DEFAULT_SUITE_SYSTEM;
+}
+
+// 运行时:套图平台风格覆盖段(DB 覆盖优先)。taobao/空/未知 = 无覆盖(走默认)。
+export async function getSuitePlatformHint(platform: string): Promise<string> {
+  const key = (platform || "").trim();
+  if (!key || key === "taobao" || !(key in DEFAULT_SUITE_PLATFORM_HINTS)) return "";
+  try {
+    const raw = await getSetting(K_SUITE_PLATFORM_PREFIX + key);
+    if (raw && raw.trim()) return raw.trim();
+  } catch {
+    /* default */
+  }
+  return DEFAULT_SUITE_PLATFORM_HINTS[key] || "";
 }
 
 // 运行时:解析出「AI 帮写」的 system 指令(DB 覆盖优先)
@@ -182,6 +212,20 @@ export async function getPromptConfigAdminView() {
       default: DEFAULT_SUITE_SYSTEM,
       changed: suiteSystem !== DEFAULT_SUITE_SYSTEM,
     },
+    suitePlatforms: await (async () => {
+      const out: { id: string; current: string; default: string; changed: boolean }[] = [];
+      for (const [id, def] of Object.entries(DEFAULT_SUITE_PLATFORM_HINTS)) {
+        let cur = def;
+        try {
+          const raw = await getSetting(K_SUITE_PLATFORM_PREFIX + id);
+          if (raw && raw.trim()) cur = raw.trim();
+        } catch {
+          /* default */
+        }
+        out.push({ id, current: cur, default: def, changed: cur !== def });
+      }
+      return out;
+    })(),
     notes: {
       generateDefault: "用户选「默认」风格时：完全透传用户输入的提示词，程序不附加任何内容。",
       ratio: "比例（1:1 / 3:4 等）只控制出图尺寸，不向提示词添加任何文字。",
@@ -196,6 +240,7 @@ export async function savePromptConfig(patch: {
   assistSystem?: string | null;
   optimizeSystem?: string | null;
   titleSystem?: string | null;
+  suitePlatforms?: Record<string, string> | null;
 }): Promise<void> {
   if (patch.styles !== undefined) {
     if (patch.styles === null) await setSetting(K_STYLES, "");
@@ -212,5 +257,11 @@ export async function savePromptConfig(patch: {
   }
   if (patch.titleSystem !== undefined) {
     await setSetting(K_TITLE_SYSTEM, patch.titleSystem === null ? "" : patch.titleSystem);
+  }
+  if (patch.suitePlatforms) {
+    for (const [id, val] of Object.entries(patch.suitePlatforms)) {
+      if (id in DEFAULT_SUITE_PLATFORM_HINTS)
+        await setSetting(K_SUITE_PLATFORM_PREFIX + id, (val ?? "").trim());
+    }
   }
 }

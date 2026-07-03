@@ -158,6 +158,17 @@ export type ToolKey = keyof typeof TOOL_COST;
 // Pro 商业授权直售价(分):¥1,999/年。官网直售自动发 Key(2026-07-03 起,替代爱发电主通道)。
 export const RMB_PRO_LICENSE_FEN = 199900;
 
+// 一键套图目标平台(前端选择器用;各平台风格提示词在 prompt-config 的 SUITE_PLATFORM_HINTS,后台可改)。
+export const SUITE_PLATFORMS = [
+  { id: "taobao", label: "淘宝 / 天猫" },
+  { id: "douyin", label: "抖音 / 抖店" },
+  { id: "pdd", label: "拼多多" },
+  { id: "xhs", label: "小红书" },
+  { id: "amazon", label: "亚马逊(跨境)" },
+  { id: "global", label: "跨境独立站" },
+] as const;
+export type SuitePlatform = (typeof SUITE_PLATFORMS)[number]["id"];
+
 // [已弃用] 旧的 build 期充值开关。前端门控已改成 SSR 注入的 PaymentProvider
 // (见 @/lib/payment-context + getPaymentStatus),后台 DB 开关 + env 兜底实时生效,
 // 两站一套代码。此常量保留仅为兼容,任何组件都不应再用它做门控。

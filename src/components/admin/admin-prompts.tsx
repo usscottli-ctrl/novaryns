@@ -4,11 +4,17 @@ import { useEffect, useState } from "react";
 import { browserSupabase } from "@/lib/supabase";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
+import { SUITE_PLATFORMS } from "@/lib/mock-data";
+
+const PF_LABEL: Record<string, string> = Object.fromEntries(
+  SUITE_PLATFORMS.map((p) => [p.id, p.label])
+);
 
 type StyleRow = { name: string; current: string; default: string; changed: boolean };
 type View = {
   styles: StyleRow[];
   suiteSystem: { current: string; default: string; changed: boolean };
+  suitePlatforms: { id: string; current: string; default: string; changed: boolean }[];
   notes: { generateDefault: string; ratio: string };
 };
 
@@ -17,6 +23,7 @@ export function AdminPrompts() {
   const [view, setView] = useState<View | null>(null);
   const [styleVals, setStyleVals] = useState<Record<string, string>>({});
   const [suiteVal, setSuiteVal] = useState("");
+  const [platVals, setPlatVals] = useState<Record<string, string>>({});
   const [openDefault, setOpenDefault] = useState<Record<string, boolean>>({});
   const [saving, setSaving] = useState(false);
   const [msg, setMsg] = useState<string | null>(null);
@@ -40,6 +47,9 @@ export function AdminPrompts() {
     v.styles.forEach((s) => (sv[s.name] = s.current));
     setStyleVals(sv);
     setSuiteVal(v.suiteSystem.current);
+    const pv: Record<string, string> = {};
+    v.suitePlatforms.forEach((x) => (pv[x.id] = x.current));
+    setPlatVals(pv);
   }
 
   async function save() {
@@ -53,7 +63,7 @@ export function AdminPrompts() {
           "Content-Type": "application/json",
           Authorization: `Bearer ${token}`,
         },
-        body: JSON.stringify({ styles: styleVals, suiteSystem: suiteVal }),
+        body: JSON.stringify({ styles: styleVals, suiteSystem: suiteVal, suitePlatforms: platVals }),
       });
       if (!res.ok) throw new Error((await res.json()).error || "保存失败");
       applyView(await res.json());
@@ -84,7 +94,8 @@ export function AdminPrompts() {
 
   const dirty =
     view.styles.some((s) => styleVals[s.name] !== s.current) ||
-    suiteVal !== view.suiteSystem.current;
+    suiteVal !== view.suiteSystem.current ||
+    view.suitePlatforms.some((x) => platVals[x.id] !== x.current);
 
   return (
     <section className="space-y-6 rounded-2xl border border-border bg-card p-6">
@@ -182,6 +193,42 @@ export function AdminPrompts() {
             {view.suiteSystem.default}
           </p>
         </details>
+      </div>
+
+      {/* 一键套图 · 各平台风格覆盖段(选平台时追加在上面 system 之后) */}
+      <div className="space-y-4">
+        <h3 className="text-sm font-semibold">
+          一键套图 · 平台风格覆盖段（用户选对应平台时，追加在上面规划指令之后，覆盖风格与文案语言）
+        </h3>
+        <p className="text-xs text-muted-foreground">
+          淘宝/天猫 = 默认（无覆盖，走上面的规划指令）；其余平台各一段，可编辑，留空=恢复默认。
+        </p>
+        {view.suitePlatforms.map((pf) => (
+          <div key={pf.id} className="rounded-xl border border-border p-4">
+            <div className="mb-2 flex items-center justify-between gap-2">
+              <span className="text-sm font-medium">
+                {PF_LABEL[pf.id] ?? pf.id}
+                {platVals[pf.id] !== pf.default && (
+                  <span className="ml-2 rounded bg-amber-100 px-1.5 py-0.5 text-[10px] font-semibold text-amber-700">
+                    已改
+                  </span>
+                )}
+              </span>
+              <button
+                type="button"
+                className="text-xs font-medium text-primary hover:underline"
+                onClick={() => setPlatVals((v) => ({ ...v, [pf.id]: pf.default }))}
+              >
+                恢复默认
+              </button>
+            </div>
+            <Textarea
+              value={platVals[pf.id] ?? ""}
+              onChange={(e) => setPlatVals((v) => ({ ...v, [pf.id]: e.target.value }))}
+              className="min-h-[90px] text-xs"
+            />
+          </div>
+        ))}
       </div>
 
       <div className="flex items-center gap-3 border-t border-border pt-4">
