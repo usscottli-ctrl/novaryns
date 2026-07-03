@@ -836,7 +836,7 @@ export function GenerateClient({
           {/* Result canvas */}
           <div
             className={cn(
-              "min-h-[520px] rounded-card border border-c-border bg-c-card p-6 shadow-card nv-panel-scroll lg:h-full lg:min-h-0 lg:overflow-y-auto",
+              "flex min-h-[520px] flex-col rounded-card border border-c-border bg-c-card p-5 shadow-card nv-panel-scroll lg:h-full lg:min-h-0 lg:overflow-y-auto",
               mobileTab === "params" && "hidden lg:block"
             )}
           >
@@ -955,7 +955,24 @@ export function GenerateClient({
             ) : (
               <>
             {images.length === 0 && !loading && (
-              <ToolDemo {...getDemo("image")!} />
+              <>
+                {/* 头部行 + demo(flex-1)+ 底部 note:与其它功能页(ToolWorkspace)
+                    完全同构,保证中间示例图的垂直位置一致。 */}
+                <div className="mb-4 flex items-center justify-between">
+                  <h2 className="text-[15px] font-semibold text-c-text">
+                    {locale === "en" ? "Result" : "生成结果"}
+                  </h2>
+                  <span className="text-[12.5px] text-c-text3">
+                    {locale === "en" ? "Preview" : "示例预览"}
+                  </span>
+                </div>
+                <ToolDemo {...getDemo("image")!} />
+                <p className="mt-3 text-center text-[11px] text-c-text4">
+                  {locale === "en"
+                    ? "Results are auto-saved to your Library for 180 days"
+                    : "生成结果将自动保存到「作品库」,保留 180 天"}
+                </p>
+              </>
             )}
 
             {loading && (
