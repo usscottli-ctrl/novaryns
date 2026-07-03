@@ -1,5 +1,6 @@
 "use client";
 
+import { cdnUrl } from "@/lib/cdn";
 import * as React from "react";
 import { createPortal } from "react-dom";
 import { useRouter } from "next/navigation";
@@ -107,7 +108,7 @@ export function WorkLightbox({
         {/* 左:大预览 */}
         <div className="relative flex min-w-0 flex-1 items-center justify-center p-10 [background:radial-gradient(120%_90%_at_50%_20%,#FBFBFD,#E7EAF0_60%,#D7DBE4)]">
           <Media
-            src={work.image}
+            src={cdnUrl(work.image)}
             alt={work.title || tool}
             gradient={work.gradient}
             ratio="aspect-[4/5]"

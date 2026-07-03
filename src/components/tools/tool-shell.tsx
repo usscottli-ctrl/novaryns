@@ -1,5 +1,6 @@
 "use client";
 
+import { cdnUrl } from "@/lib/cdn";
 import * as React from "react";
 import Link from "next/link";
 import {
@@ -326,7 +327,7 @@ export function ToolShell({
                     <div className="relative flex flex-1 items-center justify-center overflow-hidden rounded-[13px] border border-c-border bg-c-subtle2">
                       {/* eslint-disable-next-line @next/next/no-img-element */}
                       <img
-                        src={shown.url}
+                        src={cdnUrl(shown.url)}
                         alt={L("效果", "Result")}
                         onClick={() => setViewing(shown.url)}
                         className="max-h-[460px] max-w-full cursor-zoom-in object-contain"
@@ -431,7 +432,7 @@ export function ToolShell({
                         )}
                       >
                         <Media
-                          src={r.url}
+                          src={cdnUrl(r.url)}
                           alt=""
                           gradient={r.gradient}
                           thumbWidth={220}

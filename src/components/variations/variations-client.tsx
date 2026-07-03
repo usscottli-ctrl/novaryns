@@ -1,5 +1,6 @@
 "use client";
 
+import { cdnUrl } from "@/lib/cdn";
 import { useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { Copy, Plus, X, Download, ArrowRight, RefreshCw, Wand2, Sparkles } from "lucide-react";
@@ -330,7 +331,7 @@ export function VariationsClient() {
               <div className="group relative h-16 w-16 overflow-hidden rounded-field border border-c-border bg-c-subtle2">
                 {/* eslint-disable-next-line @next/next/no-img-element */}
                 <img
-                  src={slot.url}
+                  src={cdnUrl(slot.url)}
                   alt="source"
                   className="h-full w-full object-cover"
                 />
@@ -506,7 +507,7 @@ export function VariationsClient() {
                   <div className="group relative inline-block overflow-hidden rounded-[13px] border border-c-border">
                     {/* eslint-disable-next-line @next/next/no-img-element */}
                     <img
-                      src={im.url}
+                      src={cdnUrl(im.url)}
                       alt="variation"
                       onClick={() => zoom(im.url)}
                       className={cn(

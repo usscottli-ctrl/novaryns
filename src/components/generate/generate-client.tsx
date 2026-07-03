@@ -1,5 +1,6 @@
 "use client";
 
+import { cdnUrl } from "@/lib/cdn";
 import { useCallback, useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
@@ -902,7 +903,7 @@ export function GenerateClient({
                     <div className="relative flex flex-1 items-center justify-center overflow-hidden rounded-[13px] border border-c-border bg-c-subtle2">
                       {/* eslint-disable-next-line @next/next/no-img-element */}
                       <img
-                        src={shownRec.url}
+                        src={cdnUrl(shownRec.url)}
                         alt={locale === "en" ? "Result" : "成品"}
                         onClick={() =>
                           setViewing({
@@ -1044,7 +1045,7 @@ export function GenerateClient({
                           title={t("gen.viewLarge")}
                         >
                           <Media
-                            src={image.url}
+                            src={cdnUrl(image.url)}
                             alt={image.prompt}
                             gradient={image.gradient}
                             ratio={RATIO_ASPECT[image.ratio] ?? "aspect-square"}
@@ -1166,7 +1167,7 @@ export function GenerateClient({
                         )}
                       >
                         <Media
-                          src={r.url}
+                          src={cdnUrl(r.url)}
                           alt={r.prompt || ""}
                           gradient={r.gradient}
                           thumbWidth={240}
@@ -1245,7 +1246,7 @@ export function GenerateClient({
 
       {viewing && (
         <ImageLightbox
-          src={viewing.url}
+          src={cdnUrl(viewing.url)}
           alt={viewing.prompt}
           onClose={() => setViewing(null)}
           downloadName="novaryns-生图"

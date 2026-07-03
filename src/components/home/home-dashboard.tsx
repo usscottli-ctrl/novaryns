@@ -1,5 +1,6 @@
 "use client";
 
+import { cdnUrl } from "@/lib/cdn";
 import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { ArrowRight, Sparkles, Layers, Network } from "lucide-react";
@@ -251,7 +252,7 @@ export function HomeDashboard({ hot }: { hot: PickedTemplate[] }) {
                 className="group relative block w-[150px] shrink-0 overflow-hidden rounded-[12px] border border-c-border bg-c-subtle"
               >
                 <Media
-                  src={a.image}
+                  src={cdnUrl(a.image)}
                   alt={a.title || ""}
                   gradient={a.gradient}
                   thumbWidth={400}
@@ -291,7 +292,7 @@ export function HomeDashboard({ hot }: { hot: PickedTemplate[] }) {
                 className="group overflow-hidden rounded-2xl border border-border bg-card shadow-[var(--shadow-card)] transition-all hover:-translate-y-1"
               >
                 <Media
-                  src={tpl.image}
+                  src={cdnUrl(tpl.image)}
                   alt={tpl.title}
                   gradient={tpl.gradient}
                   thumbWidth={480}

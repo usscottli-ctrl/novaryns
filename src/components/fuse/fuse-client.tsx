@@ -1,5 +1,6 @@
 "use client";
 
+import { cdnUrl } from "@/lib/cdn";
 import { useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import {
@@ -299,7 +300,7 @@ export function FuseClient() {
                 >
                   {/* eslint-disable-next-line @next/next/no-img-element */}
                   <img
-                    src={s.url}
+                    src={cdnUrl(s.url)}
                     alt={`ref-${i + 1}`}
                     className="h-full w-full object-cover"
                   />
@@ -485,7 +486,7 @@ export function FuseClient() {
                   <div className="group relative inline-block overflow-hidden rounded-[13px] border border-c-border">
                     {/* eslint-disable-next-line @next/next/no-img-element */}
                     <img
-                      src={im.url}
+                      src={cdnUrl(im.url)}
                       alt="fused"
                       onClick={() => zoom(im.url)}
                       className={cn(

@@ -1,5 +1,6 @@
 "use client";
 
+import { cdnUrl } from "@/lib/cdn";
 import { useEffect, useState } from "react";
 import {
   Loader2,
@@ -277,7 +278,7 @@ export function AdminArtworks({ token }: Props) {
                   >
                     {/* eslint-disable-next-line @next/next/no-img-element */}
                     <img
-                      src={a.image}
+                      src={cdnUrl(a.image)}
                       alt={a.title}
                       loading="lazy"
                       className="h-full w-full object-cover"
@@ -457,7 +458,7 @@ function ImportDialog({
           <div className="flex gap-3">
             {/* eslint-disable-next-line @next/next/no-img-element */}
             <img
-              src={artwork.image}
+              src={cdnUrl(artwork.image)}
               alt=""
               className="h-20 w-28 shrink-0 rounded-lg border border-border object-cover"
             />
@@ -537,7 +538,7 @@ function ImageViewer({
             <p className="mb-1.5 text-xs text-muted-foreground">生成结果</p>
             {/* eslint-disable-next-line @next/next/no-img-element */}
             <img
-              src={artwork.image}
+              src={cdnUrl(artwork.image)}
               alt={artwork.title}
               className="max-h-[70vh] w-full rounded-lg border border-border object-contain"
             />

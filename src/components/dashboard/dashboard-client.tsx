@@ -1,5 +1,6 @@
 "use client";
 
+import { cdnUrl } from "@/lib/cdn";
 import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
@@ -722,7 +723,7 @@ function SingleCard({ a }: { a: Artwork }) {
         {a.status === "completed" ? (
           <Link href={href} className="group/img block" title={openLabel}>
             <Media
-              src={a.image}
+              src={cdnUrl(a.image)}
               alt={a.title}
               gradient={a.gradient}
               thumbWidth={640}
@@ -735,7 +736,7 @@ function SingleCard({ a }: { a: Artwork }) {
           </Link>
         ) : (
           <Media
-            src={a.image}
+            src={cdnUrl(a.image)}
             alt={a.title}
             gradient={a.gradient}
             thumbWidth={640}
@@ -900,7 +901,7 @@ function SuiteBatchCard({ items }: { items: Artwork[] }) {
           >
             <Link href={regenHref(it)} title={t("dash.regen")}>
               <Media
-                src={it.image}
+                src={cdnUrl(it.image)}
                 alt={it.title}
                 gradient={it.gradient}
                 thumbWidth={480}

@@ -743,7 +743,7 @@ export function GenChatClient() {
 
       {lightbox && (
         <ImageLightbox
-          src={lightbox.src}
+          src={cdnUrl(lightbox.src)}
           alt={lightbox.alt}
           onClose={() => setLightbox(null)}
         />

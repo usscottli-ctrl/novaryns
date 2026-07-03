@@ -1,5 +1,6 @@
 "use client";
 
+import { cdnUrl } from "@/lib/cdn";
 import { useEffect, useMemo, useState } from "react";
 import {
   Loader2,
@@ -159,7 +160,7 @@ export function AdminTemplates({ token }: Props) {
                     <td className="px-4 py-2">
                       {/* eslint-disable-next-line @next/next/no-img-element */}
                       <img
-                        src={t.image}
+                        src={cdnUrl(t.image)}
                         alt=""
                         loading="lazy"
                         className="h-10 w-14 rounded border border-border object-cover"
@@ -323,7 +324,7 @@ function EditTemplateModal({
             <div className="flex items-start gap-4">
               {/* eslint-disable-next-line @next/next/no-img-element */}
               <img
-                src={filePreview ?? form.image}
+                src={cdnUrl(filePreview ?? form.image)}
                 alt=""
                 className="h-28 w-40 shrink-0 rounded-lg border border-border bg-secondary object-cover"
               />
