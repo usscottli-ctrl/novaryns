@@ -40,6 +40,7 @@ import { ToolShell } from "@/components/tools/tool-shell";
 import { ToolDemo, getDemo } from "@/components/tools/tool-demo";
 import { GenLoader } from "@/components/gen-loader";
 import { ImageLightbox } from "@/components/image-lightbox";
+import { cdnUrl, cdnThumb } from "@/lib/cdn";
 
 const MAX_UPLOAD = 12 * 1024 * 1024;
 const ACCENT = "#E0568B";
@@ -269,7 +270,7 @@ export function TryonClient() {
       {picked ? (
         // eslint-disable-next-line @next/next/no-img-element
         <img
-          src={picked.url}
+          src={cdnThumb(picked.url, 160)}
           alt={picked.name}
           className="h-14 w-14 flex-none rounded-lg object-cover"
         />
@@ -368,7 +369,7 @@ export function TryonClient() {
                       <div className="relative">
                         {/* eslint-disable-next-line @next/next/no-img-element */}
                         <img
-                          src={val.url}
+                          src={cdnUrl(val.url)}
                           alt={label}
                           className="aspect-square w-full rounded-field border border-c-border bg-c-subtle2 object-contain"
                         />
@@ -484,7 +485,7 @@ export function TryonClient() {
               <div className="group relative">
                 {/* eslint-disable-next-line @next/next/no-img-element */}
                 <img
-                  src={result}
+                  src={cdnUrl(result)}
                   alt="result"
                   onClick={() => zoom(result)}
                   className="max-h-[70vh] cursor-zoom-in rounded-[13px] border border-c-border object-contain"
@@ -628,7 +629,7 @@ export function TryonClient() {
                     {/* 弹窗显示用缩略图(小而快);生成时后端仍用原图 url */}
                     {/* eslint-disable-next-line @next/next/no-img-element */}
                     <img
-                      src={it.thumb || it.url}
+                      src={cdnThumb(it.thumb || it.url, 320)}
                       alt={it.name}
                       loading="lazy"
                       style={{ height: 176, width: "100%", objectFit: "cover", display: "block" }}
@@ -643,7 +644,7 @@ export function TryonClient() {
                       onClick={(e) => {
                         e.stopPropagation();
                         // 放大预览用中图(~800px,清晰且远小于原图);无中图回退缩略图
-                        setLightbox({ url: it.medium || it.thumb || it.url, name: it.name });
+                        setLightbox({ url: cdnUrl(it.medium || it.thumb || it.url), name: it.name });
                       }}
                       className="pointer-events-none absolute left-1/2 top-1/2 flex h-10 w-10 -translate-x-1/2 -translate-y-1/2 items-center justify-center rounded-full bg-white/90 text-c-text opacity-0 shadow-md transition-opacity duration-150 hover:bg-white group-hover:pointer-events-auto group-hover:opacity-100"
                     >
