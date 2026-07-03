@@ -521,7 +521,7 @@ export function TryonClient() {
         >
           <div
             onClick={(e) => e.stopPropagation()}
-            style={{ maxHeight: "88vh" }}
+            style={{ height: "88vh" }}
             className="flex w-full max-w-4xl flex-col overflow-hidden rounded-t-card bg-c-card sm:rounded-card"
           >
             <div className="flex items-center justify-between border-b border-c-border px-5 py-4">
@@ -602,10 +602,12 @@ export function TryonClient() {
               )}
             </div>
 
-            {/* 网格:固定高度可滚动区。关键尺寸用内联样式,不依赖 CSS 类(防旧 CSS 缓存导致类失效) */}
+            {/* 网格:填满弹窗剩余高度的可滚动区(flex-1)。弹窗整体固定 88vh,
+                切换筛选只改变本区内容并在内部滚动,弹窗高度恒定不跳。
+                关键尺寸用内联样式,不依赖 CSS 类(防旧 CSS 缓存导致类失效) */}
             <div
-              style={{ maxHeight: "70vh", overflowY: "auto" }}
-              className="grid grid-cols-3 gap-3 p-5 sm:grid-cols-4 md:grid-cols-5"
+              style={{ flex: "1 1 0%", minHeight: 0, overflowY: "auto" }}
+              className="grid grid-cols-3 content-start gap-3 p-5 sm:grid-cols-4 md:grid-cols-5"
             >
               {(picker === "scene" ? scenesShown : modelsShown).map((it) => {
                 const on = picker === "scene" ? sceneId === it.id : modelId === it.id;
