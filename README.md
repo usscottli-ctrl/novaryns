@@ -112,13 +112,17 @@ systemctl enable --now docker
 - **内存**:建议 ≥2GB;若镜像拉取失败触发本地构建,构建期需 ~2-4GB(小内存机器可先加 swap)。
 - **大陆服务器连不上模型**:见下方「中国大陆服务器部署」配置 `OPENAI_BASE_URL` 中转。
 
-一行命令(需 Docker):
+### 🚀 第 1 步:安装网站程序
+
+Docker 就绪后,用下面**任意一种方式**把 Novaryns 装到服务器上。
+
+**方式 A · 一键脚本**(自动拉代码 + 启动,推荐):
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/usscottli-ctrl/novaryns/main/install.sh | bash
 ```
 
-或手动:
+**方式 B · 手动安装**(clone 后自己启动,便于改配置):
 
 ```bash
 git clone https://github.com/usscottli-ctrl/novaryns && cd novaryns
