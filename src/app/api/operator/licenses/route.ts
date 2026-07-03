@@ -7,7 +7,7 @@ import {
   setLicenseStatus,
 } from "@/lib/db";
 import { isAdminToken, bearer } from "@/lib/supabase-admin";
-import { proEnabled } from "@/lib/edition";
+import { proEnabled, isLicenseIssuer } from "@/lib/edition";
 
 // 站长后台:Pro License 管理(列表/统计、批量生成、启用/吊销)。
 export const runtime = "nodejs";
@@ -30,12 +30,24 @@ export async function GET(request: Request) {
   const blocked = await guard(request);
   if (blocked) return blocked;
   const [licenses, stats] = await Promise.all([listLicenses(), licenseStats()]);
-  return NextResponse.json({ licenses, stats });
+  // issuer:本站是否为许可证签发站。前端据此决定是否允许「生成」并给出提示。
+  return NextResponse.json({ licenses, stats, issuer: isLicenseIssuer(request) });
 }
 
 export async function POST(request: Request) {
   const blocked = await guard(request);
   if (blocked) return blocked;
+  // 只有签发站能生成:其它站(如海外站)生成的 Key 落本站独立库,
+  // 买家实例默认校验官方签发站查不到 → 是激活不了的「死 Key」,直接拦掉。
+  if (!isLicenseIssuer(request)) {
+    return NextResponse.json(
+      {
+        error:
+          "本站不是许可证签发站,请到国内主站(ai.starzeco.com)后台生成许可证。此处生成的 Key 买家将无法激活。",
+      },
+      { status: 403 }
+    );
+  }
   let body: {
     count?: number;
     tier?: string;
