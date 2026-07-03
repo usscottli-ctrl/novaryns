@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { toVisionDataUrl } from "@/lib/vision-image";
 import OpenAI, { toFile } from "openai";
 import { POINTS_PER_IMAGE } from "@/lib/mock-data";
 import { safeError } from "@/lib/api-error";
@@ -111,8 +112,7 @@ async function planShots(
   extra: string
 ): Promise<ShotSpec[]> {
   try {
-    const b64 = firstImage.buf.toString("base64");
-    const dataUrl = `data:${firstImage.type || "image/png"};base64,${b64}`;
+    const dataUrl = await toVisionDataUrl(firstImage.buf, firstImage.type);
     const sys = await getSuiteSystem(); // 后台可编辑的套图规划 system 指令
     const user =
       (extra ? `补充信息：${extra}\n` : "") + "请规划这套产品的电商套图。";

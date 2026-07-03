@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { toVisionDataUrl } from "@/lib/vision-image";
 import OpenAI from "openai";
 import {
   dbEnabled,
@@ -44,7 +45,7 @@ export async function POST(req: Request) {
     if (file.size > 12 * 1024 * 1024)
       return NextResponse.json({ error: "图片过大(请 < 12MB)" }, { status: 400 });
     const buf = Buffer.from(await file.arrayBuffer());
-    imageDataUrl = `data:${file.type || "image/png"};base64,${buf.toString("base64")}`;
+    imageDataUrl = await toVisionDataUrl(buf, file.type);
   } catch {
     return NextResponse.json({ error: "请求格式不正确" }, { status: 400 });
   }
