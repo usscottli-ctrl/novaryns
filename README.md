@@ -1,8 +1,8 @@
 <div align="center">
 
-# Novaryns · 星泽商图
+# Novaryns
 
-**开源 AI 电商视觉工作站 — 生图 / 套图 / 抠图 / 试穿 / 画布,一站式出商业级商品图**
+**开源 AI 电商生图网站 — 生图 / 套图 / 抠图 / 试穿 / 画布,一站式出商业级商品图**
 
 Open-source AI e-commerce visual studio — generate, batch-suite, cut out, try on and canvas-compose production-ready product images.
 
@@ -73,5 +73,5 @@ Licensed under **AGPL-3.0**. If you run a modified version as a network service 
 ---
 
 <div align="center">
-Made with ❤️ by 广东星泽科技 · WeChat <b>xingze063</b>
+Made with ❤️ by the <b>Novaryns</b> team · WeChat <b>xingze063</b>
 </div>
