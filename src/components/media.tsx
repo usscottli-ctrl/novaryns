@@ -1,8 +1,8 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { cn } from "@/lib/utils";
-import { cdnUrl, cdnThumb } from "@/lib/cdn";
+import { cdnUrl, cdnThumb, onImgError, probeCdnHealth } from "@/lib/cdn";
 
 // Real image with a tasteful gradient fallback + loading skeleton, so the UI
 // always looks finished even if a CDN image fails or the user is offline.
@@ -34,6 +34,19 @@ export function Media({
   const [state, setState] = useState<"loading" | "ready" | "error">(
     "loading"
   );
+  // CDN 改写源不可达(开代理用户请求被挂起,不触发 onError)→ 探测后改用原始源。
+  const [useOrig, setUseOrig] = useState(false);
+  const rewritten = thumbWidth ? cdnThumb(src, thumbWidth) : cdnUrl(src);
+  useEffect(() => {
+    if (rewritten === src) return; // 未配 CDN(海外/自托管),无需探测
+    let on = true;
+    void probeCdnHealth(rewritten).then((ok) => {
+      if (on && !ok) setUseOrig(true);
+    });
+    return () => {
+      on = false;
+    };
+  }, [rewritten, src]);
 
   return (
     <div
@@ -56,13 +69,13 @@ export function Media({
       {state !== "error" && (
         // eslint-disable-next-line @next/next/no-img-element
         <img
-          src={thumbWidth ? cdnThumb(src, thumbWidth) : cdnUrl(src)}
+          src={useOrig ? src : rewritten}
           alt={alt}
           loading={priority ? "eager" : "lazy"}
           // @ts-expect-error React 18 typings 不识别 fetchpriority,但 HTML 已支持
           fetchpriority={priority ? "high" : undefined}
           onLoad={() => setState("ready")}
-          onError={() => setState("error")}
+          onError={(e) => { if (!onImgError(e, src)) setState("error"); }}
           className={cn(
             "absolute inset-0 h-full w-full object-cover transition-opacity duration-500",
             state === "ready" ? "opacity-100" : "opacity-0",
