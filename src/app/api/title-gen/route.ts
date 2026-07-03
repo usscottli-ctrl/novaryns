@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { toVisionDataUrl } from "@/lib/vision-image";
 import OpenAI from "openai";
 import { getOpenAISettings } from "@/lib/settings";
 import { getTitleSystem } from "@/lib/prompt-config";
@@ -51,7 +52,7 @@ export async function POST(req: Request) {
         const buf = Buffer.from(await file.arrayBuffer());
         imageBuf = buf;
         imageType = file.type || "image/png";
-        imageDataUrl = `data:${imageType};base64,${buf.toString("base64")}`;
+        imageDataUrl = await toVisionDataUrl(buf, imageType);
       }
     } else {
       const body = (await req.json()) as {
