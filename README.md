@@ -135,6 +135,17 @@ docker compose up -d
 
 Compose 自带 Postgres 与持久化数据卷;生成的图片默认存本地磁盘(`/data/media`),配置 Cloudflare R2 后自动切对象存储。手动部署(`npm run build && npm start`)见 [.env.example](.env.example)。
 
+### 🎛 已装宝塔面板(BT Panel)?
+
+完全兼容,只是宝塔自带的 Nginx 通常占了 80 端口。**一键脚本会自动检测并改用 8080**,不会冲突;手动部署则加前缀 `HTTP_PORT=8080 docker compose up -d`。
+
+宝塔用户推荐用面板接管域名与证书(最顺):
+1. Docker 就绪(宝塔「软件商店」可一键装 Docker),按上面装好 Novaryns(会跑在 `8080`);
+2. 宝塔「网站」→ 添加站点(绑你的域名)→ 站点设置 →「反向代理」→ 目标 URL 填 `http://127.0.0.1:8080`;
+3. 站点设置 →「SSL」→ Let's Encrypt 一键申请证书。
+
+之后用 `https://你的域名` 访问,宝塔自动管理续期。
+
 ### 🔒 绑定域名 + HTTPS(可选,推荐正式对外使用)
 
 默认是 `http://IP`(80 端口,明文)。有域名的话,把域名的 A 记录指向服务器 IP,即可自动签发免费 HTTPS 证书:

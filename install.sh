@@ -81,6 +81,15 @@ else
 fi
 
 cd "$DIR"
+
+# 80 已被占用(常见于宝塔面板自带 Nginx / 已有 web 服务)→ 自动改用 8080,避免端口冲突。
+if [ -z "${HTTP_PORT:-}" ]; then
+  if ss -tlnH 2>/dev/null | awk '{print $4}' | grep -qE ':80$'      || lsof -iTCP:80 -sTCP:LISTEN >/dev/null 2>&1; then
+    export HTTP_PORT=8080
+    echo "→ 检测到 80 端口已被占用(可能是宝塔/Nginx),本应用改用 8080 端口 / port 80 busy, using 8080"
+  fi
+fi
+
 echo "→ 拉取镜像并启动(首次较慢,请耐心)/ pulling images & starting (first run is slow)"
 docker compose up -d --build
 
@@ -89,10 +98,13 @@ IP=$(curl -fsS -m 3 http://100.100.100.200/latest/meta-data/eipv4 2>/dev/null ||
 [ -z "$IP" ] && IP=$(curl -fsS -m 4 https://myip.ipip.net 2>/dev/null | grep -oE "[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+" | head -1 || true)
 [ -z "$IP" ] && IP="<服务器公网IP>"
 
+PORT="${HTTP_PORT:-80}"
+URL="http://$IP"; [ "$PORT" != "80" ] && URL="http://$IP:$PORT"
+
 echo ""
 echo "✓ Novaryns 已启动 / started."
-echo "  打开  http://$IP  完成首启配置(填 OpenAI API Key 即可用)。"
-echo "  ⚠ 首次需在云厂商「安全组」放行 80 端口(HTTP),否则浏览器打不开。"
+echo "  打开  $URL  完成首启配置(填 OpenAI API Key 即可用)。"
+echo "  ⚠ 首次需在云厂商「安全组」放行 $PORT 端口,否则浏览器打不开。"
 echo ""
 echo "  ⚠ 大陆服务器还需在配置里设 OPENAI_BASE_URL 中转,详见 README「中国大陆服务器部署」。"
 echo "  不知道 API Key 怎么获取?联系作者微信 xingze063。"
