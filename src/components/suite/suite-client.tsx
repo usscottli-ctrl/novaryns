@@ -516,7 +516,7 @@ export function SuiteClient() {
       </div>
 
       {/* 中:结果区 */}
-      <div className="min-h-[520px] rounded-card border border-c-border bg-c-card p-6 shadow-card nv-panel-scroll lg:h-full lg:min-h-0 lg:overflow-y-auto">
+      <div className="flex min-h-[520px] flex-col rounded-card border border-c-border bg-c-card p-5 shadow-card nv-panel-scroll lg:h-full lg:min-h-0 lg:overflow-y-auto">
         {shownRec ? (
           <div className="flex min-h-0 flex-1 flex-col">
             <div className="mb-4 flex items-center justify-between">
@@ -547,7 +547,26 @@ export function SuiteClient() {
           </div>
         ) : (
           <>
-        {!hasResult && !loading && <ToolDemo {...getDemo("suite")!} />}
+        {!hasResult && !loading && (
+          <>
+            {/* 头部行 + demo(flex-1)+ 底部 note:与其它功能页同构,示例图位置一致。 */}
+            <div className="mb-4 flex items-center justify-between">
+              <h2 className="text-[15px] font-semibold text-c-text">
+                {t("suite.resultTitle")}
+              </h2>
+              <span className="text-[12.5px] text-c-text3">
+                {L("示例预览", "Preview")}
+              </span>
+            </div>
+            <ToolDemo {...getDemo("suite")!} />
+            <p className="mt-3 text-center text-[11px] text-c-text4">
+              {L(
+                "生成结果将自动保存到「作品库」,保留 180 天",
+                "Results are auto-saved to your Library for 180 days"
+              )}
+            </p>
+          </>
+        )}
 
         {(hasResult || loading) && (
           <div className="space-y-6">
