@@ -108,7 +108,7 @@ systemctl enable --now docker
 
 **部署注意事项:**
 - **大陆服务器拉镜像慢/失败**:给 Docker 配镜像加速 —— `/etc/docker/daemon.json` 写入 `{"registry-mirrors":["https://docker.m.daocloud.io"]}` 后 `systemctl restart docker`。
-- **防火墙/安全组**:放行 `3000` 端口(阿里云/腾讯云在控制台「安全组」里加);生产建议用 Nginx/Caddy 反代到 80/443 并配 HTTPS。
+- **防火墙/安全组**:放行 `80` 端口(HTTP)——阿里云/腾讯云在控制台「安全组」加一条 80 规则即可,浏览器直接 `http://公网IP` 打开。若 80 已被占用(装了宝塔/nginx),用 `HTTP_PORT=8080 docker compose up -d` 换个端口。
 - **内存**:建议 ≥2GB;若镜像拉取失败触发本地构建,构建期需 ~2-4GB(小内存机器可先加 swap)。
 - **大陆服务器连不上模型**:见下方「中国大陆服务器部署」配置 `OPENAI_BASE_URL` 中转。
 
@@ -129,11 +129,24 @@ git clone https://github.com/usscottli-ctrl/novaryns && cd novaryns
 docker compose up -d
 ```
 
-打开 **http://localhost:3000** — 首启配置向导会引导你填入 OpenAI API Key(必填)、Pro License Key(选填)与站点名称,填完即用,**无需改任何代码或配置文件**。
+打开 **http://<你的服务器公网IP>**(本机测试用 `http://localhost`) — 首启配置向导会引导你填入 OpenAI API Key(必填)、Pro License Key(选填)与站点名称,填完即用,**无需改任何代码或配置文件**。默认监听 **80 端口**,记得在云厂商安全组放行 80。
 
 > 不知道 API Key 怎么获取?可联系作者微信 **xingze063**,或付费由作者代为提供 / 配置。
 
 Compose 自带 Postgres 与持久化数据卷;生成的图片默认存本地磁盘(`/data/media`),配置 Cloudflare R2 后自动切对象存储。手动部署(`npm run build && npm start`)见 [.env.example](.env.example)。
+
+### 🔒 绑定域名 + HTTPS(可选,推荐正式对外使用)
+
+默认是 `http://IP`(80 端口,明文)。有域名的话,把域名的 A 记录指向服务器 IP,即可自动签发免费 HTTPS 证书:
+
+```bash
+# 1) 让 app 退到内部端口,把 80/443 让给反代
+HTTP_PORT=8080 docker compose up -d
+# 2) 一条命令起 Caddy 反代 + 自动 HTTPS(把 your-domain.com 换成你的域名)
+docker run -d --name novaryns-caddy --restart always   --add-host host.docker.internal:host-gateway   -p 80:80 -p 443:443 -v caddy_data:/data   caddy:2 caddy reverse-proxy --from your-domain.com --to host.docker.internal:8080
+```
+
+之后用 `https://your-domain.com` 访问,证书自动签发与续期。
 
 ### 🇨🇳 中国大陆服务器部署
 

@@ -84,10 +84,15 @@ cd "$DIR"
 echo "→ 拉取镜像并启动(首次较慢,请耐心)/ pulling images & starting (first run is slow)"
 docker compose up -d --build
 
+# 尽量探测公网 IP,打印可直接点开的地址(阿里云元数据优先,其次公网回显)。
+IP=$(curl -fsS -m 3 http://100.100.100.200/latest/meta-data/eipv4 2>/dev/null || true)
+[ -z "$IP" ] && IP=$(curl -fsS -m 4 https://myip.ipip.net 2>/dev/null | grep -oE "[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+" | head -1 || true)
+[ -z "$IP" ] && IP="<服务器公网IP>"
+
 echo ""
 echo "✓ Novaryns 已启动 / started."
-echo "  打开 http://<服务器公网IP>:3000 完成首启配置(填 OpenAI API Key 即可用)。"
-echo "  记得在云厂商安全组放行 3000 端口。"
+echo "  打开  http://$IP  完成首启配置(填 OpenAI API Key 即可用)。"
+echo "  ⚠ 首次需在云厂商「安全组」放行 80 端口(HTTP),否则浏览器打不开。"
 echo ""
 echo "  ⚠ 大陆服务器还需在配置里设 OPENAI_BASE_URL 中转,详见 README「中国大陆服务器部署」。"
 echo "  不知道 API Key 怎么获取?联系作者微信 xingze063。"

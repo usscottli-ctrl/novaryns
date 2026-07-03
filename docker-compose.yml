@@ -1,6 +1,6 @@
 # Novaryns — one-command self-host: app + bundled Postgres + persistent volumes.
 #   git clone https://github.com/usscottli-ctrl/novaryns && cd novaryns && docker compose up -d
-# Then open http://localhost:3000 — the first-run wizard walks you through setup
+# Then open http://<server-ip> — the first-run wizard walks you through setup
 # (OpenAI API Key, optional Pro License Key, site name). No code edits needed.
 
 services:
@@ -25,9 +25,13 @@ services:
     image: ghcr.io/usscottli-ctrl/novaryns:latest
     restart: unless-stopped
     ports:
-      - "3000:3000"
+      # 默认对外 80,浏览器直接 http://<服务器IP> 访问,无需记端口。
+      # 若 80 已被占用(如装了宝塔/nginx),设 HTTP_PORT=8080 后重跑即可。
+      - "${HTTP_PORT:-80}:3000"
     environment:
       DATABASE_URL: postgres://novaryns:novaryns@db:5432/novaryns
+      # 大陆服务器连不上 api.openai.com 时,设为任意 OpenAI 兼容中转地址即可。
+      OPENAI_BASE_URL: ${OPENAI_BASE_URL:-}
       # AES key for encrypting stored API keys at rest.
       # ⚠️ Set a long random value BEFORE first run and never change it afterwards.
       SETTINGS_SECRET: change-me-to-a-long-random-string
