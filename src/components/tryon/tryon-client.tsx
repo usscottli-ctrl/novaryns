@@ -475,7 +475,7 @@ export function TryonClient() {
         }
       >
         {(zoom) => (
-          <div className="flex flex-1 items-center justify-center">
+          <div className="flex flex-1 flex-col">
             {processing ? (
               <div className="relative min-h-[300px] w-full flex-1">
                 <GenLoader />
