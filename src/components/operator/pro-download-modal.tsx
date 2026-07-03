@@ -7,13 +7,12 @@ import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { useToast } from "@/components/ui/toast";
 import { useAuth } from "@/lib/auth-context";
-import { useAuthModal } from "@/lib/auth-modal-context";
 import { PayQrModal, type PayProvider } from "@/components/credits/pay-qr-modal";
 import { RMB_PRO_LICENSE_FEN } from "@/lib/mock-data";
 
 /**
  * Pro 授权弹窗 —— 官网直售自动发货(2026-07-03 起,替代爱发电主通道)。
- * 主流程:登录 → 支付宝/微信扫码付 ¥1,999 → 支付回调自动生成 License Key
+ * 主流程:填接收邮箱(游客可购,无需注册)→ 支付宝/微信扫码付 ¥1,999 → 回调自动生成 License Key
  * (绑定买家邮箱)→ 轮询订单拿 Key → 验证换取一键部署命令。
  * 次流程:已有 Key 直接验证(POST /api/pro/redeem)。
  * 非购买站(海外官方站/自托管实例)引导到国内官方站;兜底 = 联系微信。
@@ -31,7 +30,6 @@ export function ProDownloadModal({
 }) {
   const { toast } = useToast();
   const { user } = useAuth();
-  const { openAuth } = useAuthModal();
   const [code, setCode] = React.useState("");
   const [verified, setVerified] = React.useState(false);
   const [verifying, setVerifying] = React.useState(false);
@@ -41,6 +39,11 @@ export function ProDownloadModal({
     dockerRun: string;
     expiresAt: string | null;
   } | null>(null);
+  // 接收授权的邮箱:登录预填,未登录游客直接填(无需注册,Key 绑定该邮箱)。
+  const [email, setEmail] = React.useState("");
+  React.useEffect(() => {
+    if (user?.email) setEmail((e) => e || user.email);
+  }, [user?.email]);
   // 直售支付态
   const [creating, setCreating] = React.useState<PayProvider | null>(null);
   const [pay, setPay] = React.useState<{
@@ -102,14 +105,18 @@ export function ProDownloadModal({
 
   // 直售下单:创建 pro 订单拿扫码内容。
   async function buy(provider: PayProvider) {
-    if (!user) return openAuth();
+    const to = email.trim().toLowerCase();
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(to)) {
+      toast("请先填写接收授权的邮箱", "error");
+      return;
+    }
     setCreating(provider);
     try {
       const res = await fetch("/api/payments/create", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          email: user.email,
+          email: to,
           kind: "pro",
           itemId: "pro-1y",
           method: provider,
@@ -178,7 +185,7 @@ export function ProDownloadModal({
           获取 Pro 授权
         </h2>
         <p className="mt-1.5 text-[13px] leading-relaxed text-c-text3">
-          在线购买后系统自动发放 License Key(绑定你的账号邮箱);镜像公开,填入
+          在线购买后系统自动发放 License Key(绑定你填写的邮箱,无需注册);镜像公开,填入
           License Key 即解锁 Pro 全部能力。
         </p>
       </div>
@@ -198,6 +205,16 @@ export function ProDownloadModal({
             <p className="mt-1 text-[11.5px] leading-relaxed text-c-text3">
               含商业授权(可闭源自用)· License Key 激活 · 优先支持。付款成功即时发放。
             </p>
+            {onBuyHost && (
+              <Input
+                value={email}
+                onChange={(e) => setEmail(e.target.value)}
+                placeholder="接收授权的邮箱(无需注册)"
+                type="email"
+                autoComplete="email"
+                className="mt-3"
+              />
+            )}
             {onBuyHost ? (
               <div className="mt-3 grid grid-cols-2 gap-2">
                 <Button
