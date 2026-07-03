@@ -22,12 +22,17 @@ let schemaReady: Promise<void> | null = null;
 function getPool(): Pool {
   if (!pool) {
     const connectionString = process.env.DATABASE_URL;
-    const local =
-      connectionString?.includes("localhost") ||
-      connectionString?.includes("127.0.0.1");
+    const cs = connectionString || "";
+    // 本地 / Docker 内网 / 显式 sslmode=disable → 不启用 SSL:自建或 compose 自带的
+    // Postgres 默认不支持 SSL(host 常见为 db / localhost / 127.* / 私有网段 / 容器名)。
+    // 只有远程托管库(如 Supabase 公网域名)才保留 SSL。
+    const noSsl =
+      /sslmode=disable/.test(cs) ||
+      /@(localhost|127\.0\.0\.1|db|postgres|nv-postgres|host\.docker\.internal)[:/]/.test(cs) ||
+      /@(10\.|172\.(1[6-9]|2\d|3[01])\.|192\.168\.)/.test(cs);
     pool = new Pool({
       connectionString,
-      ssl: local ? false : { rejectUnauthorized: false },
+      ssl: noSsl ? false : { rejectUnauthorized: false },
       max: 5,
     });
   }
