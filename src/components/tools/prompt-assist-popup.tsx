@@ -135,7 +135,18 @@ export function PromptAssistPopup({
             body: JSON.stringify({ idea, category, mode, tool }),
           });
         }
-        const data = await res.json();
+        // 响应可能不是 JSON(如网关超时返回的 HTML 524)→ 容错解析,给明确提示。
+        let data: { prompt?: string; error?: string } = {};
+        try {
+          data = await res.json();
+        } catch {
+          return {
+            ok: false,
+            text: res.ok
+              ? L("生成失败,请重试", "Failed, please retry")
+              : L("生成超时,请重试(可换张更小的图)", "Timed out, please retry"),
+          };
+        }
         if (res.ok && data.prompt) return { ok: true, text: data.prompt as string };
         return { ok: false, text: data.error || L("失败,请重试", "Failed, please retry") };
       } catch {

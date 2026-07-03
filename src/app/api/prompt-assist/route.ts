@@ -45,9 +45,24 @@ export async function POST(req: Request) {
       mode = (f.get("mode") ?? "write").toString();
       tool = (f.get("tool") ?? "").toString().slice(0, 40);
       const file = f.get("image");
-      if (file instanceof File && file.size > 0 && file.size <= 8 * 1024 * 1024) {
-        const buf = Buffer.from(await file.arrayBuffer());
-        imageDataUrl = `data:${file.type || "image/png"};base64,${buf.toString("base64")}`;
+      if (file instanceof File && file.size > 0 && file.size <= 12 * 1024 * 1024) {
+        const raw = Buffer.from(await file.arrayBuffer());
+        // 视觉模型理解图片内容不需高清:压到长边 1024 + JPEG,payload 从几 MB 降到
+        // 几十 KB,vision 调用快几十倍,避免大图慢/超时(CF 100s)导致前端「网络错误」。
+        try {
+          const mod = (await import("sharp")) as unknown as {
+            default?: typeof import("sharp");
+          } & typeof import("sharp");
+          const sharp = mod.default ?? mod;
+          const small = await sharp(raw)
+            .rotate()
+            .resize(1024, 1024, { fit: "inside", withoutEnlargement: true })
+            .jpeg({ quality: 80 })
+            .toBuffer();
+          imageDataUrl = `data:image/jpeg;base64,${small.toString("base64")}`;
+        } catch {
+          imageDataUrl = `data:${file.type || "image/png"};base64,${raw.toString("base64")}`;
+        }
       }
     } else {
       const body = (await req.json()) as {
