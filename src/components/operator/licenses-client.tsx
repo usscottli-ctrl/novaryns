@@ -85,6 +85,8 @@ export function LicensesClient({ embedded = false }: { embedded?: boolean }) {
   const [loadError, setLoadError] = React.useState<string | null>(null);
   // 非管理员(401/403)→ 显示无权限页,不渲染授权管理界面。
   const [denied, setDenied] = React.useState(false);
+  // 本站是否为许可证签发站(默认 true,GET 回来再校正);非签发站禁止生成。
+  const [issuer, setIssuer] = React.useState(true);
 
   // 生成控件状态
   const [count, setCount] = React.useState("10");
@@ -116,6 +118,7 @@ export function LicensesClient({ embedded = false }: { embedded?: boolean }) {
         }
         setLicenses(data.licenses as LicenseRow[]);
         setStats(data.stats as LicenseStats);
+        setIssuer(data.issuer !== false);
       } catch {
         if (!cancelled) setLoadError("网络异常");
       }
@@ -144,6 +147,10 @@ export function LicensesClient({ embedded = false }: { embedded?: boolean }) {
 
   // ── 批量生成(POST /api/operator/licenses,服务端生成入库) ──
   const handleGenerate = async () => {
+    if (!issuer) {
+      toast("本站不是签发站,请到国内主站后台生成许可证", "error");
+      return;
+    }
     if (!countValid) {
       toast("数量需 1–500 的整数", "error");
       return;
@@ -325,6 +332,16 @@ export function LicensesClient({ embedded = false }: { embedded?: boolean }) {
           <h2 className="text-[15px] font-semibold text-c-text">生成 License</h2>
         </div>
 
+        {/* 非签发站警示:此处生成的 Key 落本站独立库,买家默认校验国内主站查不到 →
+            激活不了的死 Key。引导到国内主站后台发放。 */}
+        {!issuer && (
+          <div className="mt-4 rounded-[12px] border border-c-danger/40 bg-c-tint-r/40 px-4 py-3 text-[12.5px] leading-relaxed text-c-danger">
+            本站不是许可证「签发站」。买家实例默认向国内主站 ai.starzeco.com 校验,
+            此处生成的 Key 存在本站独立数据库、买家将无法激活。
+            <b>请到国内主站后台「授权管理」生成并发放许可证。</b>
+          </div>
+        )}
+
         <div className="mt-5 grid grid-cols-1 gap-5 md:grid-cols-3">
           <div>
             <label className="mb-2 block text-[12.5px] font-medium text-c-text3">
@@ -378,8 +395,9 @@ export function LicensesClient({ embedded = false }: { embedded?: boolean }) {
             variant="primary"
             size="md"
             loading={generating}
-            disabled={!countValid || !deviceLimitValid}
+            disabled={!issuer || !countValid || !deviceLimitValid}
             onClick={handleGenerate}
+            title={!issuer ? "本站非签发站,请到国内主站生成" : undefined}
           >
             <Sparkles size={15} />
             生成

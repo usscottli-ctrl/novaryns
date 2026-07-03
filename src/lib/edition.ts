@@ -78,3 +78,31 @@ export async function proEnabled(): Promise<boolean> {
   cache = { pro: false, at: now };
   return false;
 }
+
+// ---------------------------------------------------------------------------
+// 许可证「签发站」判定。
+// 买家自托管实例激活时,默认向 LICENSE_SERVER_URL(默认官方站 ai.starzeco.com)
+// 的 /api/license/activate 校验;而各站数据库彼此独立,后台生成的 Key 只落本站库。
+// → 只有「签发站」(= 买家默认校验的那个站)生成的 Key 才查得到、能激活;其它站
+//   (如海外站)后台生成的是「死 Key」,买家永远激活不了。
+// 因此后台「生成 License」只允许在签发站进行。
+//
+// 判定优先级:显式 env LICENSE_ISSUER(1/true 强制是,0/false 强制否)> 比对本次
+// 请求 Host 与 license 服务器 Host。正常按域名访问的官方国内站即自动识别为签发站。
+// ---------------------------------------------------------------------------
+export function isLicenseIssuer(request?: Request): boolean {
+  const flag = (process.env.LICENSE_ISSUER || "").trim().toLowerCase();
+  if (flag === "1" || flag === "true" || flag === "yes") return true;
+  if (flag === "0" || flag === "false" || flag === "no") return false;
+  let serverHost = "ai.starzeco.com";
+  try {
+    serverHost = new URL(
+      process.env.LICENSE_SERVER_URL || "https://ai.starzeco.com"
+    ).host.toLowerCase();
+  } catch {
+    /* 用默认 */
+  }
+  const reqHost = (request?.headers.get("host") || "").toLowerCase().trim();
+  if (!reqHost) return false;
+  return reqHost === serverHost;
+}
