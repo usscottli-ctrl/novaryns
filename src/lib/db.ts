@@ -1359,28 +1359,32 @@ export async function fulfillOrder(
       await client.query("COMMIT");
       return { ok: true, alreadyPaid: true, order: rowToOrder(o) };
     }
-    // 到账 = 建一个 2 年有效的积分批次(不再分 plan/pack,按订单存的 credits 入账;
-    // 遗留的会员订单后付款也能正常入账)。在同一事务里写批次 + 购买流水 + 同步余额。
-    const reason = `购买${o.title || "积分"}`;
-    const expISO = twoYearsFromNow().toISOString();
-    await client.query(
-      `INSERT INTO app_credit_batches
-         (id, email, amount, remaining, source, reason, order_id, expires_at)
-       VALUES ($1,$2,$3,$3,'purchase',$4,$5,$6)`,
-      [ledId("bat"), o.email, o.credits, reason, o.id, expISO]
-    );
-    await client.query(
-      `INSERT INTO app_ledger (id, email, delta, reason, kind, expires_at)
-         VALUES ($1,$2,$3,$4,'purchase',$5)`,
-      [ledId(), o.email, o.credits, reason, expISO]
-    );
-    await client.query(
-      `UPDATE app_users SET credits_total = (
-         SELECT COALESCE(SUM(remaining),0) FROM app_credit_batches
-          WHERE email = $1 AND expires_at > now() AND remaining > 0)
-        WHERE email = $1`,
-      [o.email]
-    );
+    // Pro 授权直售订单:不发积分,标记已付后在事务外幂等生成 License Key
+    // (ensureProLicenseForOrder,按 batch=orderId 去重)。积分订单走原批次逻辑。
+    if (o.kind !== "pro") {
+      // 到账 = 建一个 2 年有效的积分批次(不再分 plan/pack,按订单存的 credits 入账;
+      // 遗留的会员订单后付款也能正常入账)。在同一事务里写批次 + 购买流水 + 同步余额。
+      const reason = `购买${o.title || "积分"}`;
+      const expISO = twoYearsFromNow().toISOString();
+      await client.query(
+        `INSERT INTO app_credit_batches
+           (id, email, amount, remaining, source, reason, order_id, expires_at)
+         VALUES ($1,$2,$3,$3,'purchase',$4,$5,$6)`,
+        [ledId("bat"), o.email, o.credits, reason, o.id, expISO]
+      );
+      await client.query(
+        `INSERT INTO app_ledger (id, email, delta, reason, kind, expires_at)
+           VALUES ($1,$2,$3,$4,'purchase',$5)`,
+        [ledId(), o.email, o.credits, reason, expISO]
+      );
+      await client.query(
+        `UPDATE app_users SET credits_total = (
+           SELECT COALESCE(SUM(remaining),0) FROM app_credit_batches
+            WHERE email = $1 AND expires_at > now() AND remaining > 0)
+          WHERE email = $1`,
+        [o.email]
+      );
+    }
     await client.query(
       `UPDATE app_orders SET status='paid', provider=$2, provider_txn=$3,
           paid_at=now() WHERE id=$1`,
@@ -1394,7 +1398,39 @@ export async function fulfillOrder(
     client.release();
   }
   const updated = await getOrder(orderId);
+  // Pro 直售:付款落定后幂等生成授权(失败不影响订单已付;轮询接口会懒补)。
+  if (updated?.kind === "pro") {
+    await ensureProLicenseForOrder(updated.id, updated.email).catch(() => null);
+  }
   return { ok: true, alreadyPaid: false, order: updated ?? undefined };
+}
+
+// Pro 直售订单 → License Key(幂等:batch=orderId 唯一)。付款回调与订单轮询
+// 都会调它,先查后建;生成后绑定买家邮箱,可溯源可吊销。有效期 365 天。
+export async function ensureProLicenseForOrder(
+  orderId: string,
+  emailRaw: string
+): Promise<string | null> {
+  await ensureSchema();
+  const email = emailRaw.toLowerCase();
+  const { rows } = await getPool().query<{ key: string }>(
+    `SELECT key FROM app_licenses WHERE batch = $1 LIMIT 1`,
+    [orderId]
+  );
+  if (rows[0]) return rows[0].key;
+  const [lic] = await generateLicenses({
+    count: 1,
+    tier: "pro",
+    expiryDays: 365,
+    batch: orderId,
+    note: `官网直售 ${email}`,
+  });
+  if (!lic) return null;
+  await getPool().query(
+    `UPDATE app_licenses SET bound_email = $2 WHERE key = $1`,
+    [lic.key, email]
+  );
+  return lic.key;
 }
 
 /** Best-effort: records the user's most recent login IP. Never throws. */
