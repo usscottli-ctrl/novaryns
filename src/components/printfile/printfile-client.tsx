@@ -1,5 +1,6 @@
 "use client";
 
+import { cdnUrl } from "@/lib/cdn";
 import { useEffect, useRef, useState } from "react";
 import {
   Printer,
@@ -522,7 +523,7 @@ export function PrintfileClient() {
                   >
                     {/* eslint-disable-next-line @next/next/no-img-element */}
                     <img
-                      src={it.resultUrl || it.url}
+                      src={cdnUrl(it.resultUrl || it.url)}
                       alt="item"
                       onClick={() =>
                         it.status === "done" && it.resultUrl

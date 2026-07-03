@@ -1,5 +1,6 @@
 "use client";
 
+import { cdnUrl } from "@/lib/cdn";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import {
@@ -2308,7 +2309,7 @@ export function AdminSettings() {
                               >
                                 {/* eslint-disable-next-line @next/next/no-img-element */}
                                 <img
-                                  src={a.image}
+                                  src={cdnUrl(a.image)}
                                   alt={a.title}
                                   loading="lazy"
                                   className="aspect-square w-full bg-secondary object-cover"
@@ -2368,7 +2369,7 @@ export function AdminSettings() {
 
       {lightbox && (
         <ImageLightbox
-          src={lightbox.src}
+          src={cdnUrl(lightbox.src)}
           alt={lightbox.alt}
           onClose={() => setLightbox(null)}
         />

@@ -1,5 +1,6 @@
 "use client";
 
+import { cdnUrl } from "@/lib/cdn";
 import { Media } from "@/components/media";
 import { useI18n } from "@/lib/i18n/locale-context";
 import { cn } from "@/lib/utils";
@@ -32,7 +33,7 @@ export function Showcase({ items }: { items: PickedTemplate[] }) {
               style={{ animationDelay: `${i * 0.6}s` }}
             >
               <Media
-                src={tpl.image}
+                src={cdnUrl(tpl.image)}
                 alt={tpl.title}
                 gradient={tpl.gradient}
                 ratio="aspect-[4/5]"

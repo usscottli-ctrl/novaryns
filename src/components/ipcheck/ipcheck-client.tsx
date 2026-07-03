@@ -1,5 +1,6 @@
 "use client";
 
+import { cdnUrl } from "@/lib/cdn";
 import { useEffect, useRef, useState } from "react";
 import {
   ShieldCheck,
@@ -165,7 +166,7 @@ export function IpcheckClient() {
               <div className="relative inline-block">
                 {/* eslint-disable-next-line @next/next/no-img-element */}
                 <img
-                  src={img.url}
+                  src={cdnUrl(img.url)}
                   alt="src"
                   className="h-16 w-16 rounded-field border border-c-border bg-c-subtle2 object-cover"
                 />

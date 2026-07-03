@@ -686,7 +686,7 @@ export function SuiteClient() {
                       )}
                     >
                       <Media
-                        src={r.url}
+                        src={cdnUrl(r.url)}
                         alt=""
                         gradient={r.gradient}
                         thumbWidth={220}
@@ -737,7 +737,7 @@ export function SuiteClient() {
       {/* 看大图 lightbox */}
       {viewing && viewing.url && (
         <ImageLightbox
-          src={viewing.url}
+          src={cdnUrl(viewing.url)}
           alt={viewing.label}
           onClose={() => setViewing(null)}
           downloadName="星泽商图-套图"

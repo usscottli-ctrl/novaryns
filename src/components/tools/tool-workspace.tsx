@@ -1,5 +1,6 @@
 "use client";
 
+import { cdnUrl } from "@/lib/cdn";
 import * as React from "react";
 import Link from "next/link";
 import {
@@ -576,7 +577,7 @@ export function ToolWorkspace({
                       )}
                     >
                       <Media
-                        src={r.url}
+                        src={cdnUrl(r.url)}
                         alt=""
                         gradient={r.gradient}
                         thumbWidth={220}

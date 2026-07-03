@@ -1,5 +1,6 @@
 "use client";
 
+import { cdnUrl } from "@/lib/cdn";
 import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import {
@@ -639,7 +640,7 @@ function WorkTile({
       )}
     >
       <Media
-        src={work.image}
+        src={cdnUrl(work.image)}
         alt={work.title || tool}
         gradient={work.gradient}
         thumbWidth={480}

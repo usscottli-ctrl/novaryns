@@ -1,5 +1,6 @@
 "use client";
 
+import { cdnUrl } from "@/lib/cdn";
 import Link from "next/link";
 import {
   Sparkles,
@@ -187,7 +188,7 @@ export function Landing({ hot }: { hot: PickedTemplate[] }) {
                 className="group relative overflow-hidden rounded-2xl border border-border bg-card shadow-[var(--shadow-card)] transition-transform hover:-translate-y-1"
               >
                 <Media
-                  src={tpl.image}
+                  src={cdnUrl(tpl.image)}
                   alt={tpl.title}
                   gradient={tpl.gradient}
                   thumbWidth={480}
