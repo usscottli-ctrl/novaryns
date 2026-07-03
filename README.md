@@ -22,6 +22,22 @@ Open-source AI e-commerce visual studio — generate, batch-suite, cut out, try 
 - **完整后台** — 模板库、提示词配置、API Key 管理(浏览器 RSA 加密 + AES 落库)
 - **国际化** — 中 / 英双语,按浏览器语言自动切换
 
+## 🖥 界面预览 / UI
+
+<p align="center">
+  <img src="docs/screenshots/home.png" width="840" alt="Novaryns 首页" />
+</p>
+<table>
+  <tr>
+    <td align="center" width="50%">
+      <img src="docs/screenshots/generate.png" alt="AI 生图工作台" /><br /><b>AI 生图工作台</b>
+    </td>
+    <td align="center" width="50%">
+      <img src="docs/screenshots/tryon.png" alt="服装上身" /><br /><b>服装上身(虚拟试穿)</b>
+    </td>
+  </tr>
+</table>
+
 ## 📸 功能预览 / Screenshots
 
 <table>
