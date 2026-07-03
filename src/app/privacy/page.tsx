@@ -1,6 +1,11 @@
 import { ShieldCheck } from "lucide-react";
 import { getServerLocale } from "@/lib/i18n/server-locale";
 import { BRAND, BRAND_EMAIL } from "@/lib/brand";
+import { editionName } from "@/lib/edition";
+
+// 法律主体按版本区分:官方云=广东星泽科技(国内合规);开源/Pro 自托管=部署者自己,
+// 全文只出现 Novaryns,不出现我们的大陆公司主体(2026-07-03 用户拍板)。
+const isCloud = editionName === "cloud";
 
 export const metadata = { title: `隐私政策 — ${BRAND}` };
 
@@ -151,7 +156,9 @@ function PrivacyZh() {
         <section>
           <h2 className="text-base font-semibold text-foreground">10. 联系我们</h2>
           <p className="mt-2">
-            本服务由广东星泽科技有限公司（备案号：粤ICP备2025390640号-1）运营。
+            {isCloud
+              ? "本服务由广东星泽科技有限公司（备案号：粤ICP备2025390640号-1）运营。"
+              : "本服务由本站运营方基于 Novaryns 软件部署运营。"}
             如对本政策有任何疑问，或希望行使上述权利，请通过
             {" "}{BRAND_EMAIL} 联系我们。
           </p>
@@ -337,9 +344,11 @@ function PrivacyEn() {
             10. Contact us
           </h2>
           <p className="mt-2">
-            The service is operated by Guangdong Xingze Technology Co., Ltd. (ICP
-            filing: 粤ICP备2025390640号-1). For any questions about this policy,
-            or to exercise the rights above, contact us at {BRAND_EMAIL}.
+            {isCloud
+              ? "The service is operated by Guangdong Xingze Technology Co., Ltd. (ICP filing: 粤ICP备2025390640号-1)."
+              : "The service is operated by the deployer of this Novaryns instance."}{" "}
+            For any questions about this policy, or to exercise the rights
+            above, contact us at {BRAND_EMAIL}.
           </p>
         </section>
       </div>
