@@ -9,9 +9,11 @@
 | 决策点 | 结论 | 理由 |
 |---|---|---|
 | 租户隔离模型 | **每客户独立 Docker 实例**(非共享多租户) | 复用现成自托管交付物(镜像/首启向导/门控),代码零侵入;共享多租户要给全部表加 tenant_id,风险巨大 |
-| 托管位置 | **美国 Hetzner(5.78.201.12)** | 大陆服务器要 ICP 备案(客户子域名/自定义域名全卡死);美国机免备案、直连 OpenAI(不用 relay) |
-| 容量 | 4C/7.6G/51G 空闲,**≈15 租户起步**(app ~300M + gotrue ~60M/租户,PG 共享) | 满了加机器,provision 脚本天然支持多宿主 |
-| 域名 | `客户名.novaryns.com`(一级子域) | CF 免费版通配证书只覆盖一级;需 **通配 DNS `*.novaryns.com` → 5.78.201.12(灰云/DNS only)**;保留字校验(www/image/relay/auth/admin/api/cn-origin 等) |
+| 托管位置 | **双区域(2026-07-03 用户拍板,大陆速度优先)**:**主推大陆区=阿里云杭州 ECS(120.27.128.2)**,海外区=Hetzner(5.78.201.12) | **关键洞察:starzeco.com 已 ICP 备案(粤ICP备2025390640号)→ 大陆租户用 `客户名.starzeco.com` 放阿里云完全合规**、访问快;海外区免备案给出海客户。两台机的 Caddy/GoTrue/nv-postgres 配方完全相同,provision 脚本带 `--region cn|global` 参数 |
+| 容量 | CN ECS 4C/7.1G(5.5G 可用)≈10-12 租户;US 4C/7.6G ≈15 租户 | 满了加机器,脚本天然支持多宿主 |
+| 域名 | 大陆区 `客户名.starzeco.com`(**通配 `*.starzeco.com` A→120.27.128.2 已于 2026-07-03 加好并验证**,显式记录 ai/cdn 优先不受影响,阿里云解析 RAM key 可自动管理);海外区 `客户名.novaryns.com`(**通配 `*.novaryns.com`→5.78.201.12 灰云,待 CF token 续期后加**) | CF 免费版通配证书只盖一级子域;保留字校验(www/ai/cdn/pay/wx/auth/image/relay/admin/api/cn-origin 等) |
+| 租户 OpenAI 出口 | 大陆区实例 env `OPENAI_BASE_URL=https://relay.novaryns.com`(relay IP 白名单已含 120.27.128.2,天然直通);海外区直连 | relay 双通道见 opencore 记忆 |
+| 客户自定义域名 | **支持,分区域**:海外区=任意域名 CNAME 即绑(Caddy on_demand_tls + ask 端点校验租户,v2);大陆区=**客户域名必须自己已 ICP 备案**(法规硬性,国内 SaaS 通行做法,绑定时提示并校验) | 未备案域名解析到大陆服务器 80/443 会被阻断,无解 |
 | 租户版本 | `NOVARYNS_EDITION=cloud`(全功能解锁) | 云端权益=白标+多用户+收款全含;我们控制宿主机,env 安全 |
 | 租户认证 | **每租户一个 GoTrue 容器** + `auth-<name>.novaryns.com` | 复刻现有 gotrue-main/gotrue-cn 配方(容器已在跑,env 清单已核);GoTrue 单用户池,不能共享;v1 用 `GOTRUE_MAILER_AUTOCONFIRM=true` 免 SMTP |
 | 租户数据库 | 共享 **nv-postgres**(127.0.0.1:5433,已在跑),每租户两个库:`t_<name>`(应用)+ `t_<name>_auth`(GoTrue) | 单 PG 多库,资源省 |
