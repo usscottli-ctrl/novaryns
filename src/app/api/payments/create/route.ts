@@ -41,8 +41,9 @@ export async function POST(req: Request) {
     return NextResponse.json({ error: "请求格式不正确" }, { status: 400 });
   }
   const email = (body.email ?? "").trim().toLowerCase();
-  if (!email) {
-    return NextResponse.json({ error: "请先登录" }, { status: 401 });
+  // Pro 直售支持游客购买(填接收邮箱即可,Key 绑定该邮箱);只校验格式。
+  if (!email || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+    return NextResponse.json({ error: "请填写有效的邮箱" }, { status: 400 });
   }
   const item = resolveItem(body.kind ?? "", body.itemId ?? "");
   if (!item) {
