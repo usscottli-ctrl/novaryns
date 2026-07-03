@@ -1,7 +1,7 @@
 "use client";
 
 import * as React from "react";
-import { Check, Cloud, Copy, MessageCircle } from "lucide-react";
+import { Check, Cloud, Copy, ExternalLink, MessageCircle } from "lucide-react";
 import { Modal } from "@/components/ui/modal";
 import { Button } from "@/components/ui/button";
 import { useToast } from "@/components/ui/toast";
@@ -9,9 +9,14 @@ import { useToast } from "@/components/ui/toast";
 /**
  * 云端托管开通弹窗(MVP:人工开通)。
  * 流程:加作者微信(备注「云端托管」)→ 沟通域名/品牌/算力方案 → 1 个工作日内交付
- * 独立白标实例。后续量大再做自动开通(建租户+域名映射+按量积分)。
+ * 独立白标实例。自助支付/自动开通(L3)在国内官方站进行,施工计划见
+ * docs/cloud-provisioning.md。
+ * 非购买站(海外官方站、自托管实例)打开本弹窗时,主按钮引导到国内官方站开通。
  */
 const WECHAT_ID = "xingze063";
+// 云端托管的购买站(自助支付只在这里;其它实例引导过去)
+const CLOUD_BUY_HOST = "ai.starzeco.com";
+const CLOUD_BUY_URL = `https://${CLOUD_BUY_HOST}/deploy`;
 
 const BENEFITS = [
   "免部署 · 自动更新,无需自己的服务器",
@@ -31,6 +36,11 @@ export function CloudModal({
 }) {
   const { toast } = useToast();
   const [copied, setCopied] = React.useState(false);
+  // 是否就在购买站上(挂载后判 host,SSR 期间按“不是”渲染,避免水合不一致)
+  const [onBuyHost, setOnBuyHost] = React.useState(false);
+  React.useEffect(() => {
+    setOnBuyHost(window.location.host === CLOUD_BUY_HOST);
+  }, []);
 
   const copyWechat = async () => {
     try {
@@ -78,10 +88,25 @@ export function CloudModal({
         </ol>
       </div>
 
-      <Button variant="primary" className="mt-4 w-full" onClick={copyWechat}>
-        {copied ? <Check className="h-4 w-4" /> : <Copy className="h-4 w-4" />}
-        复制微信号 {WECHAT_ID}
-      </Button>
+      {onBuyHost ? (
+        <Button variant="primary" className="mt-4 w-full" onClick={copyWechat}>
+          {copied ? <Check className="h-4 w-4" /> : <Copy className="h-4 w-4" />}
+          复制微信号 {WECHAT_ID}
+        </Button>
+      ) : (
+        <>
+          <Button variant="primary" className="mt-4 w-full" asChild>
+            <a href={CLOUD_BUY_URL} target="_blank" rel="noopener noreferrer">
+              <ExternalLink className="h-4 w-4" />
+              前往官方站开通云端
+            </a>
+          </Button>
+          <Button variant="outline" className="mt-2 w-full" onClick={copyWechat}>
+            {copied ? <Check className="h-4 w-4" /> : <Copy className="h-4 w-4" />}
+            或复制微信号 {WECHAT_ID}
+          </Button>
+        </>
+      )}
       <p className="mt-2 flex items-center justify-center gap-1 text-[11.5px] text-c-text4">
         <MessageCircle className="h-3.5 w-3.5" />
         通过微信一对一开通,支持开具凭证
