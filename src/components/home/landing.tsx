@@ -404,6 +404,7 @@ export function Landing({ hot }: { hot: PickedTemplate[] }) {
               badge: { text: L("免运维", "Zero-ops"), kind: "blue" as const },
               rows: [
                 L("免部署 · 自动更新", "Zero-ops · auto updates"),
+                L("大陆可用 · 无需自备中转", "Works in mainland China · no relay needed"),
                 L("弹性算力 · 优先队列", "Elastic compute · priority queue"),
                 L("绑定域名 · 白标", "Custom domain · white-label"),
               ],
