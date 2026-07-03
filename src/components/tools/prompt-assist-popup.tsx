@@ -4,6 +4,8 @@ import * as React from "react";
 import { X, Wand2, Sparkles, Loader2, Check, ArrowUp } from "lucide-react";
 import { useI18n } from "@/lib/i18n/locale-context";
 import { authHeader } from "@/lib/supabase";
+import { useAuth } from "@/lib/auth-context";
+import { useAuthModal } from "@/lib/auth-modal-context";
 import { cn } from "@/lib/utils";
 
 type Result = {
@@ -55,6 +57,16 @@ export function PromptAssistPopup({
 }) {
   const { locale } = useI18n();
   const L = (z: string, e: string) => (locale === "en" ? e : z);
+  const { user, ready } = useAuth();
+  const { openAuth } = useAuthModal();
+  // 未登录点「AI帮写/智能优化」→ 不发请求,直接弹登录窗(帮写需登录防刷 key)。
+  React.useEffect(() => {
+    if (open && ready && !user) {
+      onClose();
+      openAuth();
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [open, ready, user]);
   // 帮写(历史面板)
   const [history, setHistory] = React.useState<Result[]>([]);
   const [busy, setBusy] = React.useState(false);
