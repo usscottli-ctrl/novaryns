@@ -91,6 +91,27 @@ Open-source AI e-commerce visual studio — generate, batch-suite, cut out, try 
 
 ## 🚀 快速开始 / Quick start
 
+### 🐳 第 0 步:安装 Docker(没装的话)
+
+全新服务器(Ubuntu / Debian / CentOS / 阿里云 / 腾讯云通用)一条命令:
+
+```bash
+# 大陆服务器(走阿里云安装源,快):
+curl -fsSL https://get.docker.com | bash -s docker --mirror Aliyun
+# 海外服务器:
+curl -fsSL https://get.docker.com | bash
+# 启动并设为开机自启:
+systemctl enable --now docker
+```
+
+装完用 `docker -v && docker compose version` 验证两个都有输出即可。
+
+**部署注意事项:**
+- **大陆服务器拉镜像慢/失败**:给 Docker 配镜像加速 —— `/etc/docker/daemon.json` 写入 `{"registry-mirrors":["https://docker.m.daocloud.io"]}` 后 `systemctl restart docker`。
+- **防火墙/安全组**:放行 `3000` 端口(阿里云/腾讯云在控制台「安全组」里加);生产建议用 Nginx/Caddy 反代到 80/443 并配 HTTPS。
+- **内存**:建议 ≥2GB;若镜像拉取失败触发本地构建,构建期需 ~2-4GB(小内存机器可先加 swap)。
+- **大陆服务器连不上模型**:见下方「中国大陆服务器部署」配置 `OPENAI_BASE_URL` 中转。
+
 一行命令(需 Docker):
 
 ```bash
