@@ -20,6 +20,7 @@ import {
   type SceneEnv,
 } from "@/lib/tryon-library";
 import { cn } from "@/lib/utils";
+import { cdnThumb } from "@/lib/cdn";
 
 type Kind = "model" | "scene";
 
@@ -271,7 +272,7 @@ export function AdminTryon({ token }: { token: string | null }) {
             >
               {/* eslint-disable-next-line @next/next/no-img-element */}
               <img
-                src={it.thumb || it.url}
+                src={cdnThumb(it.thumb || it.url, 320)}
                 alt={it.name}
                 loading="lazy"
                 className="aspect-[3/4] w-full object-cover"
