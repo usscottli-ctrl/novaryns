@@ -22,6 +22,57 @@ Open-source AI e-commerce visual studio — generate, batch-suite, cut out, try 
 - **完整后台** — 模板库、提示词配置、API Key 管理(浏览器 RSA 加密 + AES 落库)
 - **国际化** — 中 / 英双语,按浏览器语言自动切换
 
+## 📸 功能预览 / Screenshots
+
+<table>
+  <tr>
+    <td colspan="2" align="center">
+      <img src="public/demos/image-combo.webp" width="760" alt="AI 生图" /><br />
+      <b>AI 生图</b> — 一句话或产品图,生成电商大片
+    </td>
+  </tr>
+  <tr>
+    <td align="center" width="50%">
+      <img src="public/demos/suite-before.webp" width="170" alt="" /> ➜ <img src="public/demos/suite-after.webp" width="170" alt="" /><br />
+      <b>一键套图</b> — 1 主图 + 4 副图 + 8 详情图
+    </td>
+    <td align="center" width="50%">
+      <img src="public/demos/tryon-before.webp" width="170" alt="" /> ➜ <img src="public/demos/tryon-after.webp" width="170" alt="" /><br />
+      <b>服装上身</b> — 选模特与场景,一键虚拟试穿
+    </td>
+  </tr>
+  <tr>
+    <td align="center">
+      <img src="public/demos/cutout-combo.png" width="352" alt="" /><br />
+      <b>AI 抠图</b> — 发丝级透明底
+    </td>
+    <td align="center">
+      <img src="public/demos/upscale-before.webp" width="170" alt="" /> ➜ <img src="public/demos/upscale-after.webp" width="170" alt="" /><br />
+      <b>AI 变清晰</b> — 模糊图高清修复放大
+    </td>
+  </tr>
+  <tr>
+    <td align="center">
+      <img src="public/demos/dress3d-before.webp" width="170" alt="" /> ➜ <img src="public/demos/dress3d-after.webp" width="170" alt="" /><br />
+      <b>3D 服装图</b> — 幽灵模特立体展示
+    </td>
+    <td align="center">
+      <img src="public/demos/variation-before.webp" width="170" alt="" /> ➜ <img src="public/demos/variation-after.webp" width="170" alt="" /><br />
+      <b>图裂变</b> — 一张图裂变整组系列素材
+    </td>
+  </tr>
+  <tr>
+    <td align="center">
+      <img src="public/demos/fusion-before.webp" width="170" alt="" /> ➜ <img src="public/demos/fusion-after.webp" width="170" alt="" /><br />
+      <b>AI 融图</b> — 多图元素无缝合成
+    </td>
+    <td align="center">
+      <img src="public/demos/inpaint-before.webp" width="170" alt="" /> ➜ <img src="public/demos/inpaint-after.webp" width="170" alt="" /><br />
+      <b>局部改图</b> — 涂哪改哪,其余不动
+    </td>
+  </tr>
+</table>
+
 ## 🚀 快速开始 / Quick start
 
 一行命令(需 Docker):
@@ -42,6 +93,17 @@ docker compose up -d
 > 不知道 API Key 怎么获取?可联系作者微信 **xingze063**,或付费由作者代为提供 / 配置。
 
 Compose 自带 Postgres 与持久化数据卷;生成的图片默认存本地磁盘(`/data/media`),配置 Cloudflare R2 后自动切对象存储。手动部署(`npm run build && npm start`)见 [.env.example](.env.example)。
+
+### 🇨🇳 中国大陆服务器部署
+
+大陆服务器**无法直连** `api.openai.com`。设置环境变量 `OPENAI_BASE_URL` 指向任意 **OpenAI 兼容中转 / 网关**即可(自建海外中转或第三方中转服务均可),全部生成接口自动生效:
+
+```bash
+# docker-compose.yml 的 environment 或 .env 中:
+OPENAI_BASE_URL=https://your-relay.example.com/v1
+```
+
+没有中转、不想折腾?两条现成路:**云端托管**(免部署,我们代管)或联系作者微信 **xingze063** 付费代配。海外服务器部署无需此配置。
 
 ## 📦 版本 / Editions
 
