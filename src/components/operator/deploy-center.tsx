@@ -214,6 +214,7 @@ export function DeployCenter({ embedded = false }: { embedded?: boolean }) {
             }
             features={[
               "免部署 · 自动更新",
+              "大陆可用 · 无需自备中转",
               "弹性算力 · 优先队列",
               "绑定域名 · 白标",
             ]}
