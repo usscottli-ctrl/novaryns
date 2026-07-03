@@ -20,7 +20,7 @@ import { rateLimit } from "@/lib/rate-limit";
 import { bearer, emailFromToken } from "@/lib/supabase-admin";
 import { storageEnabled, uploadImage } from "@/lib/storage";
 import { getOpenAISettings } from "@/lib/settings";
-import { getSuiteSystem } from "@/lib/prompt-config";
+import { getSuiteSystem, getSuitePlatformHint } from "@/lib/prompt-config";
 
 // ---------------------------------------------------------------------------
 // 一键电商套图：上传产品图(+可选文字) → 自动出 1 主图 + 4 副图 + 8 详情页图。
@@ -109,11 +109,16 @@ function fallbackBlueprint(extra: string): ShotSpec[] {
 async function planShots(
   client: OpenAI,
   firstImage: { buf: Buffer; type: string },
-  extra: string
+  extra: string,
+  platform: string
 ): Promise<ShotSpec[]> {
   try {
     const dataUrl = await toVisionDataUrl(firstImage.buf, firstImage.type);
-    const sys = await getSuiteSystem(); // 后台可编辑的套图规划 system 指令
+    const base = await getSuiteSystem(); // 后台可编辑的套图规划 system 指令
+    const platHint = await getSuitePlatformHint(platform); // 平台风格覆盖段(后台可编辑)
+    const sys = platHint ? `${base}
+
+${platHint}` : base;
     const user =
       (extra ? `补充信息：${extra}\n` : "") + "请规划这套产品的电商套图。";
     const resp = await client.chat.completions.create({
@@ -215,6 +220,7 @@ async function runSuite(
   jobId: string,
   productImages: { buf: Buffer; type: string }[],
   extra: string,
+  platform: string,
   email: string,
   apiKey: string,
   model: string,
@@ -234,7 +240,7 @@ async function runSuite(
     });
 
     // 第0层:规划 13 张
-    const specs = await planShots(client, productImages[0], extra);
+    const specs = await planShots(client, productImages[0], extra, platform);
     const shots: ShotResult[] = specs.map((s, i) => ({
       ...s,
       id: `suite-${Date.now()}-${i}`,
@@ -361,6 +367,7 @@ async function parseInput(request: Request) {
   return {
     images,
     extra: (f.get("text") ?? "").toString().trim().slice(0, 600),
+    platform: (f.get("platform") ?? "taobao").toString().trim().slice(0, 20),
     email: (f.get("email") ?? "").toString().trim(),
   };
 }
@@ -436,6 +443,7 @@ export async function POST(request: Request) {
     jobId,
     input.images,
     input.extra,
+    input.platform,
     input.email,
     apiKey,
     model,

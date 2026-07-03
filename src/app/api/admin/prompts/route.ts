@@ -31,6 +31,7 @@ export async function POST(req: Request) {
     assistSystem?: string | null;
     optimizeSystem?: string | null;
     titleSystem?: string | null;
+    suitePlatforms?: Record<string, string> | null;
   };
   try {
     body = await req.json();
@@ -43,6 +44,7 @@ export async function POST(req: Request) {
     assistSystem: body.assistSystem,
     optimizeSystem: body.optimizeSystem,
     titleSystem: body.titleSystem,
+    suitePlatforms: body.suitePlatforms,
   });
   return NextResponse.json(await getPromptConfigAdminView());
 }

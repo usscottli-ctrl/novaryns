@@ -32,6 +32,7 @@ import { RecordPager, RECORDS_PER_PAGE } from "@/components/tools/record-pager";
 import { ToolDemo, getDemo } from "@/components/tools/tool-demo";
 import { GenLoader } from "@/components/gen-loader";
 import { downloadImage } from "@/lib/download";
+import { SUITE_PLATFORMS } from "@/lib/mock-data";
 import { cn } from "@/lib/utils";
 
 function fmt(s: string, vars: Record<string, string | number>): string {
@@ -68,6 +69,8 @@ export function SuiteClient() {
   const [files, setFiles] = useState<File[]>([]);
   const [previews, setPreviews] = useState<string[]>([]);
   const [title2, setTitle2] = useState("");
+  // 目标平台:决定套图风格与文案语言(淘宝/天猫=默认)。
+  const [platform, setPlatform] = useState("taobao");
   const [points, setPoints] = useState("");
   // 产品图上限 4 张(设计稿权威:最多 4 张)
   const maxProduct = 4;
@@ -161,6 +164,7 @@ export function SuiteClient() {
         .filter(Boolean)
         .join("；");
       if (copy) fd.append("text", copy);
+      fd.append("platform", platform);
       fd.append("email", user.email);
       const res = await fetch("/api/suite", {
         method: "POST",
@@ -412,6 +416,35 @@ export function SuiteClient() {
               </button>
             )}
           </div>
+        </div>
+
+        <div className="space-y-2">
+          <label className="text-sm font-medium">
+            {L("目标平台", "Target platform")}
+          </label>
+          <div className="flex flex-wrap gap-2">
+            {SUITE_PLATFORMS.map((pf) => (
+              <button
+                key={pf.id}
+                type="button"
+                onClick={() => setPlatform(pf.id)}
+                className={cn(
+                  "rounded-full border px-3 py-1 text-[12.5px] font-medium transition-colors",
+                  platform === pf.id
+                    ? "border-primary bg-primary/10 text-primary"
+                    : "border-border text-muted-foreground hover:bg-secondary"
+                )}
+              >
+                {pf.label}
+              </button>
+            ))}
+          </div>
+          <p className="text-[11.5px] text-muted-foreground">
+            {L(
+              "国内平台出中文风格图,亚马逊/跨境出简约英文风格图。",
+              "China platforms → Chinese style; Amazon/cross-border → minimal English."
+            )}
+          </p>
         </div>
 
         <div className="space-y-2">
