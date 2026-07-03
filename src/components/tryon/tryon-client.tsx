@@ -40,7 +40,7 @@ import { ToolShell } from "@/components/tools/tool-shell";
 import { ToolDemo, getDemo } from "@/components/tools/tool-demo";
 import { GenLoader } from "@/components/gen-loader";
 import { ImageLightbox } from "@/components/image-lightbox";
-import { cdnUrl, cdnThumb } from "@/lib/cdn";
+import { cdnUrl, cdnThumb, onImgError, probeCdnHealth } from "@/lib/cdn";
 
 const MAX_UPLOAD = 12 * 1024 * 1024;
 const ACCENT = "#E0568B";
@@ -77,6 +77,8 @@ export function TryonClient() {
   // 库走 DB(后台可增删改/排序);初始用内置默认,挂载后拉最新
   const [models, setModels] = useState<TryonModel[]>(TRYON_MODELS);
   const [scenes, setScenes] = useState<TryonScene[]>(TRYON_SCENES);
+  // CDN 改写源不可达(开代理用户请求被代理挂起,不触发 onError)→ 探测后全用原始源
+  const [cdnDown, setCdnDown] = useState(false);
   // 「以此图再试穿」:把试穿结果当成人物/模特图。人物输入是「库模特选择」(url 形态),
   // 故注入一个临时自定义模特(custom-*,url 指向上传后的 R2/blob)并选中它;generate 仍走原 job 逻辑,
   // 自定义模特会额外把 url 通过 modelUrl 字段传给后端(后端按 url 取图,与库图同款)。
@@ -109,6 +111,23 @@ export function TryonClient() {
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  // 打开选择弹窗时探测一次 CDN(模块级缓存,全站只探一次);不通 → 图片直接用原始源
+  useEffect(() => {
+    if (!picker) return;
+    const first = picker === "scene" ? scenes[0] : models[0];
+    if (!first) return;
+    const test = cdnThumb(first.thumb || first.url, 320);
+    if (test === (first.thumb || first.url)) return; // 未配 CDN,无需探测
+    let on = true;
+    void probeCdnHealth(test).then((ok) => {
+      if (on && !ok) setCdnDown(true);
+    });
+    return () => {
+      on = false;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [picker]);
 
   function pick(slot: "top" | "bottom", f: File) {
     if (!user) return openAuth();
@@ -270,8 +289,9 @@ export function TryonClient() {
       {picked ? (
         // eslint-disable-next-line @next/next/no-img-element
         <img
-          src={cdnThumb(picked.url, 160)}
+          src={cdnDown ? picked.url : cdnThumb(picked.url, 160)}
           alt={picked.name}
+          onError={(e) => void onImgError(e, picked.url)}
           className="h-14 w-14 flex-none rounded-lg object-cover"
         />
       ) : (
@@ -621,6 +641,11 @@ export function TryonClient() {
                       else setModelId(it.id);
                       setPicker(null);
                     }}
+                    // 卡片高度写死在按钮上(2026-07-03 大坑):此前高度靠 img 流内撑起,
+                    // 用户环境里网格行被压成 ~29px(枚举全部 1474 条 CSS 规则无一设行高,
+                    // 疑似引擎/环境级异常),卡片全塌成一条。按钮定高 + img 绝对填充后,
+                    // 行高必然=176,任何环境都塌不了。别改回 img 撑高的写法。
+                    style={{ height: 176 }}
                     className={cn(
                       "group relative overflow-hidden rounded-xl border-2 text-left transition-colors",
                       on ? "border-acc" : "border-transparent hover:border-acc/40"
@@ -629,10 +654,17 @@ export function TryonClient() {
                     {/* 弹窗显示用缩略图(小而快);生成时后端仍用原图 url */}
                     {/* eslint-disable-next-line @next/next/no-img-element */}
                     <img
-                      src={cdnThumb(it.thumb || it.url, 320)}
+                      src={cdnDown ? (it.thumb || it.url) : cdnThumb(it.thumb || it.url, 320)}
                       alt={it.name}
                       loading="lazy"
-                      style={{ height: 176, width: "100%", objectFit: "cover", display: "block" }}
+                      onError={(e) => void onImgError(e, it.thumb || it.url)}
+                      style={{
+                        position: "absolute",
+                        inset: 0,
+                        height: "100%",
+                        width: "100%",
+                        objectFit: "cover",
+                      }}
                     />
                     {/* 悬停遮罩:纯视觉,pointer-events-none 不拦点击 → 点图片=选中 */}
                     <span className="pointer-events-none absolute inset-0 bg-black/0 transition-colors duration-150 group-hover:bg-black/25" />
