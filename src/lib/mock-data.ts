@@ -155,6 +155,9 @@ export const TOOL_COST = {
 } as const;
 export type ToolKey = keyof typeof TOOL_COST;
 
+// Pro 商业授权直售价(分):¥1,999/年。官网直售自动发 Key(2026-07-03 起,替代爱发电主通道)。
+export const RMB_PRO_LICENSE_FEN = 199900;
+
 // [已弃用] 旧的 build 期充值开关。前端门控已改成 SSR 注入的 PaymentProvider
 // (见 @/lib/payment-context + getPaymentStatus),后台 DB 开关 + env 兜底实时生效,
 // 两站一套代码。此常量保留仅为兼容,任何组件都不应再用它做门控。

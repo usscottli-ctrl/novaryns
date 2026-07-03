@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { dbEnabled, getOrder } from "@/lib/db";
+import { dbEnabled, getOrder, ensureProLicenseForOrder } from "@/lib/db";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -18,6 +18,11 @@ export async function GET(req: Request) {
   if (!o) {
     return NextResponse.json({ error: "订单不存在" }, { status: 404 });
   }
+  // Pro 直售订单已付 → 附带 License Key(幂等懒补:回调侧若没生成这里补上)。
+  let licenseKey: string | null = null;
+  if (o.kind === "pro" && o.status === "paid") {
+    licenseKey = await ensureProLicenseForOrder(o.id, o.email).catch(() => null);
+  }
   return NextResponse.json({
     id: o.id,
     status: o.status,
@@ -26,5 +31,6 @@ export async function GET(req: Request) {
     credits: o.credits,
     amount: o.amount,
     email: o.email,
+    ...(licenseKey ? { licenseKey } : {}),
   });
 }

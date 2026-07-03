@@ -27,6 +27,7 @@ export function PayQrModal({
   onClose,
   onPaid,
   onRefresh,
+  productTitle,
 }: {
   open: boolean;
   orderId: string;
@@ -39,6 +40,7 @@ export function PayQrModal({
   onClose: () => void;
   onPaid: () => void; // 到账回调(刷新积分)
   onRefresh?: () => void; // 过期后重新下单
+  productTitle?: string; // 非积分商品(如 Pro 授权):覆盖标题区文案,隐藏积分行
 }) {
   const { locale } = useI18n();
   const L = (z: string, e: string) => (locale === "en" ? e : z);
@@ -163,16 +165,22 @@ export function PayQrModal({
         <div className="flex items-start justify-between">
           <div>
             <h2 className="text-[18px] font-bold text-c-text">
-              {L("充值积分", "Top Up Credits")}
+              {productTitle ?? L("充值积分", "Top Up Credits")}
             </h2>
             <p className="mt-1 text-[12.5px] text-c-text3">
-              {L(`${fmtCredits(credits)} 积分`, `${fmtCredits(credits)} credits`)}
-              {hasBonus && (
-                <>
-                  {" · "}
-                  {L(`含赠 ${fmtCredits(bonus)}`, `incl. ${fmtCredits(bonus)} bonus`)}
-                </>
-              )}
+              {productTitle
+                ? L("扫码支付,支付成功后自动发放", "Scan to pay — delivered automatically")
+                : (
+                  <>
+                    {L(`${fmtCredits(credits)} 积分`, `${fmtCredits(credits)} credits`)}
+                    {hasBonus && (
+                      <>
+                        {" · "}
+                        {L(`含赠 ${fmtCredits(bonus)}`, `incl. ${fmtCredits(bonus)} bonus`)}
+                      </>
+                    )}
+                  </>
+                )}
             </p>
           </div>
           <button
