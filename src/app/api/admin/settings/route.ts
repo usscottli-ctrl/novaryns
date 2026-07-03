@@ -22,6 +22,7 @@ import {
   saveBrand,
 } from "@/lib/settings";
 import { isAdminToken, bearer } from "@/lib/supabase-admin";
+import { proEnabled } from "@/lib/edition";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -81,6 +82,24 @@ export async function POST(req: Request) {
     body = await req.json();
   } catch {
     return NextResponse.json({ error: "请求体无效" }, { status: 400 });
+  }
+
+  // Pro 门控(方案 B 后端加固):收款 + 白标是 Pro 能力。开源版(!pro)静默剥离这些
+  // 字段,防 curl 绕过前端门控直接写入;OpenAI Key/模型/抠图/微信登录等**基础配置
+  // 照常保存**,不影响开源版自配置。官方云/已激活 Pro → pro=true,全部正常。
+  // ⚠️以后新增「收款/白标/多用户/后台高阶」类 Pro 字段,记得也加进这个剥离清单。
+  if (!(await proEnabled())) {
+    body.payEnabled = undefined;
+    body.alipayAppid = undefined;
+    body.alipayPublicKey = undefined;
+    body.encryptedAlipayPrivateKey = undefined;
+    body.wxpayMchid = undefined;
+    body.wxpayCertSerial = undefined;
+    body.wxpayAppid = undefined;
+    body.encryptedWxpayApiv3 = undefined;
+    body.encryptedWxpayCert = undefined;
+    body.brandName = undefined;
+    body.brandLogo = undefined;
   }
 
   // 解出浏览器 RSA 密文 → 明文;解密失败/为空回 null,调用方据此回 400。
