@@ -114,6 +114,16 @@ docker run -d --name openai-relay --restart always -p 80:80 -p 443:443 -v caddy_
 
 没有海外服务器、不想折腾?两条现成路:**云端托管**(免部署,我们代管,大陆开箱即用)或联系作者微信 **xingze063** 付费代配。海外服务器部署无需此配置。
 
+### 🌐 服务器推荐
+
+**免备案(香港、美国)** — 海外机可直连模型,开箱即用:
+
+👉 [雨云 RainYun](https://www.rainyun.com/MTE1OTc0Ng==_)
+
+**需备案(中国大陆)** — 大陆访问快,搭配上面的中转方案使用:
+
+👉 [阿里云](https://www.aliyun.com/minisite/goods?userCode=nzlr5f7z)
+
 ## 📦 版本 / Editions
 
 | | 开源版 Community | Pro 自托管 | 云端托管 Cloud |
