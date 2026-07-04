@@ -7,7 +7,7 @@ import {
   getOptimizeSystem,
   ASSIST_TOOL_HINTS,
 } from "@/lib/prompt-config";
-import { emailFromToken, bearer } from "@/lib/supabase-admin";
+import { resolveUserEmail } from "@/lib/admin-auth";
 import { dbEnabled } from "@/lib/db";
 import { rateLimit } from "@/lib/rate-limit";
 import { clientIp } from "@/lib/ip";
@@ -21,7 +21,7 @@ export const dynamic = "force-dynamic";
 // 纯文本 LLM,免费(不扣积分),但需登录 + 按 IP 限流,防脚本刷我们的 key。
 export async function POST(req: Request) {
   if (dbEnabled) {
-    const tokenEmail = await emailFromToken(bearer(req));
+    const tokenEmail = await resolveUserEmail(req);
     if (!tokenEmail) {
       return NextResponse.json({ error: "请先登录" }, { status: 401 });
     }

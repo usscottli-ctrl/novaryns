@@ -11,7 +11,7 @@ import {
 } from "@/lib/db";
 import { clientIp } from "@/lib/ip";
 import { rateLimit } from "@/lib/rate-limit";
-import { bearer, emailFromToken } from "@/lib/supabase-admin";
+import { resolveUserEmail } from "@/lib/admin-auth";
 import { storageEnabled, uploadImage } from "@/lib/storage";
 import { getOpenAISettings } from "@/lib/settings";
 import { TOOL_COST } from "@/lib/mock-data";
@@ -84,7 +84,7 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: "请求过于频繁,请稍后再试" }, { status: 429 });
 
     if (dbEnabled) {
-      const tokenEmail = await emailFromToken(bearer(request));
+      const tokenEmail = await resolveUserEmail(request);
       if (!tokenEmail)
         return NextResponse.json({ error: "请先登录后再操作" }, { status: 401 });
       input.email = tokenEmail;

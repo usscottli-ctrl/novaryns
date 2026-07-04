@@ -9,13 +9,13 @@ import {
 } from "@/lib/db";
 import { clientIp } from "@/lib/ip";
 import type { PlanKey } from "@/lib/mock-data";
-import { emailFromToken, bearer } from "@/lib/supabase-admin";
+import { resolveUserEmail } from "@/lib/admin-auth";
 
 export const runtime = "nodejs";
 
 // 校验请求者(登录 token)是否有权看「该 email 的私有数据」:本人 或 管理员。
 async function canSeePrivate(request: Request, email: string): Promise<boolean> {
-  const tokenEmail = await emailFromToken(bearer(request));
+  const tokenEmail = await resolveUserEmail(request);
   if (!tokenEmail) return false;
   const adminEmail = (process.env.ADMIN_EMAIL ?? "").trim().toLowerCase();
   return tokenEmail === email.toLowerCase() || tokenEmail === adminEmail;
@@ -76,7 +76,7 @@ export async function POST(request: Request) {
         );
       }
       // 防越权改:取消会员(降级 starter)必须是本人登录态(否则有人能把别人降级、清空积分)。
-      const tokenEmail = await emailFromToken(bearer(request));
+      const tokenEmail = await resolveUserEmail(request);
       if (!tokenEmail || tokenEmail !== email.toLowerCase()) {
         return NextResponse.json(
           { error: "请重新登录后再操作" },

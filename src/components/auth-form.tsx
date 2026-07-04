@@ -10,9 +10,7 @@ import { Input } from "@/components/ui/input";
 import { useAuth } from "@/lib/auth-context";
 import { usePaymentConfig } from "@/lib/payment-context";
 import { BRAND } from "@/lib/brand";
-
-// 开源版单用户登录用的默认操作者身份(邮箱仅作 mock 用户的内部键,用户看不到)。
-const OPERATOR_EMAIL = "operator@novaryns.local";
+import { OPERATOR_EMAIL } from "@/lib/operator";
 
 function PageShell({
   compact,

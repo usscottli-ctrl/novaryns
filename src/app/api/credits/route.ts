@@ -4,7 +4,7 @@ import {
   getCreditOverview,
   listUserLedgerFiltered,
 } from "@/lib/db";
-import { emailFromToken, bearer } from "@/lib/supabase-admin";
+import { resolveUserEmail } from "@/lib/admin-auth";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -19,7 +19,7 @@ export async function GET(request: Request) {
   if (!email) {
     return NextResponse.json({ error: "缺少 email" }, { status: 400 });
   }
-  const tokenEmail = await emailFromToken(bearer(request));
+  const tokenEmail = await resolveUserEmail(request);
   const adminEmail = (process.env.ADMIN_EMAIL ?? "").trim().toLowerCase();
   if (!tokenEmail || (tokenEmail !== email && tokenEmail !== adminEmail)) {
     return NextResponse.json({ error: "请重新登录后再查看" }, { status: 401 });

@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { dbEnabled, redeemCardKey, getUser } from "@/lib/db";
-import { emailFromToken, bearer } from "@/lib/supabase-admin";
+import { resolveUserEmail } from "@/lib/admin-auth";
 import { proEnabled } from "@/lib/edition";
 
 export const runtime = "nodejs";
@@ -11,7 +11,7 @@ export async function POST(request: Request) {
   if (!dbEnabled) {
     return NextResponse.json({ error: "服务暂不可用" }, { status: 503 });
   }
-  const email = await emailFromToken(bearer(request));
+  const email = await resolveUserEmail(request);
   if (!email) {
     return NextResponse.json({ error: "请先登录" }, { status: 401 });
   }

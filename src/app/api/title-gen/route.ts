@@ -3,7 +3,7 @@ import { toVisionDataUrl } from "@/lib/vision-image";
 import OpenAI from "openai";
 import { getOpenAISettings } from "@/lib/settings";
 import { getTitleSystem } from "@/lib/prompt-config";
-import { emailFromToken, bearer } from "@/lib/supabase-admin";
+import { resolveUserEmail } from "@/lib/admin-auth";
 import { dbEnabled, addArtworks } from "@/lib/db";
 import { storageEnabled, uploadImage } from "@/lib/storage";
 import { rateLimit } from "@/lib/rate-limit";
@@ -18,7 +18,7 @@ export const dynamic = "force-dynamic";
 export async function POST(req: Request) {
   let email = "";
   if (dbEnabled) {
-    const tokenEmail = await emailFromToken(bearer(req));
+    const tokenEmail = await resolveUserEmail(req);
     if (!tokenEmail) {
       return NextResponse.json({ error: "请先登录" }, { status: 401 });
     }
