@@ -1,0 +1,39 @@
+# 把应用镜像构建并推送到阿里云 ACR(国内拉取加速)。
+# 与 docker.yml(推 ghcr,海外)并存:海外用 ghcr,大陆用 ACR。
+#
+# 启用条件(仓库 Settings 里配好这些才会运行,否则整段跳过):
+#   Variables(Settings → Secrets and variables → Actions → Variables):
+#     ACR_REGISTRY  例如 crpi-xxxxx.cn-hangzhou.personal.cr.aliyuncs.com
+#     ACR_IMAGE     例如 crpi-xxxxx.cn-hangzhou.personal.cr.aliyuncs.com/novaryns/app
+#   Secrets(同页 Secrets 标签):
+#     ACR_USERNAME  阿里云 ACR 登录用户名(个人实例的固定用户名)
+#     ACR_PASSWORD  ACR 访问凭证密码
+name: Push image to Aliyun ACR (CN mirror)
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+jobs:
+  acr:
+    # 未配置 ACR_IMAGE 变量时整个 job 跳过,不会报错(fork / 未接入 ACR 的仓库安全)。
+    if: ${{ vars.ACR_IMAGE != '' }}
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: docker/setup-buildx-action@v3
+      - name: Login to Aliyun ACR
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ vars.ACR_REGISTRY }}
+          username: ${{ secrets.ACR_USERNAME }}
+          password: ${{ secrets.ACR_PASSWORD }}
+      - name: Build & push
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          push: true
+          tags: |
+            ${{ vars.ACR_IMAGE }}:latest
+            ${{ vars.ACR_IMAGE }}:${{ github.sha }}
