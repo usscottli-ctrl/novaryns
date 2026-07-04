@@ -27,6 +27,13 @@ type Txt = {
   siteNameOptional: string;
   siteNamePlaceholder: string;
   siteNameHelp: string;
+  adminPwLabel: string;
+  adminPwRecommended: string;
+  adminPwPlaceholder: string;
+  adminPw2Placeholder: string;
+  adminPwHelp: string;
+  needAdminPw: string;
+  adminPwMismatch: string;
   secureNote: string;
   submit: string;
   submitting: string;
@@ -51,6 +58,13 @@ const ZH: Txt = {
   siteNameOptional: "选填",
   siteNamePlaceholder: "例如:我的商图工作台",
   siteNameHelp: "用于后续白标展示,可稍后再改。",
+  adminPwLabel: "管理员密码",
+  adminPwRecommended: "建议设置",
+  adminPwPlaceholder: "设置进入后台的密码(至少 6 位)",
+  adminPw2Placeholder: "再次输入确认",
+  adminPwHelp: "用于登录管理后台(改配置 / 提示词 / 品牌 / Logo)。请牢记,后续凭它进入 /admin。",
+  needAdminPw: "管理员密码至少 6 位",
+  adminPwMismatch: "两次输入的密码不一致",
   secureNote: "API Key 经加密安全存储,不会明文外泄。",
   submit: "保存并开始使用",
   submitting: "正在保存…",
@@ -78,6 +92,14 @@ const EN: Txt = {
   siteNameOptional: "Optional",
   siteNamePlaceholder: "e.g. My Product Studio",
   siteNameHelp: "Used for white-labeling later. You can change it anytime.",
+  adminPwLabel: "Admin password",
+  adminPwRecommended: "Recommended",
+  adminPwPlaceholder: "Set a password for the admin console (min 6 chars)",
+  adminPw2Placeholder: "Re-enter to confirm",
+  adminPwHelp:
+    "Used to sign in to the admin console (settings / prompts / brand / logo). Keep it safe — you'll use it to enter /admin.",
+  needAdminPw: "Admin password must be at least 6 characters",
+  adminPwMismatch: "Passwords do not match",
   secureNote: "Your API Key is encrypted at rest and never exposed in plaintext.",
   submit: "Save & get started",
   submitting: "Saving…",
@@ -97,6 +119,8 @@ export function SetupClient({ brand }: { brand: string }) {
   const [apiKey, setApiKey] = useState("");
   const [licenseKey, setLicenseKey] = useState("");
   const [siteName, setSiteName] = useState("");
+  const [adminPw, setAdminPw] = useState("");
+  const [adminPw2, setAdminPw2] = useState("");
   const [busy, setBusy] = useState(false);
   const [done, setDone] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -105,6 +129,14 @@ export function SetupClient({ brand }: { brand: string }) {
     setError(null);
     if (apiKey.trim().length < 8) {
       setError(t.needApiKey);
+      return;
+    }
+    if (adminPw.length < 6) {
+      setError(t.needAdminPw);
+      return;
+    }
+    if (adminPw !== adminPw2) {
+      setError(t.adminPwMismatch);
       return;
     }
     setBusy(true);
@@ -116,6 +148,7 @@ export function SetupClient({ brand }: { brand: string }) {
           apiKey: apiKey.trim(),
           licenseKey: licenseKey.trim(),
           siteName: siteName.trim(),
+          adminPassword: adminPw,
         }),
       });
       const data = (await res.json().catch(() => null)) as
@@ -232,6 +265,38 @@ export function SetupClient({ brand }: { brand: string }) {
                 />
                 <p className="text-[12px] leading-relaxed text-c-text3">
                   {t.siteNameHelp}
+                </p>
+              </div>
+
+              {/* 管理员密码(建议设置,后台入口) */}
+              <div className="space-y-1.5">
+                <label className="flex items-center gap-2 text-[13px] font-semibold text-c-text">
+                  <KeyRound className="h-4 w-4 text-acc" />
+                  {t.adminPwLabel}
+                  <span className="rounded-full bg-c-tint-g px-2 py-0.5 text-[10.5px] font-medium text-c-success">
+                    {t.adminPwRecommended}
+                  </span>
+                </label>
+                <Input
+                  type="password"
+                  autoComplete="new-password"
+                  value={adminPw}
+                  onChange={(e) => setAdminPw(e.target.value)}
+                  placeholder={t.adminPwPlaceholder}
+                  error={!!error && adminPw.length > 0 && adminPw.length < 6}
+                  disabled={busy}
+                />
+                <Input
+                  type="password"
+                  autoComplete="new-password"
+                  value={adminPw2}
+                  onChange={(e) => setAdminPw2(e.target.value)}
+                  placeholder={t.adminPw2Placeholder}
+                  error={!!error && !!adminPw2 && adminPw !== adminPw2}
+                  disabled={busy}
+                />
+                <p className="text-[12px] leading-relaxed text-c-text3">
+                  {t.adminPwHelp}
                 </p>
               </div>
 

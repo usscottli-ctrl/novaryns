@@ -13,7 +13,7 @@ import { PaymentProvider } from "@/lib/payment-context";
 import { BrandProvider } from "@/lib/brand-context";
 import { getRuntimeBrand } from "@/lib/brand-runtime";
 import { getPaymentStatus } from "@/lib/settings";
-import { proEnabled } from "@/lib/edition";
+import { proEnabled, editionName } from "@/lib/edition";
 import { isConfigured } from "@/lib/setup";
 import { BRAND, BRAND_FAVICON } from "@/lib/brand";
 import { Suspense } from "react";
@@ -74,7 +74,11 @@ export default async function RootLayout({
       </head>
       <body className="min-h-screen font-sans antialiased">
         <LocaleProvider initialLocale={locale}>
-          <PaymentProvider rechargeEnabled={rechargeEnabled} pro={pro}>
+          <PaymentProvider
+            rechargeEnabled={rechargeEnabled}
+            pro={pro}
+            official={editionName === "cloud"}
+          >
           <BrandProvider
             name={brand.name}
             logo={brand.logo}

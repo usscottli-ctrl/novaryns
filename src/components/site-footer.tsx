@@ -7,14 +7,14 @@ import { LangSwitcher } from "@/components/lang-switcher";
 import { useI18n } from "@/lib/i18n/locale-context";
 import { usePaymentConfig } from "@/lib/payment-context";
 import { useBrand } from "@/lib/brand-context";
-import { BRAND_PARENT_URL, BRAND_PARENT_LABEL } from "@/lib/brand";
+import { BRAND, BRAND_PARENT_URL, BRAND_PARENT_LABEL } from "@/lib/brand";
 
 // 开源仓库地址(与首页 landing / 部署中心保持一致)。
 const GITHUB_URL = "https://github.com/usscottli-ctrl/novaryns";
 
 export function SiteFooter() {
   const { locale } = useI18n();
-  const { pro } = usePaymentConfig();
+  const { pro, official } = usePaymentConfig();
   const { name: brandName } = useBrand();
   const L = (z: string, e: string) => (locale === "en" ? e : z);
 
@@ -44,7 +44,16 @@ export function SiteFooter() {
     {
       title: L("关于", "About"),
       links: [
-        { href: GITHUB_URL, label: L("开源仓库", "Open Source"), external: true },
+        // 开源仓库(指向我们的 GitHub)只在官方站显示;自部署实例隐藏。
+        ...(official
+          ? [
+              {
+                href: GITHUB_URL,
+                label: L("开源仓库", "Open Source"),
+                external: true as const,
+              },
+            ]
+          : []),
         ...(BRAND_PARENT_URL
           ? [{ href: BRAND_PARENT_URL, label: BRAND_PARENT_LABEL, external: true as const }]
           : []),
@@ -66,15 +75,17 @@ export function SiteFooter() {
               "AI e-commerce image studio — free & open to self-host, hosted plans for more."
             )}
           </p>
-          <a
-            href={GITHUB_URL}
-            target="_blank"
-            rel="noreferrer"
-            className="inline-flex items-center gap-2 rounded-[10px] border border-c-border2 bg-c-card px-3 py-1.5 text-sm font-medium text-c-text2 transition-colors hover:border-c-border hover:text-c-text"
-          >
-            <Github className="h-4 w-4" />
-            usscottli-ctrl/novaryns
-          </a>
+          {official && (
+            <a
+              href={GITHUB_URL}
+              target="_blank"
+              rel="noreferrer"
+              className="inline-flex items-center gap-2 rounded-[10px] border border-c-border2 bg-c-card px-3 py-1.5 text-sm font-medium text-c-text2 transition-colors hover:border-c-border hover:text-c-text"
+            >
+              <Github className="h-4 w-4" />
+              usscottli-ctrl/novaryns
+            </a>
+          )}
         </div>
 
         {columns.map((col) => (
@@ -129,7 +140,9 @@ export function SiteFooter() {
             <Link href="/deploy" className="transition-colors hover:text-foreground">
               {L("部署 / 自托管", "Deploy / Self-host")}
             </Link>
-            {/* 白标门控:非 Pro(开源精简版)显示不可移除的 Powered by 署名 */}
+            {/* 白标门控:非 Pro(开源精简版)显示不可移除的 Powered by 署名。
+                署名归属上游产品(BRAND=Novaryns),不用运营者自定义的 brandName——
+                否则自部署者改了站名会变成"Powered by 他的站名",失去上游归属意义。 */}
             {!pro && (
               <>
                 <span>·</span>
@@ -139,7 +152,7 @@ export function SiteFooter() {
                   rel="noreferrer"
                   className="font-medium transition-colors hover:text-foreground"
                 >
-                  Powered by {brandName}
+                  Powered by {BRAND}
                 </a>
               </>
             )}

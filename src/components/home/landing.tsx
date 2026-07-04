@@ -18,6 +18,7 @@ import { HeroCompare } from "@/components/home/hero-compare";
 import { useI18n } from "@/lib/i18n/locale-context";
 import { useAuth } from "@/lib/auth-context";
 import { useAuthModal } from "@/lib/auth-modal-context";
+import { usePaymentConfig } from "@/lib/payment-context";
 import { BRAND } from "@/lib/brand";
 import { cn } from "@/lib/utils";
 import type { PickedTemplate } from "@/lib/homepage-picks";
@@ -35,6 +36,9 @@ export function Landing({ hot }: { hot: PickedTemplate[] }) {
   const { locale } = useI18n();
   const { user } = useAuth();
   const { openAuth } = useAuthModal();
+  // 仅官方站(NOVARYNS_EDITION=cloud)显示"我们的"销售内容(三档定价 / 开通云端 /
+  // 指向我们的 GitHub);自部署实例一律不显示——那是我们的获客漏斗,不该出现在别人的站上。
+  const { official } = usePaymentConfig();
   const L = (zh: string, en: string) => (locale === "en" ? en : zh);
 
   const start = () => {
@@ -134,15 +138,17 @@ export function Landing({ hot }: { hot: PickedTemplate[] }) {
               {L("免费开始创作", "Start creating free")}
               <ArrowRight className="h-4 w-4" />
             </button>
-            <a
-              href={GITHUB_URL}
-              target="_blank"
-              rel="noopener noreferrer"
-              className="inline-flex items-center gap-2 rounded-xl border border-border bg-card px-6 py-3 text-[15px] font-semibold text-foreground transition-colors hover:bg-secondary"
-            >
-              <Github className="h-[18px] w-[18px]" />
-              GitHub
-            </a>
+            {official && (
+              <a
+                href={GITHUB_URL}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="inline-flex items-center gap-2 rounded-xl border border-border bg-card px-6 py-3 text-[15px] font-semibold text-foreground transition-colors hover:bg-secondary"
+              >
+                <Github className="h-[18px] w-[18px]" />
+                GitHub
+              </a>
+            )}
           </div>
           <div className="mt-6 flex flex-wrap items-center justify-center gap-x-6 gap-y-2 text-[13px] text-muted-foreground">
             {trust.map((tx) => (
@@ -360,7 +366,8 @@ export function Landing({ hot }: { hot: PickedTemplate[] }) {
         </div>
       </section>
 
-      {/* ───────── 开源 / 自部署 三档 ───────── */}
+      {/* ───────── 开源 / 自部署 三档(仅官方站显示;自部署实例隐藏我们的销售内容) ───────── */}
+      {official && (
       <section className="mx-auto w-full max-w-6xl px-4 py-12 sm:px-6">
         <h2 className="text-center text-2xl font-bold tracking-tight text-c-text sm:text-3xl">
           {L("开源核心,商业增值", "Open core, commercial upgrades")}
@@ -488,6 +495,7 @@ export function Landing({ hot }: { hot: PickedTemplate[] }) {
           ))}
         </div>
       </section>
+      )}
 
       {/* ───────── 底部 CTA ───────── */}
       <section className="mx-auto w-full max-w-6xl px-4 pb-20 sm:px-6">
@@ -496,10 +504,15 @@ export function Landing({ hot }: { hot: PickedTemplate[] }) {
             {L("现在就开始,免费出第一张图", "Start now — your first image is free")}
           </h2>
           <p className="mx-auto mt-3 max-w-xl text-sm text-white/70 sm:text-base">
-            {L(
-              "注册即送积分,无需信用卡。也可在 GitHub 自部署私有版。",
-              "Sign up for free credits, no card needed. Or self-host from GitHub."
-            )}
+            {official
+              ? L(
+                  "注册即送积分,无需信用卡。也可在 GitHub 自部署私有版。",
+                  "Sign up for free credits, no card needed. Or self-host from GitHub."
+                )
+              : L(
+                  "一句话,AI 直接出图,覆盖电商出图全流程。",
+                  "One sentence, AI delivers — the whole e-commerce imaging pipeline."
+                )}
           </p>
           <button
             type="button"
