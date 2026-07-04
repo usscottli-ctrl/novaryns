@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { browserSupabase } from "@/lib/supabase";
+import { supabaseEnabled } from "@/lib/auth-mode";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { SUITE_PLATFORMS } from "@/lib/mock-data";
@@ -30,12 +31,20 @@ export function AdminPrompts() {
 
   useEffect(() => {
     (async () => {
-      const { data } = await browserSupabase().auth.getSession();
-      const tok = data.session?.access_token ?? null;
-      setToken(tok);
-      if (!tok) return;
+      // 本地管理员(开源版无 Supabase):不调 browserSupabase(空 url 会抛崩页),
+      // 用 "local" 哨兵 + cookie 鉴权;官方云走 Supabase token。
+      let tok: string | null = null;
+      if (supabaseEnabled) {
+        try {
+          const { data } = await browserSupabase().auth.getSession();
+          tok = data.session?.access_token ?? null;
+        } catch {
+          /* ignore */
+        }
+      }
+      setToken(tok ?? "local");
       const res = await fetch("/api/admin/prompts", {
-        headers: { Authorization: `Bearer ${tok}` },
+        headers: tok ? { Authorization: `Bearer ${tok}` } : {},
       });
       if (res.ok) applyView(await res.json());
     })();
