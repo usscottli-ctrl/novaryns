@@ -114,30 +114,26 @@ systemctl enable --now docker
 
 ### 🚀 第 1 步:安装网站程序
 
-Docker 就绪后,用下面**任意一种方式**把 Novaryns 装到服务器上。
-
-**方式 A · 一键脚本**(自动拉代码 + 启动,推荐):
+Docker 就绪后,**一条命令**装好(自动拉代码 + 拉预构建镜像 + 启动;大陆优先走国内镜像,秒级完成,无需本地编译):
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/usscottli-ctrl/novaryns/main/install.sh | bash
 ```
 
-**方式 B · 手动安装**(clone 后自己启动,便于改配置):
+> 若这条因网络取不到脚本,改用 git 拉下来再跑**同一个脚本**:
+> ```bash
+> git clone https://github.com/usscottli-ctrl/novaryns && cd novaryns && bash install.sh
+> ```
 
-```bash
-git clone https://github.com/usscottli-ctrl/novaryns && cd novaryns
-docker compose up -d
-```
-
-打开 **http://<你的服务器公网IP>**(本机测试用 `http://localhost`) — 首启配置向导会引导你填入 OpenAI API Key(必填)、Pro License Key(选填)与站点名称,填完即用,**无需改任何代码或配置文件**。默认监听 **80 端口**,记得在云厂商安全组放行 80。
+打开 **http://<你的服务器公网IP>**(本机测试用 `http://localhost`) — 首启配置向导会引导你填入 OpenAI API Key(必填)、管理员密码(用于登录后台)、Pro License Key(选填)与站点名称,填完即用,**无需改任何代码或配置文件**。默认监听 **80 端口**,记得在云厂商安全组放行 80。
 
 > 不知道 API Key 怎么获取?可联系作者微信 **xingze063**,或付费由作者代为提供 / 配置。
 
-Compose 自带 Postgres 与持久化数据卷;生成的图片默认存本地磁盘(`/data/media`),配置 Cloudflare R2 后自动切对象存储。手动部署(`npm run build && npm start`)见 [.env.example](.env.example)。
+Compose 自带 Postgres 与持久化数据卷;生成的图片默认存本地磁盘(`/data/media`),配置 Cloudflare R2 后自动切对象存储。**改了源码想用自己的构建**:在项目目录跑 `docker compose up -d --build`。
 
 ### 🎛 已装宝塔面板(BT Panel)?
 
-完全兼容,只是宝塔自带的 Nginx 通常占了 80 端口。**一键脚本会自动检测并改用 8080**,不会冲突;手动部署则加前缀 `HTTP_PORT=8080 docker compose up -d`。
+完全兼容,只是宝塔自带的 Nginx 通常占了 80 端口。**一键脚本会自动检测 80 是否被占用并改用 8080**,不会冲突。
 
 宝塔用户推荐用面板接管域名与证书(最顺):
 1. Docker 就绪(宝塔「软件商店」可一键装 Docker),按上面装好 Novaryns(会跑在 `8080`);
