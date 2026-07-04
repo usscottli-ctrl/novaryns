@@ -53,6 +53,10 @@ const WXPAY_CERT_SERIAL = "wxpay_cert_serial"; // 商户证书序列号(明文,A
 // 保持字面量一致;这里不 import 以免与 setup.ts 形成循环依赖。
 const SITE_NAME_SETTING = "site_name";
 const BRAND_LOGO_SETTING = "brand_logo";
+// 站长可自定义的站点页面(关于我们 / 联系我们 / 定价),纯文本明文落库。
+const PAGE_ABOUT_SETTING = "page_about";
+const PAGE_CONTACT_SETTING = "page_contact";
+const PAGE_PLANS_SETTING = "page_plans";
 const WXPAY_APPID = "wxpay_appid"; // Native 下单要绑定的公众号/小程序 appid(明文)
 const PAY_ENABLED = "pay_enabled";
 
@@ -315,6 +319,40 @@ export async function saveBrand(opts: {
   }
 }
 
+/**
+ * 保存站长自定义页面(关于我们 / 联系我们 / 定价),纯文本。空串 = 清空(前台回退默认)。
+ * 传了字符串就写(含空串);未传(undefined)则跳过。
+ */
+export async function saveSitePages(opts: {
+  about?: string;
+  contact?: string;
+  plans?: string;
+}): Promise<void> {
+  if (typeof opts.about === "string")
+    await setSetting(PAGE_ABOUT_SETTING, opts.about.slice(0, 8000));
+  if (typeof opts.contact === "string")
+    await setSetting(PAGE_CONTACT_SETTING, opts.contact.slice(0, 8000));
+  if (typeof opts.plans === "string")
+    await setSetting(PAGE_PLANS_SETTING, opts.plans.slice(0, 8000));
+}
+
+/** 读某个自定义页面的内容(供 /about /contact /plans 页面渲染);无则空串。 */
+export async function getSitePage(
+  which: "about" | "contact" | "plans"
+): Promise<string> {
+  const key =
+    which === "about"
+      ? PAGE_ABOUT_SETTING
+      : which === "contact"
+        ? PAGE_CONTACT_SETTING
+        : PAGE_PLANS_SETTING;
+  try {
+    return (await getSetting(key)) ?? "";
+  } catch {
+    return "";
+  }
+}
+
 // ---------------------------------------------------------------------------
 // 支付收款配置:DB 优先 → env 兜底。
 //  - 支付宝 / 微信支付商户:原生对接,直接调网关 precreate 出二维码;
@@ -530,5 +568,9 @@ export async function getAdminView() {
     // 均为非敏感明文,直接回显;留空 = 未覆盖 → 前台回退 env 默认。
     brandName: (await getSetting(SITE_NAME_SETTING)) ?? "",
     brandLogo: (await getSetting(BRAND_LOGO_SETTING)) ?? "",
+    // 站长自定义页面(关于/联系/定价)
+    pageAbout: (await getSetting(PAGE_ABOUT_SETTING)) ?? "",
+    pageContact: (await getSetting(PAGE_CONTACT_SETTING)) ?? "",
+    pagePlans: (await getSetting(PAGE_PLANS_SETTING)) ?? "",
   };
 }

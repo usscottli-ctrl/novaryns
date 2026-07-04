@@ -14,6 +14,7 @@ import {
 import { useAuth } from "@/lib/auth-context";
 import { useI18n } from "@/lib/i18n/locale-context";
 import { browserSupabase } from "@/lib/supabase";
+import { supabaseEnabled } from "@/lib/auth-mode";
 import { displayEmail } from "@/lib/account-identity";
 
 function fmt(s: string, vars: Record<string, string | number>): string {
@@ -62,12 +63,19 @@ export function UserMenu() {
     let cancelled = false;
     (async () => {
       try {
-        const sb = browserSupabase();
-        const { data } = await sb.auth.getSession();
-        const tok = data.session?.access_token;
-        if (!tok) return;
+        // Supabase(官方云)拿 token;本地管理员(开源版)没有 token,靠 cookie 鉴权,
+        // 所以无 token 也要探一次 /api/admin/settings(同源请求自动带 cookie)。
+        let tok: string | undefined;
+        if (supabaseEnabled) {
+          try {
+            const { data } = await browserSupabase().auth.getSession();
+            tok = data.session?.access_token;
+          } catch {
+            /* ignore */
+          }
+        }
         const res = await fetch("/api/admin/settings", {
-          headers: { Authorization: `Bearer ${tok}` },
+          headers: tok ? { Authorization: `Bearer ${tok}` } : {},
         });
         if (cancelled) return;
         setIsAdmin(res.ok);

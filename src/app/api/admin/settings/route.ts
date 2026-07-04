@@ -20,6 +20,7 @@ import {
   saveWxpayCertSerial,
   saveWxpayAppid,
   saveBrand,
+  saveSitePages,
 } from "@/lib/settings";
 import { requireAdmin } from "@/lib/admin-auth";
 import { proEnabled } from "@/lib/edition";
@@ -72,6 +73,10 @@ export async function POST(req: Request) {
     // 品牌与白标(Pro,明文;空串=清除覆盖→回退 env 默认)
     brandName?: string;
     brandLogo?: string;
+    // 站长自定义页面(基础能力,开源版也可改;纯文本)
+    pageAbout?: string;
+    pageContact?: string;
+    pagePlans?: string;
     // 加密类(浏览器 RSA 密文)
     encryptedWechatSecret?: string;
     encryptedAlipayPrivateKey?: string;
@@ -237,6 +242,19 @@ export async function POST(req: Request) {
     // 注意:用 typeof 判断「字段是否出现」,空串也要写入(=清除),不能用真值跳过。
     if (typeof body.brandName === "string" || typeof body.brandLogo === "string") {
       await saveBrand({ name: body.brandName, logo: body.brandLogo });
+    }
+
+    // ---- 站长自定义页面(关于/联系/定价):基础能力,开源版也可改 ----
+    if (
+      typeof body.pageAbout === "string" ||
+      typeof body.pageContact === "string" ||
+      typeof body.pagePlans === "string"
+    ) {
+      await saveSitePages({
+        about: body.pageAbout,
+        contact: body.pageContact,
+        plans: body.pagePlans,
+      });
     }
     return NextResponse.json(await getAdminView());
   } catch (e) {
