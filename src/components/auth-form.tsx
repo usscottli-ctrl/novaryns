@@ -7,7 +7,7 @@ import { Loader2 } from "lucide-react";
 import { Logo } from "@/components/logo";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { useAuth } from "@/lib/auth-context";
+import { useAuth, type SessionUser } from "@/lib/auth-context";
 import { usePaymentConfig } from "@/lib/payment-context";
 import { supabaseEnabled } from "@/lib/auth-mode";
 import { BRAND } from "@/lib/brand";
@@ -45,8 +45,7 @@ export function AuthForm({
 }) {
   const router = useRouter();
   const params = useSearchParams();
-  const { signIn, signUp } = useAuth();
-  // 白标门控:开源版 = 单用户,隐藏「注册」入口只留登录;官方云/Pro = 多用户(不变)。
+  const { signIn, signUp, multiUser, applyServerUser } = useAuth();
   const { pro } = usePaymentConfig();
   const [loading, setLoading] = useState(false);
   const [name, setName] = useState("");
@@ -56,12 +55,13 @@ export function AuthForm({
   // 开源版单用户:是否已设「管理员密码」(向导里设的)。设了就走密码登录,
   // 一个密码同时登录用户 + 后台;没设(极老实例)回退旧的邮箱登录不锁死。
   const [localAvailable, setLocalAvailable] = useState<boolean | null>(null);
-  const isSignUp = pro && mode === "sign-up";
-  // 单用户密码登录模式:**无 Supabase**(= 单用户自托管,不论开源版还是 Pro 单用户)
-  // 且已设管理员密码。用 supabaseEnabled 而非 pro 判定 —— 登录方式取决于有没有多用户
-  // 账号系统(Supabase),不取决于是否 Pro。这样"开源版升级 Pro(仍单用户)"后
-  // 密码登录照常可用,不会退回坏掉的邮箱登录。
-  const pwMode = !supabaseEnabled && localAvailable === true;
+  // 三种模式(mock 渲染下):
+  //  · multi  = Pro 原生多用户(邮箱+密码注册/登录,服务端会话)—— 优先。
+  //  · pwMode = 单用户自托管(无 Supabase + 已设管理员密码)—— 一个密码进用户+后台。
+  //  · legacy = 其它(旧 mock 邮箱登录)。
+  const multiMode = multiUser;
+  const isSignUp = (multiUser || pro) && mode === "sign-up";
+  const pwMode = !multiUser && !supabaseEnabled && localAvailable === true;
 
   useEffect(() => {
     let cancelled = false;
@@ -92,6 +92,38 @@ export function AuthForm({
     e.preventDefault();
     setError(null);
     setLoading(true);
+
+    // Pro 原生多用户:邮箱+密码 注册/登录 → 服务端下发会话 cookie + 返回用户。
+    if (multiMode) {
+      try {
+        const endpoint = isSignUp ? "/api/auth/register" : "/api/auth/login";
+        const res = await fetch(endpoint, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(
+            isSignUp ? { email, password, name } : { email, password }
+          ),
+        });
+        const d = (await res.json().catch(() => null)) as {
+          ok?: boolean;
+          error?: string;
+          user?: SessionUser;
+        } | null;
+        if (!res.ok || !d?.ok || !d.user) {
+          setError(d?.error || (isSignUp ? "注册失败" : "登录失败"));
+          setLoading(false);
+          return;
+        }
+        applyServerUser(d.user);
+        setTimeout(() => {
+          if (!noRedirect) router.push(nextUrl);
+        }, 400);
+      } catch {
+        setError("网络错误,请重试");
+        setLoading(false);
+      }
+      return;
+    }
 
     // 开源版单用户:用向导设的管理员密码登录。校验通过 → 下发后台会话 cookie
     //(/admin 也随之解锁)+ 建立本地用户会话,一个密码登录所有地方。
@@ -180,10 +212,15 @@ export function AuthForm({
           <label className="text-sm font-medium">密码</label>
           <Input
             type="password"
-            value={pwMode ? password : undefined}
-            onChange={pwMode ? (e) => setPassword(e.target.value) : undefined}
+            value={pwMode || multiMode ? password : undefined}
+            onChange={
+              pwMode || multiMode
+                ? (e) => setPassword(e.target.value)
+                : undefined
+            }
             placeholder="••••••••"
-            autoComplete={pwMode ? "current-password" : undefined}
+            autoComplete={isSignUp ? "new-password" : "current-password"}
+            minLength={pwMode || multiMode ? 6 : undefined}
             required
           />
         </div>
