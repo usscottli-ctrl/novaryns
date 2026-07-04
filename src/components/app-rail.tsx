@@ -27,6 +27,7 @@ import { useAuthModal } from "@/lib/auth-modal-context";
 import { useRecharge } from "@/lib/recharge-modal-context";
 import { usePaymentConfig } from "@/lib/payment-context";
 import { browserSupabase } from "@/lib/supabase";
+import { supabaseEnabled } from "@/lib/auth-mode";
 import { BRAND, BRAND_SQUARE_LOGO } from "@/lib/brand";
 import { displayEmail } from "@/lib/account-identity";
 import { menuCategories, TOOL_COUNT_LABEL } from "@/lib/tool-meta";
@@ -104,11 +105,17 @@ export function AppRail() {
     let cancelled = false;
     (async () => {
       try {
-        const { data } = await browserSupabase().auth.getSession();
-        const tok = data.session?.access_token;
-        if (!tok) return;
+        let tok: string | undefined;
+        if (supabaseEnabled) {
+          try {
+            const { data } = await browserSupabase().auth.getSession();
+            tok = data.session?.access_token;
+          } catch {
+            /* ignore */
+          }
+        }
         const res = await fetch("/api/admin/settings", {
-          headers: { Authorization: `Bearer ${tok}` },
+          headers: tok ? { Authorization: `Bearer ${tok}` } : {},
         });
         if (cancelled) return;
         setIsAdmin(res.ok);
