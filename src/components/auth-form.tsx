@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import { Loader2 } from "lucide-react";
@@ -10,6 +10,9 @@ import { Input } from "@/components/ui/input";
 import { useAuth } from "@/lib/auth-context";
 import { usePaymentConfig } from "@/lib/payment-context";
 import { BRAND } from "@/lib/brand";
+
+// 开源版单用户登录用的默认操作者身份(邮箱仅作 mock 用户的内部键,用户看不到)。
+const OPERATOR_EMAIL = "operator@novaryns.local";
 
 function PageShell({
   compact,
@@ -49,7 +52,30 @@ export function AuthForm({
   const [loading, setLoading] = useState(false);
   const [name, setName] = useState("");
   const [email, setEmail] = useState("");
+  const [password, setPassword] = useState("");
+  const [error, setError] = useState<string | null>(null);
+  // 开源版单用户:是否已设「管理员密码」(向导里设的)。设了就走密码登录,
+  // 一个密码同时登录用户 + 后台;没设(极老实例)回退旧的邮箱登录不锁死。
+  const [localAvailable, setLocalAvailable] = useState<boolean | null>(null);
   const isSignUp = pro && mode === "sign-up";
+  // 单用户密码登录模式:非 Pro(开源版)且已设管理员密码。
+  const pwMode = !pro && localAvailable === true;
+
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const r = await fetch("/api/admin/login");
+        const d = (await r.json()) as { localAvailable?: boolean };
+        if (!cancelled) setLocalAvailable(!!d.localAvailable);
+      } catch {
+        if (!cancelled) setLocalAvailable(false);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   const redirect = params.get("redirect");
   const plan = params.get("plan");
@@ -60,9 +86,41 @@ export function AuthForm({
   if (plan) carry.set("plan", plan);
   const switchQuery = carry.toString() ? `?${carry.toString()}` : "";
 
-  function handleSubmit(e: React.FormEvent) {
+  async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
+    setError(null);
     setLoading(true);
+
+    // 开源版单用户:用向导设的管理员密码登录。校验通过 → 下发后台会话 cookie
+    //(/admin 也随之解锁)+ 建立本地用户会话,一个密码登录所有地方。
+    if (pwMode) {
+      try {
+        const res = await fetch("/api/admin/login", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ password }),
+        });
+        const d = (await res.json().catch(() => null)) as {
+          ok?: boolean;
+          error?: string;
+        } | null;
+        if (!res.ok || !d?.ok) {
+          setError(d?.error || "密码错误");
+          setLoading(false);
+          return;
+        }
+        signIn(OPERATOR_EMAIL);
+        setTimeout(() => {
+          if (!noRedirect) router.push(nextUrl);
+        }, 500);
+      } catch {
+        setError("网络错误,请重试");
+        setLoading(false);
+      }
+      return;
+    }
+
+    // 多用户(官方云/Pro):邮箱登录 / 注册(原逻辑不变)。
     if (isSignUp) signUp(name, email);
     else signIn(email);
     setTimeout(() => {
@@ -79,7 +137,11 @@ export function AuthForm({
             {isSignUp ? `创建你的 ${BRAND} 账号` : "欢迎回来"}
           </h1>
           <p className="mt-1 text-sm text-muted-foreground">
-            {isSignUp ? "注册即送积分" : "登录以继续生成你的商业视觉"}
+            {isSignUp
+              ? "注册即送积分"
+              : pwMode
+                ? "输入管理员密码登录"
+                : "登录以继续生成你的商业视觉"}
           </p>
         </div>
       </div>
@@ -99,20 +161,34 @@ export function AuthForm({
             />
           </div>
         )}
+        {/* 开源版单用户:只要密码;多用户:邮箱 + 密码 */}
+        {!pwMode && (
+          <div className="space-y-1.5">
+            <label className="text-sm font-medium">邮箱</label>
+            <Input
+              type="email"
+              value={email}
+              onChange={(e) => setEmail(e.target.value)}
+              placeholder="you@example.com"
+              required
+            />
+          </div>
+        )}
         <div className="space-y-1.5">
-          <label className="text-sm font-medium">邮箱</label>
+          <label className="text-sm font-medium">密码</label>
           <Input
-            type="email"
-            value={email}
-            onChange={(e) => setEmail(e.target.value)}
-            placeholder="you@example.com"
+            type="password"
+            value={pwMode ? password : undefined}
+            onChange={pwMode ? (e) => setPassword(e.target.value) : undefined}
+            placeholder="••••••••"
+            autoComplete={pwMode ? "current-password" : undefined}
             required
           />
         </div>
-        <div className="space-y-1.5">
-          <label className="text-sm font-medium">密码</label>
-          <Input type="password" placeholder="••••••••" required />
-        </div>
+
+        {error && (
+          <p className="text-[13px] font-medium text-c-danger">{error}</p>
+        )}
 
         <Button
           type="submit"
@@ -126,9 +202,9 @@ export function AuthForm({
       </form>
 
       {!pro ? (
-        // 开源精简版 = 单用户,隐藏「注册」路径,只留登录 + 一句小字提示。
+        // 开源精简版 = 单用户。密码登录模式给一句说明;否则保留原提示。
         <p className="text-center text-sm text-muted-foreground">
-          多用户注册需 Pro 版
+          {pwMode ? "用安装向导里设置的管理员密码登录" : "多用户注册需 Pro 版"}
         </p>
       ) : (
         <p className="text-center text-sm text-muted-foreground">

@@ -19,6 +19,8 @@ export function SiteFooter() {
   const L = (z: string, e: string) => (locale === "en" ? e : z);
 
   // 三栏(产品 / 资源 / 关于)—— 链接全部指向真实存在的路由,不造死链。
+  // 「我们的」运营内容(定价 / 开源仓库 / 关于我们 / 联系我们)仅官方站显示;
+  // 自部署实例隐藏,空栏自动不渲染。
   const columns: {
     title: string;
     links: { href: string; label: string; external?: true }[];
@@ -38,13 +40,14 @@ export function SiteFooter() {
         { href: "/tools", label: L("创作工具", "Tools") },
         { href: "/dashboard", label: L("工作台", "Workspace") },
         { href: "/works", label: L("作品库", "Works") },
-        { href: "/plans", label: L("定价", "Pricing") },
+        ...(official
+          ? [{ href: "/plans", label: L("定价", "Pricing") }]
+          : []),
       ],
     },
     {
       title: L("关于", "About"),
       links: [
-        // 开源仓库(指向我们的 GitHub)只在官方站显示;自部署实例隐藏。
         ...(official
           ? [
               {
@@ -57,11 +60,15 @@ export function SiteFooter() {
         ...(BRAND_PARENT_URL
           ? [{ href: BRAND_PARENT_URL, label: BRAND_PARENT_LABEL, external: true as const }]
           : []),
-        { href: "/about", label: L("关于我们", "About Us") },
-        { href: "/contact", label: L("联系我们", "Contact") },
+        ...(official
+          ? [
+              { href: "/about", label: L("关于我们", "About Us") },
+              { href: "/contact", label: L("联系我们", "Contact") },
+            ]
+          : []),
       ],
     },
-  ];
+  ].filter((c) => c.links.length > 0);
 
   return (
     <footer className="border-t border-border bg-secondary/50">

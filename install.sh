@@ -90,8 +90,39 @@ if [ -z "${HTTP_PORT:-}" ]; then
   fi
 fi
 
-echo "→ 拉取镜像并启动(首次较慢,请耐心)/ pulling images & starting (first run is slow)"
-docker compose up -d --build
+# 应用镜像:优先拉【预构建镜像】(免本地编译,快得多)。直连 ghcr.io 慢/不通时,
+# 自动改走国内公益镜像并回标成 ghcr.io 名字;全部拉取失败才回退本地构建(--build)。
+APP_IMAGE="ghcr.io/usscottli-ctrl/novaryns:latest"
+GHCR_MIRRORS="ghcr.nju.edu.cn/usscottli-ctrl/novaryns:latest ghcr.dockerproxy.net/usscottli-ctrl/novaryns:latest"
+
+pull_app_image() {
+  echo "→ 拉取预构建应用镜像(免本地编译)/ pulling prebuilt app image ..."
+  # 先走国内公益镜像 —— 实测大陆 9 秒拉完 361MB;直连 ghcr.io 握手快但拉层极慢。
+  local m
+  for m in $GHCR_MIRRORS; do
+    if timeout 180 docker pull "$m" >/dev/null 2>&1; then
+      docker tag "$m" "$APP_IMAGE"
+      docker rmi "$m" >/dev/null 2>&1 || true
+      echo "  ✓ 通过 ${m%%/*} 拉取成功 / pulled via mirror"
+      return 0
+    fi
+  done
+  # 镜像都不可用(如海外网络)→ 回退直连 ghcr.io(海外快,大陆慢但能成)。
+  echo "  国内镜像不可用,改直连 ghcr.io / mirrors unavailable, trying ghcr.io direct ..."
+  if timeout 300 docker pull "$APP_IMAGE" >/dev/null 2>&1; then
+    echo "  ✓ 直连 ghcr.io 成功 / pulled from ghcr.io"
+    return 0
+  fi
+  echo "  ⚠ 预构建镜像均拉取失败,回退到本地构建(较慢)/ falling back to local build"
+  return 1
+}
+
+echo "→ 启动 Novaryns / starting ..."
+if pull_app_image; then
+  docker compose up -d
+else
+  docker compose up -d --build
+fi
 
 # 尽量探测公网 IP,打印可直接点开的地址(阿里云元数据优先,其次公网回显)。
 IP=$(curl -fsS -m 3 http://100.100.100.200/latest/meta-data/eipv4 2>/dev/null || true)
