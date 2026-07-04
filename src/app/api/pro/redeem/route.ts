@@ -8,8 +8,11 @@ import { rateLimit } from "@/lib/rate-limit";
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
+// 规范安装命令(与 README / 部署中心一致):compose 一键起 app + 内置 Postgres +
+// 数据卷。**不是**裸 docker run——那样没有数据库、也拉不到镜像。买家装好后在首启向导
+// 「License Key」栏填入下方 Key 即解锁 Pro(或在 compose env 设 PRO_LICENSE_KEY)。
 const DOCKER_RUN =
-  "docker run -d -p 3000:3000 -v novaryns-data:/data ghcr.io/novaryns/app:latest";
+  "git clone https://github.com/usscottli-ctrl/novaryns && cd novaryns && docker compose up -d";
 
 export async function POST(request: Request) {
   if (!dbEnabled) {
