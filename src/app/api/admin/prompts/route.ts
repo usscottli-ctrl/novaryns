@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { dbEnabled } from "@/lib/db";
 import { getPromptConfigAdminView, savePromptConfig } from "@/lib/prompt-config";
-import { isAdminToken, bearer } from "@/lib/supabase-admin";
+import { requireAdmin } from "@/lib/admin-auth";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -10,7 +10,7 @@ async function guard(req: Request): Promise<NextResponse | null> {
   if (!dbEnabled) {
     return NextResponse.json({ error: "未配置数据库" }, { status: 503 });
   }
-  if (!(await isAdminToken(bearer(req)))) {
+  if (!(await requireAdmin(req))) {
     return NextResponse.json({ error: "需要管理员身份" }, { status: 403 });
   }
   return null;

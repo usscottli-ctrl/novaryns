@@ -68,6 +68,8 @@ export type SetupInput = {
   licenseKey?: string;
   /** 选填:站点名称(白标铺路)。 */
   siteName?: string;
+  /** 选填:管理员密码(自托管无 Supabase 时的后台入口;scrypt 哈希落库)。 */
+  adminPassword?: string;
 };
 
 export type SetupResult =
@@ -105,6 +107,14 @@ export async function applySetup(input: SetupInput): Promise<SetupResult> {
   const siteName = (input.siteName ?? "").trim();
   if (siteName) {
     await setSetting(SITE_NAME_SETTING, siteName.slice(0, 80));
+  }
+
+  // 4) 管理员密码(选填但强烈建议)—— 自托管无 Supabase 时的后台入口。
+  //    scrypt 哈希落库(动态 import 避免与 db/crypto 的加载顺序耦合)。
+  const adminPassword = (input.adminPassword ?? "").trim();
+  if (adminPassword) {
+    const { setAdminPassword } = await import("@/lib/admin-auth");
+    await setAdminPassword(adminPassword);
   }
 
   return { ok: true };

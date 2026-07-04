@@ -255,7 +255,7 @@ const SECTIONS = [
   { id: "prompts", label: "提示词配置", icon: MessageSquare, pro: false },
   { id: "api", label: "接口与模型", icon: KeyRound, pro: false },
   { id: "auth", label: "登录与支付", icon: ShieldCheck, pro: true },
-  { id: "brand", label: "品牌与白标", icon: Palette, pro: true },
+  { id: "brand", label: "品牌与站点", icon: Palette, pro: false },
   { id: "ledger", label: "积分流水", icon: Database, pro: true },
   { id: "deploy", label: "部署与授权", icon: Server, pro: true },
   { id: "cardkeys", label: "兑换码", icon: Ticket, pro: true },
@@ -294,7 +294,7 @@ function ReadyBadge({
 
 // Self-gating: renders only when the signed-in user is the configured admin
 // (the API returns 403 otherwise). Drop it anywhere inside an authed page.
-export function AdminSettings() {
+export function AdminSettings({ localAdmin = false }: { localAdmin?: boolean }) {
   // 白标门控:pro=true(官方云/自托管激活)照常显示全部分栏;开源精简版只留自托管者
   // 配置自己实例要用的分栏(接口与模型/提示词/模板),隐藏运营/变现/多用户向的分栏。
   const { pro } = usePaymentConfig();
@@ -489,16 +489,22 @@ export function AdminSettings() {
   }, []);
 
   const probe = useCallback(async () => {
-    const sb = browserSupabase();
-    const { data } = await sb.auth.getSession();
-    const tok = data.session?.access_token ?? null;
-    if (!tok) return;
+    // 本地管理员:无 Supabase token,鉴权靠 HttpOnly cookie(同源请求自动带);
+    // 用 "local" 哨兵值填 token,让下游 `if (!token) return` 守卫通过、请求照发
+    //(服务端 requireAdmin 先验 cookie,忽略这个无效 Bearer)。
+    let tok: string | null = null;
+    if (!localAdmin) {
+      const sb = browserSupabase();
+      const { data } = await sb.auth.getSession();
+      tok = data.session?.access_token ?? null;
+      if (!tok) return;
+    }
     const res = await fetch("/api/admin/settings", {
-      headers: { Authorization: `Bearer ${tok}` },
+      headers: tok ? { Authorization: `Bearer ${tok}` } : {},
     });
     if (!res.ok) return; // 403 -> not admin -> stay hidden
     const v = (await res.json()) as View;
-    setToken(tok);
+    setToken(tok ?? "local");
     setView(v);
     setModel(v.model);
     setCutoutModel(v.cutoutModel);
@@ -518,8 +524,8 @@ export function AdminSettings() {
     setBrandName(v.brandName ?? "");
     setBrandLogo(v.brandLogo ?? "");
     setIsAdmin(true);
-    void loadUsers(tok);
-  }, [loadUsers]);
+    void loadUsers(tok ?? "local");
+  }, [loadUsers, localAdmin]);
 
   async function userAction(payload: UserActionPayload) {
     if (!token) return;
@@ -1889,18 +1895,24 @@ export function AdminSettings() {
       </div>
       )}
 
-      {/* 管理员 · 品牌与白标(Pro:自定义站点名 / Logo,运行时 DB 覆盖,免重建镜像) */}
-      {pro && section === "brand" && (
+      {/* 管理员 · 品牌与站点(自定义站点名 / Logo,运行时 DB 覆盖,免重建镜像)。
+          基础品牌(名+Logo)开源版即可用;仅"去掉底部 Powered by 署名"需要 Pro。 */}
+      {section === "brand" && (
       <div>
         <div className="mb-3 flex items-center gap-2">
           <Palette className="h-5 w-5 text-primary" />
-          <h2 className="text-lg font-semibold">管理员 · 品牌与白标</h2>
+          <h2 className="text-lg font-semibold">管理员 · 品牌与站点</h2>
           <span className="rounded-full bg-primary/10 px-2 py-0.5 text-xs font-medium text-primary">
             仅管理员可见
           </span>
         </div>
         <p className="mb-4 text-sm text-muted-foreground">
-          Pro 版可自定义品牌;留空则用默认。此处修改即时生效,无需重新部署。
+          自定义站点名称与 Logo,留空则用默认。此处修改即时生效,无需重新部署。
+          {!pro && (
+            <span className="text-c-text3">
+              {" "}页脚「Powered by」署名的移除为 Pro 版能力。
+            </span>
+          )}
         </p>
 
         <div className="grid gap-5 lg:grid-cols-2">

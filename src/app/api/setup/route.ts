@@ -15,6 +15,7 @@ export async function POST(req: Request) {
     apiKey?: string;
     licenseKey?: string;
     siteName?: string;
+    adminPassword?: string;
   };
   try {
     body = await req.json();
@@ -27,6 +28,8 @@ export async function POST(req: Request) {
       apiKey: typeof body.apiKey === "string" ? body.apiKey : "",
       licenseKey: typeof body.licenseKey === "string" ? body.licenseKey : "",
       siteName: typeof body.siteName === "string" ? body.siteName : "",
+      adminPassword:
+        typeof body.adminPassword === "string" ? body.adminPassword : "",
     });
     if (!result.ok) {
       return NextResponse.json({ error: result.error }, { status: result.status });

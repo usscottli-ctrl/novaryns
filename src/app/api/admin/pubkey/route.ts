@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { dbEnabled } from "@/lib/db";
 import { getPublicKeyPem } from "@/lib/settings";
-import { isAdminToken, bearer } from "@/lib/supabase-admin";
+import { requireAdmin } from "@/lib/admin-auth";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -15,7 +15,7 @@ export async function GET(req: Request) {
       { status: 503 }
     );
   }
-  if (!(await isAdminToken(bearer(req)))) {
+  if (!(await requireAdmin(req))) {
     return NextResponse.json({ error: "需要管理员身份" }, { status: 403 });
   }
   try {

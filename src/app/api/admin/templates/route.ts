@@ -5,7 +5,7 @@ import {
   listTemplates,
   updateTemplate,
 } from "@/lib/db";
-import { isAdminToken, bearer } from "@/lib/supabase-admin";
+import { requireAdmin } from "@/lib/admin-auth";
 import { storageEnabled, uploadImage } from "@/lib/storage";
 
 export const runtime = "nodejs";
@@ -19,7 +19,7 @@ async function guard(req: Request): Promise<NextResponse | null> {
       { status: 503 }
     );
   }
-  if (!(await isAdminToken(bearer(req)))) {
+  if (!(await requireAdmin(req))) {
     return NextResponse.json({ error: "需要管理员身份" }, { status: 403 });
   }
   return null;

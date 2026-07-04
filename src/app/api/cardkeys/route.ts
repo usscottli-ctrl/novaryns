@@ -6,7 +6,7 @@ import {
   setCardKeyStatus,
   cardKeyStats,
 } from "@/lib/db";
-import { isAdminToken, bearer } from "@/lib/supabase-admin";
+import { requireAdmin } from "@/lib/admin-auth";
 import { proEnabled } from "@/lib/edition";
 
 export const runtime = "nodejs";
@@ -16,7 +16,7 @@ async function guard(request: Request): Promise<NextResponse | null> {
   if (!dbEnabled) {
     return NextResponse.json({ error: "服务暂不可用" }, { status: 503 });
   }
-  if (!(await isAdminToken(bearer(request)))) {
+  if (!(await requireAdmin(request))) {
     return NextResponse.json({ error: "无权限" }, { status: 403 });
   }
   if (!(await proEnabled())) {
