@@ -2,11 +2,27 @@ import Link from "next/link";
 import { Mail, Clock, MessageSquare } from "lucide-react";
 import { getServerLocale } from "@/lib/i18n/server-locale";
 import { BRAND, BRAND_EMAIL } from "@/lib/brand";
+import { editionName } from "@/lib/edition";
+import { getSitePage } from "@/lib/settings";
+import { CustomPage } from "@/components/custom-page";
 
 export const metadata = { title: `联系我们 — ${BRAND}` };
 
-export default function ContactPage() {
+export default async function ContactPage() {
   const locale = getServerLocale();
+  // 自部署实例:渲染站长后台自定义的「联系我们」(默认页含我们的邮箱,不给自部署者显示)。
+  if (editionName !== "cloud") {
+    const custom = await getSitePage("contact");
+    return (
+      <CustomPage
+        title={locale === "en" ? "Contact" : "联系我们"}
+        content={
+          custom ||
+          (locale === "en" ? "Content coming soon." : "内容建设中，敬请期待。")
+        }
+      />
+    );
+  }
   return locale === "en" ? <ContactEn /> : <ContactZh />;
 }
 

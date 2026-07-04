@@ -11,6 +11,9 @@ import {
 } from "lucide-react";
 import { getServerLocale } from "@/lib/i18n/server-locale";
 import { BRAND } from "@/lib/brand";
+import { editionName } from "@/lib/edition";
+import { getSitePage } from "@/lib/settings";
+import { CustomPage } from "@/components/custom-page";
 
 export const metadata = { title: `关于 ${BRAND} — ${BRAND}` };
 
@@ -123,8 +126,21 @@ function AboutLayout({
   );
 }
 
-export default function AboutPage() {
+export default async function AboutPage() {
   const locale = getServerLocale();
+  // 自部署实例:渲染站长在后台自定义的「关于我们」;官方站保留默认设计页。
+  if (editionName !== "cloud") {
+    const custom = await getSitePage("about");
+    return (
+      <CustomPage
+        title={locale === "en" ? "About us" : "关于我们"}
+        content={
+          custom ||
+          (locale === "en" ? "Content coming soon." : "内容建设中，敬请期待。")
+        }
+      />
+    );
+  }
   return locale === "en" ? (
     <AboutLayout
       kicker="About us"

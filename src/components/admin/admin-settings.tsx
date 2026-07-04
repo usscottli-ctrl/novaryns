@@ -27,10 +27,12 @@ import {
   Shirt,
   ExternalLink,
   Palette,
+  FileText,
   Ticket,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { Textarea } from "@/components/ui/textarea";
 import { browserSupabase } from "@/lib/supabase";
 import { usePaymentConfig } from "@/lib/payment-context";
 import { AdminTemplates } from "@/components/admin/admin-templates";
@@ -168,6 +170,9 @@ type View = {
   // 品牌与白标(Pro)
   brandName?: string;
   brandLogo?: string;
+  pageAbout?: string;
+  pageContact?: string;
+  pagePlans?: string;
 };
 
 type UserActionPayload = {
@@ -256,6 +261,7 @@ const SECTIONS = [
   { id: "api", label: "接口与模型", icon: KeyRound, pro: false },
   { id: "auth", label: "登录与支付", icon: ShieldCheck, pro: true },
   { id: "brand", label: "品牌与站点", icon: Palette, pro: false },
+  { id: "pages", label: "站点页面", icon: FileText, pro: false },
   { id: "ledger", label: "积分流水", icon: Database, pro: true },
   { id: "deploy", label: "部署与授权", icon: Server, pro: true },
   { id: "cardkeys", label: "兑换码", icon: Ticket, pro: true },
@@ -330,6 +336,10 @@ export function AdminSettings({ localAdmin = false }: { localAdmin?: boolean }) 
   // ── 品牌与白标(Pro)──
   const [brandName, setBrandName] = useState("");
   const [brandLogo, setBrandLogo] = useState("");
+  // 站点页面(关于/联系/定价)自定义内容
+  const [pageAbout, setPageAbout] = useState("");
+  const [pageContact, setPageContact] = useState("");
+  const [pagePlans, setPagePlans] = useState("");
   const [keyInput, setKeyInput] = useState("");
   const [busy, setBusy] = useState(false);
   const [msg, setMsg] = useState<{ ok: boolean; text: string } | null>(null);
@@ -356,6 +366,7 @@ export function AdminSettings({ localAdmin = false }: { localAdmin?: boolean }) 
     | "api"
     | "auth"
     | "brand"
+    | "pages"
     | "ledger"
     | "deploy"
     | "cardkeys"
@@ -523,6 +534,9 @@ export function AdminSettings({ localAdmin = false }: { localAdmin?: boolean }) 
     setWxpayCertSerial(v.wxpayCertSerial ?? "");
     setBrandName(v.brandName ?? "");
     setBrandLogo(v.brandLogo ?? "");
+    setPageAbout(v.pageAbout ?? "");
+    setPageContact(v.pageContact ?? "");
+    setPagePlans(v.pagePlans ?? "");
     setIsAdmin(true);
     void loadUsers(tok ?? "local");
   }, [loadUsers, localAdmin]);
@@ -783,6 +797,14 @@ export function AdminSettings({ localAdmin = false }: { localAdmin?: boolean }) 
   }
   async function saveBrandLogo() {
     await postSettings({ brandLogo }, "Logo 已保存");
+  }
+
+  // 保存站点页面(关于/联系/定价)。空串=清空→前台回退默认。
+  async function saveSitePages() {
+    await postSettings(
+      { pageAbout, pageContact, pagePlans },
+      "站点页面已保存"
+    );
   }
 
   // 上传 Logo 图片 → 存储返回 URL → 落库 brand_logo(与手填 URL 同一个值)。
@@ -2008,6 +2030,62 @@ export function AdminSettings({ localAdmin = false }: { localAdmin?: boolean }) 
               保存 Logo
             </Button>
           </div>
+        </div>
+      </div>
+      )}
+
+      {/* 管理员 · 站点页面(关于/联系/定价 自定义内容;开源版也可改) */}
+      {section === "pages" && (
+      <div>
+        <div className="mb-3 flex items-center gap-2">
+          <FileText className="h-5 w-5 text-primary" />
+          <h2 className="text-lg font-semibold">管理员 · 站点页面</h2>
+          <span className="rounded-full bg-primary/10 px-2 py-0.5 text-xs font-medium text-primary">
+            仅管理员可见
+          </span>
+        </div>
+        <p className="mb-4 text-sm text-muted-foreground">
+          自定义「关于我们 / 联系我们 / 定价」页面内容(纯文本,空一行分段)。
+          留空则显示「内容建设中」。改动即时生效。
+        </p>
+
+        <div className="space-y-5">
+          <div className="space-y-2 rounded-2xl border border-border bg-card p-6 card-shadow">
+            <label className="text-sm font-semibold">关于我们</label>
+            <Textarea
+              rows={6}
+              value={pageAbout}
+              onChange={(e) => setPageAbout(e.target.value)}
+              placeholder="介绍你的团队 / 公司 / 产品…"
+            />
+          </div>
+          <div className="space-y-2 rounded-2xl border border-border bg-card p-6 card-shadow">
+            <label className="text-sm font-semibold">联系我们</label>
+            <Textarea
+              rows={5}
+              value={pageContact}
+              onChange={(e) => setPageContact(e.target.value)}
+              placeholder="邮箱 / 微信 / 电话 / 地址 / 工作时间…"
+            />
+          </div>
+          <div className="space-y-2 rounded-2xl border border-border bg-card p-6 card-shadow">
+            <label className="text-sm font-semibold">定价</label>
+            <Textarea
+              rows={5}
+              value={pagePlans}
+              onChange={(e) => setPagePlans(e.target.value)}
+              placeholder="套餐 / 价格 / 权益说明…(留空则该页显示「内容建设中」)"
+            />
+          </div>
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => void saveSitePages()}
+            disabled={busy}
+          >
+            {busy && <Loader2 className="h-4 w-4 animate-spin" />}
+            保存站点页面
+          </Button>
         </div>
       </div>
       )}
