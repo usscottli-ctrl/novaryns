@@ -9,6 +9,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { useAuth } from "@/lib/auth-context";
 import { usePaymentConfig } from "@/lib/payment-context";
+import { supabaseEnabled } from "@/lib/auth-mode";
 import { BRAND } from "@/lib/brand";
 import { OPERATOR_EMAIL } from "@/lib/operator";
 
@@ -56,8 +57,11 @@ export function AuthForm({
   // 一个密码同时登录用户 + 后台;没设(极老实例)回退旧的邮箱登录不锁死。
   const [localAvailable, setLocalAvailable] = useState<boolean | null>(null);
   const isSignUp = pro && mode === "sign-up";
-  // 单用户密码登录模式:非 Pro(开源版)且已设管理员密码。
-  const pwMode = !pro && localAvailable === true;
+  // 单用户密码登录模式:**无 Supabase**(= 单用户自托管,不论开源版还是 Pro 单用户)
+  // 且已设管理员密码。用 supabaseEnabled 而非 pro 判定 —— 登录方式取决于有没有多用户
+  // 账号系统(Supabase),不取决于是否 Pro。这样"开源版升级 Pro(仍单用户)"后
+  // 密码登录照常可用,不会退回坏掉的邮箱登录。
+  const pwMode = !supabaseEnabled && localAvailable === true;
 
   useEffect(() => {
     let cancelled = false;
@@ -199,10 +203,15 @@ export function AuthForm({
         </Button>
       </form>
 
-      {!pro ? (
-        // 开源精简版 = 单用户。密码登录模式给一句说明;否则保留原提示。
+      {pwMode ? (
+        // 单用户密码登录(开源版 / Pro 单用户):一句说明。
         <p className="text-center text-sm text-muted-foreground">
-          {pwMode ? "用安装向导里设置的管理员密码登录" : "多用户注册需 Pro 版"}
+          用安装向导里设置的管理员密码登录
+        </p>
+      ) : !pro ? (
+        // 开源精简版且未设密码:提示多用户需 Pro。
+        <p className="text-center text-sm text-muted-foreground">
+          多用户注册需 Pro 版
         </p>
       ) : (
         <p className="text-center text-sm text-muted-foreground">

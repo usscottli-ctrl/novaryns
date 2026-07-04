@@ -1520,10 +1520,13 @@ export async function reserveCredits(
   emailRaw: string,
   n: number
 ): Promise<boolean> {
-  // 开源版(pro=false):不计费,用户用自己的 API Key 无限自用 → 直接放行(不扣积分)。
-  // 积分/充值/兑换码整套只在 Pro/云端生效。动态 import 避免 db ↔ edition 静态循环。
+  // 不计费直接放行的两种情况:①开源版(pro=false);②单用户自托管(无 Supabase 多用户
+  // 账号系统)——哪怕升级了 Pro,站长用自己的 Key 自用也不该被积分卡。计费只在
+  // 「多用户(Supabase)+ Pro」下才有意义(给站长的真实客户按量扣)。
+  // 动态 import 避免 db ↔ edition 静态循环;auth-mode 是纯 env 常量,一并动态取。
   const { proEnabled } = await import("@/lib/edition");
-  if (!(await proEnabled())) return true;
+  const { supabaseEnabled } = await import("@/lib/auth-mode");
+  if (!(await proEnabled()) || !supabaseEnabled) return true;
   await ensureSchema();
   const email = emailRaw.toLowerCase();
   if (n <= 0) return true;
@@ -1544,9 +1547,10 @@ export async function refundCredits(
   emailRaw: string,
   n: number
 ): Promise<void> {
-  // 开源版:从未扣费,无需退款(与 reserveCredits 放行对应)。
+  // 与 reserveCredits 放行对应:开源版 / 单用户自托管(无 Supabase)从未扣费,无需退款。
   const { proEnabled } = await import("@/lib/edition");
-  if (!(await proEnabled())) return;
+  const { supabaseEnabled } = await import("@/lib/auth-mode");
+  if (!(await proEnabled()) || !supabaseEnabled) return;
   await ensureSchema();
   await getPool().query(
     `UPDATE app_users
