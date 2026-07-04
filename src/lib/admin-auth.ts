@@ -1,7 +1,9 @@
 import "server-only";
 import { scryptSync, randomBytes, timingSafeEqual, createHmac } from "crypto";
 import { getSetting, setSetting } from "@/lib/db";
-import { isAdminToken, bearer } from "@/lib/supabase-admin";
+import { isAdminToken, emailFromToken, bearer } from "@/lib/supabase-admin";
+import { supabaseEnabled } from "@/lib/auth-mode";
+import { OPERATOR_EMAIL } from "@/lib/operator";
 
 // ---------------------------------------------------------------------------
 // 本地管理员登录(开源版 / 自托管无 Supabase 时的后台入口)。
@@ -119,4 +121,21 @@ export function localAdminOk(request: Request): boolean {
 export async function requireAdmin(request: Request): Promise<boolean> {
   if (localAdminOk(request)) return true;
   return isAdminToken(bearer(request));
+}
+
+/**
+ * 解析当前请求的用户邮箱(功能路由鉴权用):
+ *   1) Supabase token 校验通过 → 该用户邮箱(官方云 / 多用户)。
+ *   2) 否则,开源版单用户(无 Supabase)且本地操作者已登录(admin cookie 有效)
+ *      → 返回 OPERATOR_EMAIL,让生图 / 工具等对"登录后的站长"放行。
+ *   3) 都不满足 → null(未登录,路由返回 401)。
+ * 这样开源版单用户 = 站长用密码登录后即可正常使用所有功能;随便访问的人(无 cookie)仍被挡。
+ */
+export async function resolveUserEmail(
+  request: Request
+): Promise<string | null> {
+  const tokenEmail = await emailFromToken(bearer(request));
+  if (tokenEmail) return tokenEmail;
+  if (!supabaseEnabled && localAdminOk(request)) return OPERATOR_EMAIL;
+  return null;
 }

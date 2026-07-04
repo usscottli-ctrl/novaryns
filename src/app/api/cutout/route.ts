@@ -12,7 +12,7 @@ import {
 } from "@/lib/db";
 import { clientIp } from "@/lib/ip";
 import { rateLimit } from "@/lib/rate-limit";
-import { bearer, emailFromToken } from "@/lib/supabase-admin";
+import { resolveUserEmail } from "@/lib/admin-auth";
 import { storageEnabled, uploadImage } from "@/lib/storage";
 import { getCutoutSettings, getOpenAISettings } from "@/lib/settings";
 import { safeError } from "@/lib/api-error";
@@ -274,7 +274,7 @@ export async function POST(request: Request) {
 
     // 生产(接库)必须凭有效登录态;用 token 里的 email 作准,不信任请求体。
     if (dbEnabled) {
-      const tokenEmail = await emailFromToken(bearer(request));
+      const tokenEmail = await resolveUserEmail(request);
       if (!tokenEmail) {
         return NextResponse.json({ error: "请先登录后再操作" }, { status: 401 });
       }

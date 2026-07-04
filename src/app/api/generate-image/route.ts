@@ -20,7 +20,7 @@ import {
 } from "@/lib/db";
 import { clientIp } from "@/lib/ip";
 import { rateLimit } from "@/lib/rate-limit";
-import { bearer, emailFromToken } from "@/lib/supabase-admin";
+import { resolveUserEmail } from "@/lib/admin-auth";
 import { safeError } from "@/lib/api-error";
 import {
   storageEnabled,
@@ -696,7 +696,7 @@ export async function POST(request: Request) {
   // 生产环境(接了库)必须凭有效登录态:用 token 里的 email 作准,不信任请求体
   // 传来的 email——既堵住「空 email 免费烧 key」,也防「冒用他人邮箱花其积分」。
   if (dbEnabled) {
-    const tokenEmail = await emailFromToken(bearer(request));
+    const tokenEmail = await resolveUserEmail(request);
     if (!tokenEmail) {
       return NextResponse.json(
         { error: "请先登录后再生成" },

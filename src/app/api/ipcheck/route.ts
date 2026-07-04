@@ -11,7 +11,7 @@ import {
 } from "@/lib/db";
 import { clientIp } from "@/lib/ip";
 import { rateLimit } from "@/lib/rate-limit";
-import { bearer, emailFromToken } from "@/lib/supabase-admin";
+import { resolveUserEmail } from "@/lib/admin-auth";
 import { getOpenAISettings } from "@/lib/settings";
 import { safeError } from "@/lib/api-error";
 
@@ -51,7 +51,7 @@ export async function POST(req: Request) {
   }
 
   if (dbEnabled) {
-    const tokenEmail = await emailFromToken(bearer(req));
+    const tokenEmail = await resolveUserEmail(req);
     if (!tokenEmail)
       return NextResponse.json({ error: "请先登录后再操作" }, { status: 401 });
     email = tokenEmail;

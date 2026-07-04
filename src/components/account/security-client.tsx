@@ -18,6 +18,7 @@ import { useI18n } from "@/lib/i18n/locale-context";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { browserSupabase } from "@/lib/supabase";
+import { supabaseEnabled } from "@/lib/auth-mode";
 import { cn } from "@/lib/utils";
 
 function fmt(s: string, vars: Record<string, string | number>): string {
@@ -69,7 +70,8 @@ export function SecurityClient() {
 
   // Read markers we stamp on the user's metadata.
   useEffect(() => {
-    if (!user) return;
+    // 开源版无 Supabase(createClient 空 url 会抛)→ 跳过,避免整页崩。
+    if (!user || !supabaseEnabled) return;
     let cancelled = false;
     browserSupabase()
       .auth.getUser()
@@ -245,6 +247,16 @@ export function SecurityClient() {
         </div>
       </div>
 
+      {/* 开源版单用户:密码 = 安装向导设的管理员密码;下面 Supabase 多用户功能不适用 */}
+      {!supabaseEnabled && (
+        <p className="mb-10 rounded-2xl border border-border bg-secondary/40 px-6 py-4 text-sm text-muted-foreground">
+          开源版单用户模式:登录密码即安装向导中设置的「管理员密码」。多用户账号 /
+          手机绑定 / 改密等功能为 Pro 版能力。
+        </p>
+      )}
+
+      {supabaseEnabled && (
+      <>
       {/* 登录密码 */}
       <h2 className="mb-4 text-xl font-semibold">{t("acct.pwTitle")}</h2>
       <div className="mb-10 rounded-2xl border border-border bg-card p-6 card-shadow">
@@ -464,6 +476,8 @@ export function SecurityClient() {
             </form>
           </div>
         </div>
+      )}
+      </>
       )}
     </div>
   );

@@ -11,10 +11,10 @@ import {
 } from "@/lib/db";
 import { clientIp } from "@/lib/ip";
 import { rateLimit } from "@/lib/rate-limit";
-import { bearer, emailFromToken } from "@/lib/supabase-admin";
+import { resolveUserEmail } from "@/lib/admin-auth";
 import { storageEnabled, uploadImage } from "@/lib/storage";
 import { getOpenAISettings } from "@/lib/settings";
-import { POINTS_PER_IMAGE } from "@/lib/mock-data";
+import { TOOL_COST } from "@/lib/mock-data";
 import { getTryonLibrary } from "@/lib/tryon-store";
 import { safeError } from "@/lib/api-error";
 
@@ -29,7 +29,7 @@ import { safeError } from "@/lib/api-error";
 export const runtime = "nodejs";
 export const maxDuration = 240;
 
-const TRYON_COST = POINTS_PER_IMAGE;
+const TRYON_COST = TOOL_COST.tryon;
 
 type TryonInput = {
   top: Buffer | null; // 上装(可选)
@@ -331,7 +331,7 @@ export async function POST(request: Request) {
     }
 
     if (dbEnabled) {
-      const tokenEmail = await emailFromToken(bearer(request));
+      const tokenEmail = await resolveUserEmail(request);
       if (!tokenEmail)
         return NextResponse.json({ error: "请先登录后再操作" }, { status: 401 });
       input.email = tokenEmail;
