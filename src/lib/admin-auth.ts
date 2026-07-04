@@ -1,9 +1,13 @@
 import "server-only";
-import { scryptSync, randomBytes, timingSafeEqual, createHmac } from "crypto";
+import { timingSafeEqual, createHmac } from "crypto";
 import { getSetting, setSetting } from "@/lib/db";
 import { isAdminToken, emailFromToken, bearer } from "@/lib/supabase-admin";
 import { supabaseEnabled } from "@/lib/auth-mode";
 import { OPERATOR_EMAIL } from "@/lib/operator";
+import { hashPassword, verifyPassword } from "@/lib/pw";
+
+// 兼容旧引用:密码哈希/校验已抽到 @/lib/pw,这里再导出一份。
+export { hashPassword, verifyPassword };
 
 // ---------------------------------------------------------------------------
 // 本地管理员登录(开源版 / 自托管无 Supabase 时的后台入口)。
@@ -22,27 +26,6 @@ export const SESSION_TTL_MS = 7 * 24 * 60 * 60 * 1000; // 7 天
 function secret(): string {
   // 复用落库加密用的服务端密钥(settings.ts 同源),用于给会话 cookie 签名。
   return process.env.SETTINGS_SECRET || "novaryns-insecure-default";
-}
-
-// 口令哈希:scrypt(随机 salt),存 "scrypt$<saltHex>$<hashHex>"。
-export function hashPassword(pw: string): string {
-  const salt = randomBytes(16);
-  const hash = scryptSync(pw, salt, 32);
-  return `scrypt$${salt.toString("hex")}$${hash.toString("hex")}`;
-}
-
-// 定长比较,防时序侧信道。
-export function verifyPassword(pw: string, stored: string): boolean {
-  try {
-    const [algo, saltHex, hashHex] = stored.split("$");
-    if (algo !== "scrypt" || !saltHex || !hashHex) return false;
-    const salt = Buffer.from(saltHex, "hex");
-    const expected = Buffer.from(hashHex, "hex");
-    const actual = scryptSync(pw, salt, expected.length);
-    return actual.length === expected.length && timingSafeEqual(actual, expected);
-  } catch {
-    return false;
-  }
 }
 
 export async function setAdminPassword(pw: string): Promise<void> {
@@ -136,6 +119,13 @@ export async function resolveUserEmail(
 ): Promise<string | null> {
   const tokenEmail = await emailFromToken(bearer(request));
   if (tokenEmail) return tokenEmail;
-  if (!supabaseEnabled && localAdminOk(request)) return OPERATOR_EMAIL;
+  if (!supabaseEnabled) {
+    // 原生多用户:已登录用户的会话 cookie。
+    const { nativeUserEmail } = await import("@/lib/native-auth");
+    const nu = nativeUserEmail(request);
+    if (nu) return nu;
+    // 单用户:登录后的站长(admin cookie)。
+    if (localAdminOk(request)) return OPERATOR_EMAIL;
+  }
   return null;
 }

@@ -136,6 +136,7 @@ async function ensureSchema(): Promise<void> {
         ALTER TABLE app_users ADD COLUMN IF NOT EXISTS last_login_at timestamptz;
         ALTER TABLE app_users ADD COLUMN IF NOT EXISTS phone text;
         ALTER TABLE app_users ADD COLUMN IF NOT EXISTS note text NOT NULL DEFAULT '';
+        ALTER TABLE app_users ADD COLUMN IF NOT EXISTS password_hash text;
         CREATE UNIQUE INDEX IF NOT EXISTS app_users_phone_idx
           ON app_users (phone) WHERE phone IS NOT NULL;
         CREATE TABLE IF NOT EXISTS app_banned_ips (
@@ -910,6 +911,38 @@ export async function getOrCreateUser(
   return toSessionUser(rows[0]);
 }
 
+// --- 原生多用户:密码存取(Pro 多用户模式,不依赖 Supabase) ---
+export async function setUserPassword(
+  emailRaw: string,
+  hash: string
+): Promise<void> {
+  await ensureSchema();
+  await getPool().query(`UPDATE app_users SET password_hash = $2 WHERE email = $1`, [
+    emailRaw.toLowerCase(),
+    hash,
+  ]);
+}
+
+export async function getUserPasswordHash(
+  emailRaw: string
+): Promise<string | null> {
+  await ensureSchema();
+  const { rows } = await getPool().query<{ password_hash: string | null }>(
+    `SELECT password_hash FROM app_users WHERE email = $1`,
+    [emailRaw.toLowerCase()]
+  );
+  return rows[0]?.password_hash ?? null;
+}
+
+export async function userExists(emailRaw: string): Promise<boolean> {
+  await ensureSchema();
+  const { rows } = await getPool().query(
+    `SELECT 1 FROM app_users WHERE email = $1`,
+    [emailRaw.toLowerCase()]
+  );
+  return rows.length > 0;
+}
+
 export async function getUser(
   emailRaw: string
 ): Promise<SessionUser | null> {
@@ -1520,15 +1553,21 @@ export async function reserveCredits(
   emailRaw: string,
   n: number
 ): Promise<boolean> {
-  // 不计费直接放行的两种情况:①开源版(pro=false);②单用户自托管(无 Supabase 多用户
-  // 账号系统)——哪怕升级了 Pro,站长用自己的 Key 自用也不该被积分卡。计费只在
-  // 「多用户(Supabase)+ Pro」下才有意义(给站长的真实客户按量扣)。
-  // 动态 import 避免 db ↔ edition 静态循环;auth-mode 是纯 env 常量,一并动态取。
-  const { proEnabled } = await import("@/lib/edition");
-  const { supabaseEnabled } = await import("@/lib/auth-mode");
-  if (!(await proEnabled()) || !supabaseEnabled) return true;
-  await ensureSchema();
+  // 计费仅在「Pro + 多用户」下对真实客户生效;其余一律放行(不扣积分)。
+  // 放行:①站长自己(OPERATOR_EMAIL,自托管实例的主人,永不计费)②开源版(pro=false)
+  // ③单用户自托管(既非 Supabase 多用户、也没开原生多用户开关)。
+  // 计费开启 = Pro 且(Supabase 多用户 或 原生多用户)。动态 import 避免静态循环。
   const email = emailRaw.toLowerCase();
+  const { OPERATOR_EMAIL } = await import("@/lib/operator");
+  if (email === OPERATOR_EMAIL) return true;
+  const { proEnabled } = await import("@/lib/edition");
+  if (!(await proEnabled())) return true;
+  const { supabaseEnabled } = await import("@/lib/auth-mode");
+  if (!supabaseEnabled) {
+    const { multiUserEnabled } = await import("@/lib/native-auth");
+    if (!(await multiUserEnabled())) return true;
+  }
+  await ensureSchema();
   if (n <= 0) return true;
   await expireDueBatches(email);
   const { rowCount } = await getPool().query(
@@ -1547,10 +1586,17 @@ export async function refundCredits(
   emailRaw: string,
   n: number
 ): Promise<void> {
-  // 与 reserveCredits 放行对应:开源版 / 单用户自托管(无 Supabase)从未扣费,无需退款。
+  // 与 reserveCredits 放行口径一致:未计费的场景无需退款。
+  const email = emailRaw.toLowerCase();
+  const { OPERATOR_EMAIL } = await import("@/lib/operator");
+  if (email === OPERATOR_EMAIL) return;
   const { proEnabled } = await import("@/lib/edition");
+  if (!(await proEnabled())) return;
   const { supabaseEnabled } = await import("@/lib/auth-mode");
-  if (!(await proEnabled()) || !supabaseEnabled) return;
+  if (!supabaseEnabled) {
+    const { multiUserEnabled } = await import("@/lib/native-auth");
+    if (!(await multiUserEnabled())) return;
+  }
   await ensureSchema();
   await getPool().query(
     `UPDATE app_users

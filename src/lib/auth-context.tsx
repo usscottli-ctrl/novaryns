@@ -51,6 +51,8 @@ type AuthContextValue = {
   remaining: number;
   /** "server" when Postgres is live, "local" for the localStorage mock. */
   persistMode: "local" | "server";
+  /** 原生多用户模式(Pro):启用邮箱+密码注册/登录 + 服务端会话 hydrate。 */
+  multiUser: boolean;
   signUp: (name: string, email: string) => void;
   signIn: (email: string) => void;
   signOut: () => void;
@@ -106,6 +108,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [persistMode, setPersistMode] = useState<"local" | "server">(
     "local"
   );
+  const [multiUser, setMultiUser] = useState(false);
+  const multiUserRef = useRef(false);
   const serverRef = useRef(false);
   const externalSignOut = useRef<(() => void) | null>(null);
 
@@ -165,14 +169,35 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         if (!cancelled && cfg?.db) {
           serverRef.current = true;
           setPersistMode("server");
-          if (lastEmail) {
-            const res = await fetch(
-              `/api/account?email=${encodeURIComponent(lastEmail)}`,
-              { headers: await authHeader() }
-            ).then((r) => r.json());
-            if (!cancelled && res?.persisted && res.user) {
-              persist(res.user as SessionUser);
+        }
+        // 原生多用户:身份来自服务端会话 cookie(权威),不用 localStorage lastEmail。
+        if (!cancelled && cfg?.multiUser) {
+          multiUserRef.current = true;
+          setMultiUser(true);
+          try {
+            const s = await fetch("/api/auth/session").then((r) => r.json());
+            if (!cancelled) {
+              if (s?.user) persist(s.user as SessionUser);
+              else {
+                // 会话无效 → 清掉可能残留的本地态
+                setUser(null);
+                try {
+                  localStorage.removeItem(LAST_KEY);
+                } catch {
+                  /* ignore */
+                }
+              }
             }
+          } catch {
+            /* session unreachable — leave as-is */
+          }
+        } else if (!cancelled && cfg?.db && lastEmail) {
+          const res = await fetch(
+            `/api/account?email=${encodeURIComponent(lastEmail)}`,
+            { headers: await authHeader() }
+          ).then((r) => r.json());
+          if (!cancelled && res?.persisted && res.user) {
+            persist(res.user as SessionUser);
           }
         }
       } catch {
@@ -233,6 +258,10 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
   const signOut = useCallback(() => {
     if (externalSignOut.current) externalSignOut.current();
+    // 原生多用户:清服务端会话 cookie。
+    if (multiUserRef.current) {
+      fetch("/api/auth/logout", { method: "POST" }).catch(() => {});
+    }
     setUser(null);
     try {
       localStorage.removeItem(LAST_KEY);
@@ -313,6 +342,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         ready,
         remaining,
         persistMode,
+        multiUser,
         signUp,
         signIn,
         signOut,
