@@ -57,6 +57,8 @@ const BRAND_LOGO_SETTING = "brand_logo";
 const PAGE_ABOUT_SETTING = "page_about";
 const PAGE_CONTACT_SETTING = "page_contact";
 const PAGE_PLANS_SETTING = "page_plans";
+// 原生多用户开关(与 native-auth.ts 的 MULTI_USER_SETTING 同值)。
+const MULTI_USER_SETTING = "multi_user_enabled";
 const WXPAY_APPID = "wxpay_appid"; // Native 下单要绑定的公众号/小程序 appid(明文)
 const PAY_ENABLED = "pay_enabled";
 
@@ -336,6 +338,11 @@ export async function saveSitePages(opts: {
     await setSetting(PAGE_PLANS_SETTING, opts.plans.slice(0, 8000));
 }
 
+/** 保存「原生多用户」开关(Pro 多用户模式:开启访客注册/登录 + 按量计费)。 */
+export async function saveMultiUser(on: boolean): Promise<void> {
+  await setSetting(MULTI_USER_SETTING, on ? "1" : "0");
+}
+
 /** 读某个自定义页面的内容(供 /about /contact /plans 页面渲染);无则空串。 */
 export async function getSitePage(
   which: "about" | "contact" | "plans"
@@ -572,5 +579,7 @@ export async function getAdminView() {
     pageAbout: (await getSetting(PAGE_ABOUT_SETTING)) ?? "",
     pageContact: (await getSetting(PAGE_CONTACT_SETTING)) ?? "",
     pagePlans: (await getSetting(PAGE_PLANS_SETTING)) ?? "",
+    // 原生多用户开关(前端后台展示;env NOVARYNS_MULTI_USER=1 也会强制开)
+    multiUserEnabled: ((await getSetting(MULTI_USER_SETTING)) ?? "") === "1",
   };
 }

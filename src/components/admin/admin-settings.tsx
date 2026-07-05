@@ -153,6 +153,8 @@ type View = {
   wechatEmailDomain?: string;
   wechatSecretMasked?: string;
   wechatReady?: boolean;
+  // 原生多用户开关
+  multiUserEnabled?: boolean;
   // 支付
   payEnabled?: boolean;
   alipayAppid?: string;
@@ -323,6 +325,7 @@ export function AdminSettings({ localAdmin = false }: { localAdmin?: boolean }) 
   const [wechatSecretInput, setWechatSecretInput] = useState("");
   // 收款开关
   const [payEnabled, setPayEnabled] = useState(false);
+  const [multiUserOn, setMultiUserOn] = useState(false);
   // 支付宝商户
   const [alipayAppid, setAlipayAppid] = useState("");
   const [alipayPublicKey, setAlipayPublicKey] = useState("");
@@ -527,6 +530,7 @@ export function AdminSettings({ localAdmin = false }: { localAdmin?: boolean }) 
     setWechatToken(v.wechatToken ?? "");
     setWechatEmailDomain(v.wechatEmailDomain ?? "");
     setPayEnabled(!!v.payEnabled);
+    setMultiUserOn(!!v.multiUserEnabled);
     setAlipayAppid(v.alipayAppid ?? "");
     setAlipayPublicKey(v.alipayPublicKey ?? "");
     setWxpayMchid(v.wxpayMchid ?? "");
@@ -762,6 +766,7 @@ export function AdminSettings({ localAdmin = false }: { localAdmin?: boolean }) 
       setWechatToken(v.wechatToken ?? "");
       setWechatEmailDomain(v.wechatEmailDomain ?? "");
       setPayEnabled(!!v.payEnabled);
+    setMultiUserOn(!!v.multiUserEnabled);
       setAlipayAppid(v.alipayAppid ?? "");
       setAlipayPublicKey(v.alipayPublicKey ?? "");
       setWxpayMchid(v.wxpayMchid ?? "");
@@ -1549,6 +1554,54 @@ export function AdminSettings({ localAdmin = false }: { localAdmin?: boolean }) 
           开源自部署时在此填入自己的微信公众号与收款凭证。所有敏感字段均「浏览器内 RSA
           加密传输 + 服务端 AES 加密存储」，永不明文、不回显；留空则自动回退环境变量配置。
         </p>
+
+        {/* 多用户模式开关(Pro:开则访客注册/买积分/生图扣费,可对外运营卖积分) */}
+        <div className="mb-5 space-y-3 rounded-2xl border border-border bg-card p-6 card-shadow">
+          <div className="flex items-center gap-2 text-sm font-semibold">
+            <Users className="h-4 w-4 text-primary" />
+            多用户模式
+          </div>
+          <p className="text-xs text-muted-foreground">
+            开启后：访客可注册 / 登录（邮箱 + 密码），新用户获赠积分，生图按积分扣费，
+            你可对外卖积分运营（和官方站一样）。关闭则为单用户自托管（仅你自己用、不计费）。
+            开启前请先在下方配好收款（支付宝 / 微信），否则用户买不了积分。
+          </p>
+          <div className="flex flex-wrap items-center gap-2">
+            <span className="text-xs font-medium text-muted-foreground">
+              多用户开关：
+            </span>
+            {[
+              { v: true, label: "开启" },
+              { v: false, label: "关闭" },
+            ].map((o) => (
+              <button
+                key={o.label}
+                onClick={() => setMultiUserOn(o.v)}
+                className={`rounded-full border px-3 py-1 text-xs transition-colors ${
+                  multiUserOn === o.v
+                    ? "border-primary bg-primary/10 text-primary"
+                    : "border-border text-muted-foreground hover:bg-secondary"
+                }`}
+              >
+                {o.label}
+              </button>
+            ))}
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() =>
+                void postSettings(
+                  { multiUserEnabled: multiUserOn },
+                  "多用户开关已保存"
+                )
+              }
+              disabled={busy}
+            >
+              {busy && <Loader2 className="h-4 w-4 animate-spin" />}
+              保存
+            </Button>
+          </div>
+        </div>
 
         {/* 当前收款模式(只读说明) */}
         <div className="mb-5 flex items-start gap-2 rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-700">
