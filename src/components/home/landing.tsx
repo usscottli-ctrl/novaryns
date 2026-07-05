@@ -150,14 +150,17 @@ export function Landing({ hot }: { hot: PickedTemplate[] }) {
               </a>
             )}
           </div>
-          <div className="mt-6 flex flex-wrap items-center justify-center gap-x-6 gap-y-2 text-[13px] text-muted-foreground">
-            {trust.map((tx) => (
-              <span key={tx} className="inline-flex items-center gap-1.5">
-                <Check className="h-4 w-4 text-primary" />
-                {tx}
-              </span>
-            ))}
-          </div>
+          {/* 营销徽章(无需信用卡/AGPL/Docker):仅官方站显示;自部署实例隐藏。 */}
+          {official && (
+            <div className="mt-6 flex flex-wrap items-center justify-center gap-x-6 gap-y-2 text-[13px] text-muted-foreground">
+              {trust.map((tx) => (
+                <span key={tx} className="inline-flex items-center gap-1.5">
+                  <Check className="h-4 w-4 text-primary" />
+                  {tx}
+                </span>
+              ))}
+            </div>
+          )}
 
           {/* 随手拍 → AI 成片 对比(可拖动) */}
           <div className="mx-auto mt-12 max-w-3xl">

@@ -1336,6 +1336,29 @@ export function AdminSettings({ localAdmin = false }: { localAdmin?: boolean }) 
           </span>
         </div>
 
+        {/* 大陆服务器中转部署帮助 */}
+        <div className="mb-5 rounded-xl border border-c-border2 bg-c-subtle2 p-4 text-[13px] leading-relaxed">
+          <p className="font-semibold text-c-text">
+            🇨🇳 大陆服务器:生图报「无法连接 AI 服务」怎么办
+          </p>
+          <p className="mt-1.5 text-c-text3">
+            大陆服务器直连不了 AI 模型,需要配置「中转地址」(反代)才能生图。两种办法:
+          </p>
+          <ul className="mt-1.5 list-disc space-y-1 pl-5 text-c-text3">
+            <li>
+              用一台海外服务器自建 OpenAI 兼容的中转/反代,把地址填到运行环境变量{" "}
+              <code className="rounded bg-black/5 px-1 dark:bg-white/10">
+                OPENAI_BASE_URL
+              </code>
+              (compose 里加这行后 <code className="rounded bg-black/5 px-1 dark:bg-white/10">docker compose up -d</code> 重启)。
+            </li>
+            <li>
+              不想折腾:联系作者微信 <b className="text-c-text2">xingze063</b>,可付费代配中转 / 代部署。
+            </li>
+          </ul>
+          <p className="mt-1.5 text-c-text4">海外服务器一般直连即可,忽略本条。</p>
+        </div>
+
         <div className="grid gap-5 lg:grid-cols-2">
           {/* 左:图像模型 + 对应 OpenAI Key + 充值入口 */}
           <div className="space-y-3 rounded-2xl border border-border bg-card p-6 card-shadow">
