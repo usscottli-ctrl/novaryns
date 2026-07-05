@@ -15,6 +15,7 @@ import { rateLimit } from "@/lib/rate-limit";
 import { resolveUserEmail } from "@/lib/admin-auth";
 import { storageEnabled, uploadImage } from "@/lib/storage";
 import { getCutoutSettings, getOpenAISettings } from "@/lib/settings";
+import { getOpenAIBaseUrl } from "@/lib/openai-base";
 import { safeError } from "@/lib/api-error";
 
 // ---------------------------------------------------------------------------
@@ -218,7 +219,7 @@ async function cutoutOpenAI(
 ): Promise<Buffer> {
   const client = new OpenAI({
     apiKey,
-    baseURL: process.env.OPENAI_BASE_URL || undefined,
+    baseURL: (await getOpenAIBaseUrl()) || undefined,
     timeout: 120_000,
     maxRetries: 0,
   });

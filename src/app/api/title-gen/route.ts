@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { toVisionDataUrl } from "@/lib/vision-image";
 import OpenAI from "openai";
 import { getOpenAISettings } from "@/lib/settings";
+import { getOpenAIBaseUrl } from "@/lib/openai-base";
 import { getTitleSystem } from "@/lib/prompt-config";
 import { resolveUserEmail } from "@/lib/admin-auth";
 import { dbEnabled, addArtworks } from "@/lib/db";
@@ -94,7 +95,7 @@ export async function POST(req: Request) {
   try {
     const client = new OpenAI({
       apiKey,
-      baseURL: process.env.OPENAI_BASE_URL || undefined,
+      baseURL: (await getOpenAIBaseUrl()) || undefined,
     });
     const sys = await getTitleSystem();
     const ctx: string[] = [`需要 ${count} 条标题`];

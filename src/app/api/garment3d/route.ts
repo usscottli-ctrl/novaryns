@@ -14,6 +14,7 @@ import { rateLimit } from "@/lib/rate-limit";
 import { resolveUserEmail } from "@/lib/admin-auth";
 import { storageEnabled, uploadImage } from "@/lib/storage";
 import { getOpenAISettings } from "@/lib/settings";
+import { getOpenAIBaseUrl } from "@/lib/openai-base";
 import { garment3dCost, resolutionLongSide } from "@/lib/mock-data";
 import { safeError } from "@/lib/api-error";
 
@@ -149,7 +150,7 @@ async function runJob(
       if (!apiKey) throw new Error("未配置 OpenAI key");
       const client = new OpenAI({
         apiKey,
-        baseURL: process.env.OPENAI_BASE_URL || undefined,
+        baseURL: (await getOpenAIBaseUrl()) || undefined,
         timeout: 280_000,
         maxRetries: 0,
       });

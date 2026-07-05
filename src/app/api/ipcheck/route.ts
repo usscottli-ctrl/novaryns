@@ -13,6 +13,7 @@ import { clientIp } from "@/lib/ip";
 import { rateLimit } from "@/lib/rate-limit";
 import { resolveUserEmail } from "@/lib/admin-auth";
 import { getOpenAISettings } from "@/lib/settings";
+import { getOpenAIBaseUrl } from "@/lib/openai-base";
 import { safeError } from "@/lib/api-error";
 
 // 侵权检测:视觉模型筛查图片的版权/IP 风险(知名卡通形象、品牌 logo、商标、明星肖像、名画等),
@@ -72,7 +73,7 @@ export async function POST(req: Request) {
     if (!apiKey) throw new Error("未配置 key");
     const client = new OpenAI({
       apiKey,
-      baseURL: process.env.OPENAI_BASE_URL || undefined,
+      baseURL: (await getOpenAIBaseUrl()) || undefined,
     });
     const resp = await client.chat.completions.create({
       model: "gpt-4o-mini",
