@@ -46,6 +46,9 @@ export async function GET(req: Request) {
     latestLabel: fmt(latest),
     updateAvailable,
     reachable,
-    updateCmd: "docker compose pull && docker compose up -d",
+    // 用 install.sh 更新:大陆走国内镜像拉最新版(compose pull 直连 ghcr 很慢),
+    // 数据卷保留、表结构自动迁移,不丢数据。
+    updateCmd:
+      "curl -fsSL https://raw.githubusercontent.com/usscottli-ctrl/novaryns/main/install.sh | bash",
   });
 }
