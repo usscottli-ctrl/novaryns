@@ -110,11 +110,21 @@ if [ -z "${HTTP_PORT:-}" ] && [ -f .env ]; then
     echo "→ 沿用已保存的端口:$HTTP_PORT / reusing saved port $HTTP_PORT"
   fi
 fi
-# 首次:80 被别的服务(宝塔/Nginx)占用则改用 8080。
+# 更新时:直接读"当前正在运行的应用容器"的实际端口来沿用(最根治,避免把自己旧容器
+# 占的 80 误判为"被别人占用"而换到 8080)。
+if [ -z "${HTTP_PORT:-}" ]; then
+  CUR_PORT="$(docker compose port app 3000 2>/dev/null | grep -oE '[0-9]+$' | head -1)"
+  if [ -n "$CUR_PORT" ]; then
+    export HTTP_PORT="$CUR_PORT"
+    echo "→ 沿用当前运行端口:$HTTP_PORT / reusing running port $HTTP_PORT"
+  fi
+fi
+# 首次(全新机器):只有当 80 被【别的服务】(宝塔/Nginx 等)占用时才改用 8080;
+# 到这一步说明本应用还没跑起来,80 上的都是别人 → 判断可信。
 if [ -z "${HTTP_PORT:-}" ]; then
   if ss -tlnH 2>/dev/null | awk '{print $4}' | grep -qE ':80$' || lsof -iTCP:80 -sTCP:LISTEN >/dev/null 2>&1; then
     export HTTP_PORT=8080
-    echo "→ 检测到 80 端口已被占用(可能是宝塔/Nginx),本应用改用 8080 端口 / port 80 busy, using 8080"
+    echo "→ 检测到 80 端口已被【其它服务】占用,本应用改用 8080 端口 / port 80 busy, using 8080"
   fi
 fi
 # 持久化端口到 .env(compose 自动读取),以后更新沿用同一端口,不再变来变去。
