@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { toVisionDataUrl } from "@/lib/vision-image";
 import OpenAI from "openai";
 import { getOpenAISettings } from "@/lib/settings";
+import { getOpenAIBaseUrl } from "@/lib/openai-base";
 import {
   getAssistSystem,
   getOptimizeSystem,
@@ -83,7 +84,7 @@ export async function POST(req: Request) {
   try {
     const client = new OpenAI({
       apiKey,
-      baseURL: process.env.OPENAI_BASE_URL || undefined,
+      baseURL: (await getOpenAIBaseUrl()) || undefined,
     });
     // 分功能页写法指令(prompt-config.ts 可审计)。
     // 关键:帮写(write)时,若有功能页专用指令,**不叠加通用「写整图大片」系统**

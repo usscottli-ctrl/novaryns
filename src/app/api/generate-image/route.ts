@@ -28,6 +28,7 @@ import {
   dataUrlToBytes,
 } from "@/lib/storage";
 import { getOpenAISettings } from "@/lib/settings";
+import { getOpenAIBaseUrl } from "@/lib/openai-base";
 import { getStyleGuide } from "@/lib/prompt-config";
 
 // ---------------------------------------------------------------------------
@@ -206,7 +207,7 @@ async function openaiImages(
   const model = p.transparent ? cutoutModel || "gpt-image-1" : modelIn;
   const client = new OpenAI({
     apiKey,
-    baseURL: process.env.OPENAI_BASE_URL || undefined,
+    baseURL: (await getOpenAIBaseUrl()) || undefined,
     // Generation runs as a background job (no CDN constraint), so allow a
     // long single attempt. No retry — a retry after timeout would double the
     // wait and blow past the client's poll deadline.

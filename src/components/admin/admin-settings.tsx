@@ -142,6 +142,7 @@ type View = {
   keyMasked: string;
   hasKey: boolean;
   source: "db" | "env" | "none";
+  openaiBaseUrl?: string;
   cutoutBackend?: "openai" | "replicate";
   cutoutReplicateReady?: boolean;
   cutoutReplicateModel?: string;
@@ -317,6 +318,7 @@ export function AdminSettings({ localAdmin = false }: { localAdmin?: boolean }) 
   const [view, setView] = useState<View | null>(null);
   const [model, setModel] = useState("");
   const [cutoutModel, setCutoutModel] = useState("");
+  const [baseUrl, setBaseUrl] = useState("");
   const [cutoutBackend, setCutoutBackend] = useState<"openai" | "replicate">(
     "replicate"
   );
@@ -533,6 +535,7 @@ export function AdminSettings({ localAdmin = false }: { localAdmin?: boolean }) 
     setView(v);
     setModel(v.model);
     setCutoutModel(v.cutoutModel);
+    setBaseUrl(v.openaiBaseUrl ?? "");
     setCutoutBackend(v.cutoutBackend ?? "replicate");
     setReplicateModel(v.cutoutReplicateModel ?? "men1scus/birefnet");
     setBonus(String(v.signupBonus ?? 30));
@@ -1357,6 +1360,37 @@ export function AdminSettings({ localAdmin = false }: { localAdmin?: boolean }) 
             </li>
           </ul>
           <p className="mt-1.5 text-c-text4">海外服务器一般直连即可,忽略本条。</p>
+        </div>
+
+        {/* 中转地址:后台直接填,即时生效(免改 compose / 免重启) */}
+        <div className="mb-5 space-y-2 rounded-2xl border border-border bg-card p-6 card-shadow">
+          <label className="flex items-center gap-2 text-sm font-semibold">
+            <Cpu className="h-4 w-4 text-primary" />
+            AI 服务中转地址
+          </label>
+          <p className="text-xs text-muted-foreground">
+            大陆服务器把中转/反代地址填这里,<b>保存即时生效,免改 compose、免重启</b>。
+            留空 = 直连(海外默认)。找作者代配后,把拿到的地址粘贴进来即可。
+          </p>
+          <div className="flex flex-wrap items-center gap-2">
+            <Input
+              value={baseUrl}
+              onChange={(e) => setBaseUrl(e.target.value)}
+              placeholder="https://你的中转域名/v1"
+              className="min-w-[260px] flex-1"
+            />
+            <Button
+              variant="outline"
+              size="sm"
+              disabled={busy}
+              onClick={() =>
+                void postSettings({ openaiBaseUrl: baseUrl }, "中转地址已保存")
+              }
+            >
+              {busy && <Loader2 className="h-4 w-4 animate-spin" />}
+              保存
+            </Button>
+          </div>
         </div>
 
         <div className="grid gap-5 lg:grid-cols-2">

@@ -5,6 +5,7 @@ import {
   getAdminView,
   saveOpenAIKey,
   saveOpenAIModel,
+  saveOpenAIBaseUrl,
   saveCutoutModel,
   saveCutoutBackend,
   saveReplicateToken,
@@ -58,6 +59,7 @@ export async function POST(req: Request) {
     cutoutModel?: string;
     cutoutBackend?: string;
     replicateModel?: string;
+    openaiBaseUrl?: string;
     encryptedKey?: string;
     encryptedReplicateToken?: string;
     signupBonus?: number;
@@ -138,6 +140,10 @@ export async function POST(req: Request) {
   try {
     if (typeof body.model === "string" && body.model.trim()) {
       await saveOpenAIModel(body.model);
+    }
+    // 中转地址(空串=清除→回退直连);用 typeof 判断"字段是否出现",允许清空。
+    if (typeof body.openaiBaseUrl === "string") {
+      await saveOpenAIBaseUrl(body.openaiBaseUrl);
     }
     if (typeof body.cutoutModel === "string" && body.cutoutModel.trim()) {
       await saveCutoutModel(body.cutoutModel);

@@ -72,10 +72,15 @@ export function SiteFooter() {
         <div className="space-y-4">
           <Logo />
           <p className="max-w-xs text-sm text-muted-foreground">
-            {L(
-              "AI 电商出图工作站 · 开源免费自部署,云端托管增值。",
-              "AI e-commerce image studio — free & open to self-host, hosted plans for more."
-            )}
+            {official
+              ? L(
+                  "AI 电商出图工作站 · 开源免费自部署,云端托管增值。",
+                  "AI e-commerce image studio — free & open to self-host, hosted plans for more."
+                )
+              : L(
+                  "AI 电商出图工作站,一句话生成商业级商品图。",
+                  "AI e-commerce image studio — product shots from a single sentence."
+                )}
           </p>
           {official && (
             <a

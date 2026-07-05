@@ -185,6 +185,11 @@ export async function saveOpenAIModel(model: string): Promise<void> {
   await setSetting(OAI_MODEL, model.trim());
 }
 
+// AI 服务中转地址(OpenAI 兼容 baseURL)。明文;空串=清除→回退 env/直连。
+export async function saveOpenAIBaseUrl(url: string): Promise<void> {
+  await setSetting("openai_base_url", url.trim());
+}
+
 export async function saveCutoutModel(model: string): Promise<void> {
   await setSetting(OAI_CUTOUT_MODEL, model.trim());
 }
@@ -591,6 +596,8 @@ export async function getAdminView() {
     keyMasked: maskKey(s.apiKey),
     hasKey: !!s.apiKey,
     source: s.source,
+    // AI 服务中转地址(明文回显,便于站长核对)
+    openaiBaseUrl: (await getSetting("openai_base_url")) ?? "",
     // 新用户注册赠送积分(后台可配)
     signupBonus: await getSignupBonus(),
     // 抠图后端:replicate(主) / openai(兜底)
