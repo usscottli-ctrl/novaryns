@@ -6,7 +6,6 @@
 set -euo pipefail
 
 REPO="https://github.com/usscottli-ctrl/novaryns"
-DIR="${NOVARYNS_DIR:-novaryns}"
 
 command -v git >/dev/null 2>&1 || { echo "✗ 需要 git,请先安装 / git is required"; exit 1; }
 command -v docker >/dev/null 2>&1 || { echo "✗ 需要 Docker,请先安装 / Docker is required: https://docs.docker.com/get-docker/"; exit 1; }
@@ -73,10 +72,30 @@ JSON
 }
 ensure_mirror
 
-if [ -d "$DIR" ]; then
-  echo "→ 目录 $DIR 已存在,拉取最新代码 / updating existing checkout"
-  git -C "$DIR" pull --ff-only
+# 自动定位已有安装(不依赖当前目录):按镜像名问 Docker 我们的容器装在哪。
+# 找到 = 就地更新(数据保留);找不到 = 全新装到 $HOME/novaryns(绝对路径,在哪跑都一致)。
+detect_existing() {
+  docker ps -a --format '{{.Image}}\t{{.Label "com.docker.compose.project.working_dir"}}' 2>/dev/null \
+    | grep -i 'novaryns' | awk -F'\t' 'NF>1 && $2!="" {print $2; exit}'
+}
+DIR="${NOVARYNS_DIR:-}"
+if [ -z "$DIR" ]; then
+  DIR="$(detect_existing || true)"
+  if [ -z "$DIR" ]; then
+    for c in "$PWD/novaryns" "$HOME/novaryns" /root/novaryns /opt/novaryns "$PWD"; do
+      if [ -f "$c/docker-compose.yml" ] && grep -qi novaryns "$c/docker-compose.yml" 2>/dev/null; then
+        DIR="$c"; break
+      fi
+    done
+  fi
+fi
+
+if [ -n "$DIR" ] && [ -d "$DIR" ]; then
+  echo "→ 检测到已安装于:$DIR —— 执行更新(数据保留)/ found existing install, updating"
+  git -C "$DIR" pull --ff-only 2>/dev/null || echo "  (本地有改动,跳过代码更新,仅更新镜像)"
 else
+  DIR="${DIR:-$HOME/novaryns}"
+  echo "→ 全新安装到:$DIR / fresh install"
   git clone --depth 1 "$REPO" "$DIR"
 fi
 
