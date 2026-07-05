@@ -101,12 +101,29 @@ fi
 
 cd "$DIR"
 
-# 80 已被占用(常见于宝塔面板自带 Nginx / 已有 web 服务)→ 自动改用 8080,避免端口冲突。
+# 端口:优先级 环境变量 > 已保存端口(.env)> 自动检测(仅首次)。
+# 更新时沿用已保存端口 —— 避免"检测到应用自己的旧容器占着 80"而把端口误换成 8080。
+if [ -z "${HTTP_PORT:-}" ] && [ -f .env ]; then
+  SAVED_PORT="$(grep -E '^HTTP_PORT=' .env 2>/dev/null | head -1 | cut -d= -f2 | tr -d '[:space:]')"
+  if [ -n "$SAVED_PORT" ]; then
+    export HTTP_PORT="$SAVED_PORT"
+    echo "→ 沿用已保存的端口:$HTTP_PORT / reusing saved port $HTTP_PORT"
+  fi
+fi
+# 首次:80 被别的服务(宝塔/Nginx)占用则改用 8080。
 if [ -z "${HTTP_PORT:-}" ]; then
-  if ss -tlnH 2>/dev/null | awk '{print $4}' | grep -qE ':80$'      || lsof -iTCP:80 -sTCP:LISTEN >/dev/null 2>&1; then
+  if ss -tlnH 2>/dev/null | awk '{print $4}' | grep -qE ':80$' || lsof -iTCP:80 -sTCP:LISTEN >/dev/null 2>&1; then
     export HTTP_PORT=8080
     echo "→ 检测到 80 端口已被占用(可能是宝塔/Nginx),本应用改用 8080 端口 / port 80 busy, using 8080"
   fi
+fi
+# 持久化端口到 .env(compose 自动读取),以后更新沿用同一端口,不再变来变去。
+PORT_TO_SAVE="${HTTP_PORT:-80}"
+touch .env
+if grep -qE '^HTTP_PORT=' .env 2>/dev/null; then
+  sed -i "s/^HTTP_PORT=.*/HTTP_PORT=$PORT_TO_SAVE/" .env
+else
+  echo "HTTP_PORT=$PORT_TO_SAVE" >> .env
 fi
 
 # 应用镜像:优先拉【预构建镜像】(免本地编译,快得多)。直连 ghcr.io 慢/不通时,
