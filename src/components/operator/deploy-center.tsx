@@ -86,14 +86,31 @@ export function DeployCenter({ embedded = false }: { embedded?: boolean }) {
     );
   }
 
-  function handleActivate() {
+  async function handleActivate() {
     const v = licenseInput.trim();
     if (!v) {
       toast("请先填写 License Key", "error");
       return;
     }
-    // MOCK:实际应 POST /api/license/activate 校验。
-    toast("License Key 已提交验证", "success");
+    try {
+      const res = await fetch("/api/pro/activate", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", ...(await authHeader()) },
+        body: JSON.stringify({ key: v }),
+      });
+      const d = (await res.json().catch(() => null)) as {
+        ok?: boolean;
+        error?: string;
+      } | null;
+      if (!res.ok || !d?.ok) {
+        toast(d?.error || "激活失败,请检查 License Key", "error");
+        return;
+      }
+      toast("激活成功!Pro 已解锁,正在刷新…", "success");
+      setTimeout(() => window.location.reload(), 1200);
+    } catch {
+      toast("网络错误,请重试", "error");
+    }
   }
 
   function onLogoFiles(files: File[]) {
