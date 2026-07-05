@@ -62,6 +62,33 @@ export function DeployCenter({ embedded = false }: { embedded?: boolean }) {
     };
   }, []);
 
+  // 更新检查(管理员):向官方站查最新版本,有新版则提示。
+  const [updateInfo, setUpdateInfo] = React.useState<{
+    current: string;
+    latest: string;
+    currentLabel: string;
+    latestLabel: string;
+    updateAvailable: boolean;
+    reachable: boolean;
+    updateCmd: string;
+  } | null>(null);
+  React.useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const r = await fetch("/api/admin/update-check", {
+          headers: await authHeader(),
+        });
+        if (r.ok && !cancelled) setUpdateInfo(await r.json());
+      } catch {
+        /* ignore */
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
   // 一键安装
   const [installTab, setInstallTab] = React.useState<InstallTab>("docker");
   const [copiedCmd, setCopiedCmd] = React.useState(false);
@@ -301,6 +328,55 @@ export function DeployCenter({ embedded = false }: { embedded?: boolean }) {
               </div>
             )}
           </div>
+
+          {/* 系统更新检查 */}
+          {updateInfo && (
+            <div
+              className={`mt-5 rounded-xl border p-4 ${
+                updateInfo.updateAvailable
+                  ? "border-acc bg-acc/5"
+                  : "border-c-line"
+              }`}
+            >
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                <span className="text-[13px] font-semibold text-c-text">
+                  {updateInfo.updateAvailable
+                    ? "🎉 有新版本可更新"
+                    : "✓ 已是最新版本"}
+                </span>
+                <span className="text-[11.5px] text-c-text3">
+                  当前版本 {updateInfo.currentLabel}
+                </span>
+              </div>
+              {updateInfo.updateAvailable && (
+                <>
+                  <p className="mt-1.5 text-[12px] leading-relaxed text-c-text3">
+                    最新 {updateInfo.latestLabel}。在服务器的项目目录执行下面命令即可更新
+                    <b className="text-c-text2">(数据不会丢失)</b>:
+                  </p>
+                  <div className="mt-2 flex items-center gap-2">
+                    <code className="min-w-0 flex-1 truncate rounded-md bg-c-subtle2 px-2.5 py-1.5 font-mono text-[12px] text-c-text2">
+                      {updateInfo.updateCmd}
+                    </code>
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={() =>
+                        navigator.clipboard
+                          ?.writeText(updateInfo.updateCmd)
+                          .then(
+                            () => toast("更新命令已复制", "success"),
+                            () => toast("复制失败,请手动选择", "error")
+                          )
+                      }
+                    >
+                      复制
+                    </Button>
+                  </div>
+                </>
+              )}
+            </div>
+          )}
 
           {/* License Key 激活 */}
           <div className="mt-5 border-t border-c-line pt-5">

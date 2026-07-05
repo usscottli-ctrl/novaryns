@@ -25,11 +25,14 @@ RUN npm run build
 # ── runtime ─────────────────────────────────────────────────────────────────
 FROM node:20-bookworm-slim AS runner
 WORKDIR /app
+# 构建版本号(CI 传入 date +%s):后台"检查更新"用它跟官方站比对。
+ARG BUILD_VERSION=0
 ENV NODE_ENV=production \
     NEXT_TELEMETRY_DISABLED=1 \
     PORT=3000 \
     HOSTNAME=0.0.0.0 \
-    MEDIA_DIR=/data/media
+    MEDIA_DIR=/data/media \
+    BUILD_VERSION=$BUILD_VERSION
 
 # Non-root user
 RUN groupadd -g 1001 nodejs && useradd -u 1001 -g nodejs -m nextjs
