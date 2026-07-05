@@ -155,6 +155,12 @@ type View = {
   wechatReady?: boolean;
   // 原生多用户开关
   multiUserEnabled?: boolean;
+  // SMTP(忘记密码用)
+  smtpHost?: string;
+  smtpPort?: string;
+  smtpUser?: string;
+  smtpFrom?: string;
+  smtpConfigured?: boolean;
   // 支付
   payEnabled?: boolean;
   alipayAppid?: string;
@@ -326,6 +332,11 @@ export function AdminSettings({ localAdmin = false }: { localAdmin?: boolean }) 
   // 收款开关
   const [payEnabled, setPayEnabled] = useState(false);
   const [multiUserOn, setMultiUserOn] = useState(false);
+  const [smtpHost, setSmtpHost] = useState("");
+  const [smtpPort, setSmtpPort] = useState("465");
+  const [smtpUser, setSmtpUser] = useState("");
+  const [smtpPass, setSmtpPass] = useState("");
+  const [smtpFrom, setSmtpFrom] = useState("");
   // 支付宝商户
   const [alipayAppid, setAlipayAppid] = useState("");
   const [alipayPublicKey, setAlipayPublicKey] = useState("");
@@ -531,6 +542,10 @@ export function AdminSettings({ localAdmin = false }: { localAdmin?: boolean }) 
     setWechatEmailDomain(v.wechatEmailDomain ?? "");
     setPayEnabled(!!v.payEnabled);
     setMultiUserOn(!!v.multiUserEnabled);
+    setSmtpHost(v.smtpHost ?? "");
+    setSmtpPort(v.smtpPort || "465");
+    setSmtpUser(v.smtpUser ?? "");
+    setSmtpFrom(v.smtpFrom ?? "");
     setAlipayAppid(v.alipayAppid ?? "");
     setAlipayPublicKey(v.alipayPublicKey ?? "");
     setWxpayMchid(v.wxpayMchid ?? "");
@@ -767,6 +782,10 @@ export function AdminSettings({ localAdmin = false }: { localAdmin?: boolean }) 
       setWechatEmailDomain(v.wechatEmailDomain ?? "");
       setPayEnabled(!!v.payEnabled);
     setMultiUserOn(!!v.multiUserEnabled);
+    setSmtpHost(v.smtpHost ?? "");
+    setSmtpPort(v.smtpPort || "465");
+    setSmtpUser(v.smtpUser ?? "");
+    setSmtpFrom(v.smtpFrom ?? "");
       setAlipayAppid(v.alipayAppid ?? "");
       setAlipayPublicKey(v.alipayPublicKey ?? "");
       setWxpayMchid(v.wxpayMchid ?? "");
@@ -1601,6 +1620,97 @@ export function AdminSettings({ localAdmin = false }: { localAdmin?: boolean }) 
               保存
             </Button>
           </div>
+        </div>
+
+        {/* 邮件服务(SMTP,忘记密码用) */}
+        <div className="mb-5 space-y-3 rounded-2xl border border-border bg-card p-6 card-shadow">
+          <div className="flex items-center gap-2 text-sm font-semibold">
+            <MessageSquare className="h-4 w-4 text-primary" />
+            邮件服务（SMTP）
+            <ReadyBadge ready={!!view?.smtpConfigured} className="ml-auto" />
+          </div>
+          <p className="text-xs text-muted-foreground">
+            用于多用户「忘记密码」发送重置邮件。填你的 SMTP（企业邮箱 / 阿里云邮件推送等）。
+            密码加密存储、不回显。
+          </p>
+          <div className="grid gap-3 sm:grid-cols-2">
+            <div>
+              <label className="block text-[11px] font-medium text-muted-foreground">
+                SMTP 服务器
+              </label>
+              <Input
+                value={smtpHost}
+                onChange={(e) => setSmtpHost(e.target.value)}
+                placeholder="smtp.exmail.qq.com"
+              />
+            </div>
+            <div>
+              <label className="block text-[11px] font-medium text-muted-foreground">
+                端口
+              </label>
+              <Input
+                value={smtpPort}
+                inputMode="numeric"
+                onChange={(e) =>
+                  setSmtpPort(e.target.value.replace(/[^0-9]/g, ""))
+                }
+                placeholder="465"
+              />
+            </div>
+            <div>
+              <label className="block text-[11px] font-medium text-muted-foreground">
+                账号（用户名）
+              </label>
+              <Input
+                value={smtpUser}
+                onChange={(e) => setSmtpUser(e.target.value)}
+                placeholder="noreply@yourdomain.com"
+              />
+            </div>
+            <div>
+              <label className="block text-[11px] font-medium text-muted-foreground">
+                密码 / 授权码
+                {view?.smtpConfigured ? "（已保存，留空不改）" : ""}
+              </label>
+              <Input
+                type="password"
+                value={smtpPass}
+                onChange={(e) => setSmtpPass(e.target.value)}
+                placeholder="••••••••"
+              />
+            </div>
+            <div className="sm:col-span-2">
+              <label className="block text-[11px] font-medium text-muted-foreground">
+                发件人（可选，默认用账号）
+              </label>
+              <Input
+                value={smtpFrom}
+                onChange={(e) => setSmtpFrom(e.target.value)}
+                placeholder='"你的站点" <noreply@yourdomain.com>'
+              />
+            </div>
+          </div>
+          <Button
+            variant="outline"
+            size="sm"
+            disabled={busy}
+            onClick={() =>
+              void postSettings(
+                {
+                  smtpHost,
+                  smtpPort: Number(smtpPort) || 465,
+                  smtpUser,
+                  smtpFrom,
+                  smtpPass,
+                },
+                "邮件配置已保存",
+                () => setSmtpPass("")
+              )
+            }
+          >
+            {busy && <Loader2 className="h-4 w-4 animate-spin" />}
+            保存邮件配置
+          </Button>
         </div>
 
         {/* 当前收款模式(只读说明) */}
