@@ -59,6 +59,12 @@ const PAGE_CONTACT_SETTING = "page_contact";
 const PAGE_PLANS_SETTING = "page_plans";
 // 原生多用户开关(与 native-auth.ts 的 MULTI_USER_SETTING 同值)。
 const MULTI_USER_SETTING = "multi_user_enabled";
+// SMTP 邮件服务(用于忘记密码等)。密码 AES 加密存,其余明文。
+const SMTP_HOST = "smtp_host";
+const SMTP_PORT = "smtp_port";
+const SMTP_USER = "smtp_user";
+const SMTP_PASS_ENC = "smtp_pass_enc";
+const SMTP_FROM = "smtp_from";
 const WXPAY_APPID = "wxpay_appid"; // Native 下单要绑定的公众号/小程序 appid(明文)
 const PAY_ENABLED = "pay_enabled";
 
@@ -343,6 +349,51 @@ export async function saveMultiUser(on: boolean): Promise<void> {
   await setSetting(MULTI_USER_SETTING, on ? "1" : "0");
 }
 
+export type SmtpConfig = {
+  host: string;
+  port: number;
+  user: string;
+  pass: string;
+  from: string;
+};
+
+/** 读 SMTP 配置(DB 优先 → env 兜底)。信息不全返回 null(视为未配置)。 */
+export async function getSmtpConfig(): Promise<SmtpConfig | null> {
+  let host = process.env.SMTP_HOST || "";
+  let user = process.env.SMTP_USER || "";
+  let pass = process.env.SMTP_PASS || "";
+  let from = process.env.SMTP_FROM || "";
+  let port = Number(process.env.SMTP_PORT || 465);
+  if (dbEnabled) {
+    host = (await getSetting(SMTP_HOST))?.trim() || host;
+    user = (await getSetting(SMTP_USER))?.trim() || user;
+    const enc = await getSetting(SMTP_PASS_ENC);
+    if (enc) pass = decryptAtRest(enc) || pass;
+    from = (await getSetting(SMTP_FROM))?.trim() || from;
+    const p = (await getSetting(SMTP_PORT))?.trim();
+    if (p) port = Number(p);
+  }
+  if (!host || !user || !pass) return null;
+  return { host, port: port > 0 ? port : 465, user, pass, from: from || user };
+}
+
+/** 保存 SMTP 配置。密码非空才更新(空=不改);其余传了字符串就写。 */
+export async function saveSmtp(opts: {
+  host?: string;
+  port?: number;
+  user?: string;
+  pass?: string;
+  from?: string;
+}): Promise<void> {
+  if (typeof opts.host === "string") await setSetting(SMTP_HOST, opts.host.trim());
+  if (typeof opts.user === "string") await setSetting(SMTP_USER, opts.user.trim());
+  if (typeof opts.from === "string") await setSetting(SMTP_FROM, opts.from.trim());
+  if (typeof opts.port === "number" && opts.port > 0)
+    await setSetting(SMTP_PORT, String(Math.trunc(opts.port)));
+  if (typeof opts.pass === "string" && opts.pass)
+    await setSetting(SMTP_PASS_ENC, encryptAtRest(opts.pass));
+}
+
 /** 读某个自定义页面的内容(供 /about /contact /plans 页面渲染);无则空串。 */
 export async function getSitePage(
   which: "about" | "contact" | "plans"
@@ -581,5 +632,11 @@ export async function getAdminView() {
     pagePlans: (await getSetting(PAGE_PLANS_SETTING)) ?? "",
     // 原生多用户开关(前端后台展示;env NOVARYNS_MULTI_USER=1 也会强制开)
     multiUserEnabled: ((await getSetting(MULTI_USER_SETTING)) ?? "") === "1",
+    // SMTP(忘记密码用):明文字段回显,密码只给"已配置"标志不回显
+    smtpHost: (await getSetting(SMTP_HOST)) ?? "",
+    smtpPort: (await getSetting(SMTP_PORT)) ?? "",
+    smtpUser: (await getSetting(SMTP_USER)) ?? "",
+    smtpFrom: (await getSetting(SMTP_FROM)) ?? "",
+    smtpConfigured: !!(await getSmtpConfig()),
   };
 }

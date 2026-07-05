@@ -22,6 +22,7 @@ import {
   saveBrand,
   saveSitePages,
   saveMultiUser,
+  saveSmtp,
 } from "@/lib/settings";
 import { requireAdmin } from "@/lib/admin-auth";
 import { proEnabled } from "@/lib/edition";
@@ -80,6 +81,12 @@ export async function POST(req: Request) {
     pagePlans?: string;
     // 原生多用户开关(Pro 能力;!pro 时下方剥离)
     multiUserEnabled?: boolean;
+    // SMTP 邮件(Pro:忘记密码用;!pro 剥离)
+    smtpHost?: string;
+    smtpPort?: number;
+    smtpUser?: string;
+    smtpPass?: string;
+    smtpFrom?: string;
     // 加密类(浏览器 RSA 密文)
     encryptedWechatSecret?: string;
     encryptedAlipayPrivateKey?: string;
@@ -110,6 +117,11 @@ export async function POST(req: Request) {
     body.encryptedWxpayApiv3 = undefined;
     body.encryptedWxpayCert = undefined;
     body.multiUserEnabled = undefined; // 多用户是 Pro 运营能力
+    body.smtpHost = undefined;
+    body.smtpPort = undefined;
+    body.smtpUser = undefined;
+    body.smtpPass = undefined;
+    body.smtpFrom = undefined;
   }
 
   // 解出浏览器 RSA 密文 → 明文;解密失败/为空回 null,调用方据此回 400。
@@ -264,6 +276,23 @@ export async function POST(req: Request) {
     // ---- 原生多用户开关(Pro)----
     if (typeof body.multiUserEnabled === "boolean") {
       await saveMultiUser(body.multiUserEnabled);
+    }
+
+    // ---- SMTP 邮件(Pro:忘记密码用)----
+    if (
+      typeof body.smtpHost === "string" ||
+      typeof body.smtpUser === "string" ||
+      typeof body.smtpFrom === "string" ||
+      typeof body.smtpPass === "string" ||
+      typeof body.smtpPort === "number"
+    ) {
+      await saveSmtp({
+        host: body.smtpHost,
+        user: body.smtpUser,
+        from: body.smtpFrom,
+        pass: body.smtpPass,
+        port: body.smtpPort,
+      });
     }
     return NextResponse.json(await getAdminView());
   } catch (e) {

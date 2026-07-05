@@ -55,6 +55,12 @@ export function AuthForm({
   // 开源版单用户:是否已设「管理员密码」(向导里设的)。设了就走密码登录,
   // 一个密码同时登录用户 + 后台;没设(极老实例)回退旧的邮箱登录不锁死。
   const [localAvailable, setLocalAvailable] = useState<boolean | null>(null);
+  // 忘记密码(仅多用户模式)
+  const [forgotMode, setForgotMode] = useState(false);
+  const [forgotEmail, setForgotEmail] = useState("");
+  const [forgotBusy, setForgotBusy] = useState(false);
+  const [forgotSent, setForgotSent] = useState(false);
+  const [forgotErr, setForgotErr] = useState<string | null>(null);
   // 三种模式(mock 渲染下):
   //  · multi  = Pro 原生多用户(邮箱+密码注册/登录,服务端会话)—— 优先。
   //  · pwMode = 单用户自托管(无 Supabase + 已设管理员密码)—— 一个密码进用户+后台。
@@ -162,6 +168,97 @@ export function AuthForm({
     }, 700);
   }
 
+  async function submitForgot(e: React.FormEvent) {
+    e.preventDefault();
+    setForgotErr(null);
+    setForgotBusy(true);
+    try {
+      const res = await fetch("/api/auth/forgot", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ email: forgotEmail.trim() }),
+      });
+      if (!res.ok) {
+        const d = (await res.json().catch(() => null)) as {
+          error?: string;
+        } | null;
+        setForgotErr(d?.error || "发送失败");
+        setForgotBusy(false);
+        return;
+      }
+      setForgotSent(true);
+      setForgotBusy(false);
+    } catch {
+      setForgotErr("网络错误,请重试");
+      setForgotBusy(false);
+    }
+  }
+
+  // 忘记密码子视图(仅多用户模式)。
+  if (multiMode && forgotMode) {
+    return (
+      <PageShell compact={compact}>
+        <div className="flex flex-col items-center gap-4 text-center">
+          {!compact && <Logo />}
+          <div>
+            <h1 className="text-2xl font-bold tracking-tight">找回密码</h1>
+            <p className="mt-1 text-sm text-muted-foreground">
+              输入注册邮箱,我们会发送重置链接。
+            </p>
+          </div>
+        </div>
+        {forgotSent ? (
+          <div className="rounded-2xl border border-border bg-card p-6 text-center text-sm text-muted-foreground card-shadow">
+            若该邮箱已注册,重置链接已发送,请查收邮箱(含垃圾箱)。链接 30 分钟内有效。
+          </div>
+        ) : (
+          <form
+            onSubmit={submitForgot}
+            className="space-y-4 rounded-2xl border border-border bg-card p-6 card-shadow"
+          >
+            <div className="space-y-1.5">
+              <label className="text-sm font-medium">邮箱</label>
+              <Input
+                type="email"
+                value={forgotEmail}
+                onChange={(e) => setForgotEmail(e.target.value)}
+                placeholder="you@example.com"
+                required
+              />
+            </div>
+            {forgotErr && (
+              <p className="text-[12.5px] font-medium text-c-danger">
+                {forgotErr}
+              </p>
+            )}
+            <Button
+              type="submit"
+              variant="gradient"
+              className="w-full"
+              disabled={forgotBusy}
+            >
+              {forgotBusy && <Loader2 className="h-4 w-4 animate-spin" />}
+              发送重置邮件
+            </Button>
+          </form>
+        )}
+        <p className="text-center text-sm text-muted-foreground">
+          <button
+            type="button"
+            onClick={() => {
+              setForgotMode(false);
+              setForgotSent(false);
+              setForgotErr(null);
+            }}
+            className="text-primary hover:underline"
+          >
+            返回登录
+          </button>
+        </p>
+      </PageShell>
+    );
+  }
+
   return (
     <PageShell compact={compact}>
       <div className="flex flex-col items-center gap-4 text-center">
@@ -238,6 +335,20 @@ export function AuthForm({
           {loading && <Loader2 className="h-4 w-4 animate-spin" />}
           {isSignUp ? "免费注册" : "登录"}
         </Button>
+
+        {/* 多用户登录:忘记密码入口 */}
+        {multiMode && !isSignUp && (
+          <button
+            type="button"
+            onClick={() => {
+              setForgotMode(true);
+              setForgotEmail(email);
+            }}
+            className="w-full text-center text-xs text-muted-foreground hover:text-foreground"
+          >
+            忘记密码?
+          </button>
+        )}
       </form>
 
       {pwMode ? (

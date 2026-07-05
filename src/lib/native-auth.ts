@@ -48,6 +48,37 @@ export function verifyUserSession(value: string, now: number): string | null {
   }
 }
 
+// 密码重置令牌:"<emailB64url>.<exp>.<hmacHex>",30 分钟有效。用邮件发给用户点开重设密码。
+export const RESET_TTL_MS = 30 * 60 * 1000;
+
+export function signResetToken(email: string, now: number): string {
+  const exp = now + RESET_TTL_MS;
+  const eb = Buffer.from(email).toString("base64url");
+  const mac = createHmac("sha256", secret())
+    .update(`reset:${eb}.${exp}`)
+    .digest("hex");
+  return `${eb}.${exp}.${mac}`;
+}
+
+export function verifyResetToken(value: string, now: number): string | null {
+  try {
+    const parts = value.split(".");
+    if (parts.length !== 3) return null;
+    const [eb, expStr, mac] = parts;
+    const exp = Number(expStr);
+    if (!Number.isFinite(exp) || exp < now) return null;
+    const expected = createHmac("sha256", secret())
+      .update(`reset:${eb}.${expStr}`)
+      .digest("hex");
+    const a = Buffer.from(mac, "hex");
+    const b = Buffer.from(expected, "hex");
+    if (a.length !== b.length || !timingSafeEqual(a, b)) return null;
+    return Buffer.from(eb, "base64url").toString();
+  } catch {
+    return null;
+  }
+}
+
 function readCookie(request: Request, name: string): string | null {
   const raw = request.headers.get("cookie") || "";
   for (const part of raw.split(/; */)) {
