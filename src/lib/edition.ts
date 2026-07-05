@@ -79,6 +79,29 @@ export async function proEnabled(): Promise<boolean> {
   return false;
 }
 
+/**
+ * 激活 Pro:校验 License Key(向 license 服务器绑本机 host)→ 通过则落库
+ * pro_license_key 并立即置缓存为 pro,让本实例马上升级为 Pro。供后台/部署中心「激活」用。
+ */
+export async function activateProLicense(
+  key: string
+): Promise<{ ok: boolean; error?: string }> {
+  const k = (key || "").trim();
+  if (!k) return { ok: false, error: "请填写 License Key" };
+  const ok = await validateProLicense(k);
+  if (!ok) {
+    return { ok: false, error: "License Key 无效、已过期或已达设备数上限" };
+  }
+  try {
+    const { setSetting } = await import("@/lib/db");
+    await setSetting(PRO_LICENSE_KEY_SETTING, k);
+  } catch {
+    return { ok: false, error: "保存失败,请稍后重试" };
+  }
+  cache = { pro: true, at: Date.now() };
+  return { ok: true };
+}
+
 // ---------------------------------------------------------------------------
 // 许可证「签发站」判定。
 // 买家自托管实例激活时,默认向 LICENSE_SERVER_URL(默认官方站 ai.starzeco.com)
