@@ -21,6 +21,7 @@ import {
   saveWxpayAppid,
   saveBrand,
   saveSitePages,
+  saveMultiUser,
 } from "@/lib/settings";
 import { requireAdmin } from "@/lib/admin-auth";
 import { proEnabled } from "@/lib/edition";
@@ -77,6 +78,8 @@ export async function POST(req: Request) {
     pageAbout?: string;
     pageContact?: string;
     pagePlans?: string;
+    // 原生多用户开关(Pro 能力;!pro 时下方剥离)
+    multiUserEnabled?: boolean;
     // 加密类(浏览器 RSA 密文)
     encryptedWechatSecret?: string;
     encryptedAlipayPrivateKey?: string;
@@ -106,6 +109,7 @@ export async function POST(req: Request) {
     body.wxpayAppid = undefined;
     body.encryptedWxpayApiv3 = undefined;
     body.encryptedWxpayCert = undefined;
+    body.multiUserEnabled = undefined; // 多用户是 Pro 运营能力
   }
 
   // 解出浏览器 RSA 密文 → 明文;解密失败/为空回 null,调用方据此回 400。
@@ -255,6 +259,11 @@ export async function POST(req: Request) {
         contact: body.pageContact,
         plans: body.pagePlans,
       });
+    }
+
+    // ---- 原生多用户开关(Pro)----
+    if (typeof body.multiUserEnabled === "boolean") {
+      await saveMultiUser(body.multiUserEnabled);
     }
     return NextResponse.json(await getAdminView());
   } catch (e) {
