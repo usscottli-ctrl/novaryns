@@ -93,39 +93,36 @@ Open-source AI e-commerce visual studio — generate, batch-suite, cut out, try 
 
 ### 🐳 第 0 步:安装 Docker(没装的话)
 
-全新服务器(Ubuntu / Debian / CentOS / 阿里云 / 腾讯云通用)一条命令:
+#### 🇨🇳 大陆服务器(推荐,稳定)—— 走阿里云源
 
+> `get.docker.com` 是国外站,大陆访问它常被网络**间歇性重置**(时好时坏、报 `curl: (35) Connection reset`),不可靠。下面用阿里云内网源(`mirrors.aliyun.com`),秒装、稳定。
+
+**Ubuntu / Debian:**
 ```bash
-# 大陆服务器(走阿里云安装源,快):
-curl -fsSL https://get.docker.com | bash -s docker --mirror Aliyun
-# 海外服务器:
-curl -fsSL https://get.docker.com | bash
-# 启动并设为开机自启:
+apt-get update && apt-get install -y ca-certificates curl gnupg
+install -m 0755 -d /etc/apt/keyrings
+curl -fsSL https://mirrors.aliyun.com/docker-ce/linux/ubuntu/gpg | gpg --dearmor -o /etc/apt/keyrings/docker.gpg
+chmod a+r /etc/apt/keyrings/docker.gpg
+echo "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/docker.gpg] https://mirrors.aliyun.com/docker-ce/linux/ubuntu $(. /etc/os-release && echo $VERSION_CODENAME) stable" > /etc/apt/sources.list.d/docker.list
+apt-get update && apt-get install -y docker-ce docker-ce-cli containerd.io docker-compose-plugin
 systemctl enable --now docker
 ```
 
-装完用 `docker -v && docker compose version` 验证两个都有输出即可。
+**CentOS / Alibaba Cloud Linux:**
+```bash
+yum install -y yum-utils
+yum-config-manager --add-repo https://mirrors.aliyun.com/docker-ce/linux/centos/docker-ce.repo
+yum install -y docker-ce docker-ce-cli containerd.io docker-compose-plugin
+systemctl enable --now docker
+```
 
-> **大陆服务器报 `curl: (35) Connection reset` / `get.docker.com` 连不上?**
-> 说明网络访问 get.docker.com 被重置了。换阿里云的 Docker 源装(mirrors.aliyun.com 是阿里云内网,秒连):
->
-> **Ubuntu / Debian:**
-> ```bash
-> apt-get update && apt-get install -y ca-certificates curl gnupg
-> install -m 0755 -d /etc/apt/keyrings
-> curl -fsSL https://mirrors.aliyun.com/docker-ce/linux/ubuntu/gpg | gpg --dearmor -o /etc/apt/keyrings/docker.gpg
-> chmod a+r /etc/apt/keyrings/docker.gpg
-> echo "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/docker.gpg] https://mirrors.aliyun.com/docker-ce/linux/ubuntu $(. /etc/os-release && echo $VERSION_CODENAME) stable" > /etc/apt/sources.list.d/docker.list
-> apt-get update && apt-get install -y docker-ce docker-ce-cli containerd.io docker-compose-plugin
-> systemctl enable --now docker
-> ```
-> **CentOS / Alibaba Cloud Linux:**
-> ```bash
-> yum install -y yum-utils
-> yum-config-manager --add-repo https://mirrors.aliyun.com/docker-ce/linux/centos/docker-ce.repo
-> yum install -y docker-ce docker-ce-cli containerd.io docker-compose-plugin
-> systemctl enable --now docker
-> ```
+#### 🌎 海外服务器 —— 一条命令
+
+```bash
+curl -fsSL https://get.docker.com | bash && systemctl enable --now docker
+```
+
+装完用 `docker -v && docker compose version` 验证两个都有输出即可。
 
 **部署注意事项:**
 - **大陆服务器拉镜像慢/失败**:给 Docker 配镜像加速 —— `/etc/docker/daemon.json` 写入 `{"registry-mirrors":["https://docker.m.daocloud.io"]}` 后 `systemctl restart docker`。
