@@ -106,6 +106,27 @@ systemctl enable --now docker
 
 装完用 `docker -v && docker compose version` 验证两个都有输出即可。
 
+> **大陆服务器报 `curl: (35) Connection reset` / `get.docker.com` 连不上?**
+> 说明网络访问 get.docker.com 被重置了。换阿里云的 Docker 源装(mirrors.aliyun.com 是阿里云内网,秒连):
+>
+> **Ubuntu / Debian:**
+> ```bash
+> apt-get update && apt-get install -y ca-certificates curl gnupg
+> install -m 0755 -d /etc/apt/keyrings
+> curl -fsSL https://mirrors.aliyun.com/docker-ce/linux/ubuntu/gpg | gpg --dearmor -o /etc/apt/keyrings/docker.gpg
+> chmod a+r /etc/apt/keyrings/docker.gpg
+> echo "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/docker.gpg] https://mirrors.aliyun.com/docker-ce/linux/ubuntu $(. /etc/os-release && echo $VERSION_CODENAME) stable" > /etc/apt/sources.list.d/docker.list
+> apt-get update && apt-get install -y docker-ce docker-ce-cli containerd.io docker-compose-plugin
+> systemctl enable --now docker
+> ```
+> **CentOS / Alibaba Cloud Linux:**
+> ```bash
+> yum install -y yum-utils
+> yum-config-manager --add-repo https://mirrors.aliyun.com/docker-ce/linux/centos/docker-ce.repo
+> yum install -y docker-ce docker-ce-cli containerd.io docker-compose-plugin
+> systemctl enable --now docker
+> ```
+
 **部署注意事项:**
 - **大陆服务器拉镜像慢/失败**:给 Docker 配镜像加速 —— `/etc/docker/daemon.json` 写入 `{"registry-mirrors":["https://docker.m.daocloud.io"]}` 后 `systemctl restart docker`。
 - **防火墙/安全组**:放行 `80` 端口(HTTP)——阿里云/腾讯云在控制台「安全组」加一条 80 规则即可,浏览器直接 `http://公网IP` 打开。若 80 已被占用(装了宝塔/nginx),用 `HTTP_PORT=8080 docker compose up -d` 换个端口。
