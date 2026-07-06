@@ -104,16 +104,17 @@ cd "$DIR"
 # 端口:优先级 环境变量 > 已保存端口(.env)> 自动检测(仅首次)。
 # 更新时沿用已保存端口 —— 避免"检测到应用自己的旧容器占着 80"而把端口误换成 8080。
 if [ -z "${HTTP_PORT:-}" ] && [ -f .env ]; then
-  SAVED_PORT="$(grep -E '^HTTP_PORT=' .env 2>/dev/null | head -1 | cut -d= -f2 | tr -d '[:space:]')"
+  # 结尾 || true:set -euo pipefail 下,grep 没匹配到会让命令替换失败进而整段退出。
+  SAVED_PORT="$(grep -E '^HTTP_PORT=' .env 2>/dev/null | head -1 | cut -d= -f2 | tr -d '[:space:]' || true)"
   if [ -n "$SAVED_PORT" ]; then
     export HTTP_PORT="$SAVED_PORT"
     echo "→ 沿用已保存的端口:$HTTP_PORT / reusing saved port $HTTP_PORT"
   fi
 fi
 # 更新时:直接读"当前正在运行的应用容器"的实际端口来沿用(最根治,避免把自己旧容器
-# 占的 80 误判为"被别人占用"而换到 8080)。
+# 占的 80 误判为"被别人占用"而换到 8080)。全新安装无容器时命令替换会失败 → || true 兜底。
 if [ -z "${HTTP_PORT:-}" ]; then
-  CUR_PORT="$(docker compose port app 3000 2>/dev/null | grep -oE '[0-9]+$' | head -1)"
+  CUR_PORT="$(docker compose port app 3000 2>/dev/null | grep -oE '[0-9]+$' | head -1 || true)"
   if [ -n "$CUR_PORT" ]; then
     export HTTP_PORT="$CUR_PORT"
     echo "→ 沿用当前运行端口:$HTTP_PORT / reusing running port $HTTP_PORT"
