@@ -28,6 +28,7 @@ import {
   ExternalLink,
   Palette,
   FileText,
+  Sparkles,
   Ticket,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -156,6 +157,8 @@ type View = {
   wechatReady?: boolean;
   // 原生多用户开关
   multiUserEnabled?: boolean;
+  // 积分计费开关
+  creditsMetering?: boolean;
   // SMTP(忘记密码用)
   smtpHost?: string;
   smtpPort?: string;
@@ -271,6 +274,7 @@ const SECTIONS = [
   { id: "auth", label: "登录与支付", icon: ShieldCheck, pro: true },
   { id: "brand", label: "品牌与站点", icon: Palette, pro: false },
   { id: "pages", label: "站点页面", icon: FileText, pro: false },
+  { id: "credits", label: "积分计费", icon: Database, pro: false },
   { id: "ledger", label: "积分流水", icon: Database, pro: true },
   { id: "deploy", label: "部署与授权", icon: Server, pro: true },
   { id: "cardkeys", label: "兑换码", icon: Ticket, pro: true },
@@ -334,6 +338,10 @@ export function AdminSettings({ localAdmin = false }: { localAdmin?: boolean }) 
   // 收款开关
   const [payEnabled, setPayEnabled] = useState(false);
   const [multiUserOn, setMultiUserOn] = useState(false);
+  const [meteringOn, setMeteringOn] = useState(false);
+  const [grantEmail, setGrantEmail] = useState("operator@novaryns.local");
+  const [grantAmount, setGrantAmount] = useState("100");
+  const [grantMsg, setGrantMsg] = useState<string | null>(null);
   const [smtpHost, setSmtpHost] = useState("");
   const [smtpPort, setSmtpPort] = useState("465");
   const [smtpUser, setSmtpUser] = useState("");
@@ -383,6 +391,7 @@ export function AdminSettings({ localAdmin = false }: { localAdmin?: boolean }) 
     | "auth"
     | "brand"
     | "pages"
+    | "credits"
     | "ledger"
     | "deploy"
     | "cardkeys"
@@ -545,6 +554,7 @@ export function AdminSettings({ localAdmin = false }: { localAdmin?: boolean }) 
     setWechatEmailDomain(v.wechatEmailDomain ?? "");
     setPayEnabled(!!v.payEnabled);
     setMultiUserOn(!!v.multiUserEnabled);
+    setMeteringOn(!!v.creditsMetering);
     setSmtpHost(v.smtpHost ?? "");
     setSmtpPort(v.smtpPort || "465");
     setSmtpUser(v.smtpUser ?? "");
@@ -785,6 +795,7 @@ export function AdminSettings({ localAdmin = false }: { localAdmin?: boolean }) 
       setWechatEmailDomain(v.wechatEmailDomain ?? "");
       setPayEnabled(!!v.payEnabled);
     setMultiUserOn(!!v.multiUserEnabled);
+    setMeteringOn(!!v.creditsMetering);
     setSmtpHost(v.smtpHost ?? "");
     setSmtpPort(v.smtpPort || "465");
     setSmtpUser(v.smtpUser ?? "");
@@ -832,6 +843,38 @@ export function AdminSettings({ localAdmin = false }: { localAdmin?: boolean }) 
       { pageAbout, pageContact, pagePlans },
       "站点页面已保存"
     );
+  }
+
+  // 给某邮箱加/减积分(复用 /api/admin/users 的 adjust;months:0=永久不过期)。
+  async function grantCredits() {
+    if (!token) return;
+    const email = grantEmail.trim().toLowerCase();
+    const delta = Math.trunc(Number(grantAmount) || 0);
+    if (!email || !delta) {
+      setGrantMsg("请填写邮箱和有效的积分数");
+      return;
+    }
+    setBusy(true);
+    setGrantMsg(null);
+    try {
+      const res = await fetch("/api/admin/users", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${token}`,
+        },
+        body: JSON.stringify({ action: "adjust", email, delta, months: 0 }),
+      });
+      const d = await res.json();
+      if (!res.ok) throw new Error(d.error || "操作失败");
+      setGrantMsg(
+        `已给 ${email} ${delta > 0 ? "增加" : "扣减"} ${Math.abs(delta)} 积分`
+      );
+    } catch (e) {
+      setGrantMsg(e instanceof Error ? e.message : "操作失败");
+    } finally {
+      setBusy(false);
+    }
   }
 
   // 上传 Logo 图片 → 存储返回 URL → 落库 brand_logo(与手填 URL 同一个值)。
@@ -2306,6 +2349,107 @@ export function AdminSettings({ localAdmin = false }: { localAdmin?: boolean }) 
             {busy && <Loader2 className="h-4 w-4 animate-spin" />}
             保存站点页面
           </Button>
+        </div>
+      </div>
+      )}
+
+      {/* 管理员 · 积分计费(开关 + 给邮箱加/减积分;单用户也可用) */}
+      {section === "credits" && (
+      <div>
+        <div className="mb-3 flex items-center gap-2">
+          <Database className="h-5 w-5 text-primary" />
+          <h2 className="text-lg font-semibold">管理员 · 积分计费</h2>
+          <span className="rounded-full bg-primary/10 px-2 py-0.5 text-xs font-medium text-primary">
+            仅管理员可见
+          </span>
+        </div>
+
+        {/* 计费开关 */}
+        <div className="mb-5 space-y-3 rounded-2xl border border-border bg-card p-6 card-shadow">
+          <div className="flex items-center gap-2 text-sm font-semibold">
+            <Database className="h-4 w-4 text-primary" />
+            积分计费开关
+          </div>
+          <p className="text-xs text-muted-foreground">
+            <b>开启</b>后生图按积分扣费(单用户也扣),用完需在下方加积分——适合控制用量 /
+            给他人限额使用。<b>关闭</b>则不扣积分、无限使用(默认)。多用户模式下始终计费。
+          </p>
+          <div className="flex flex-wrap items-center gap-2">
+            <span className="text-xs font-medium text-muted-foreground">
+              积分计费:
+            </span>
+            {[
+              { v: true, label: "开启" },
+              { v: false, label: "关闭" },
+            ].map((o) => (
+              <button
+                key={o.label}
+                onClick={() => setMeteringOn(o.v)}
+                className={`rounded-full border px-3 py-1 text-xs transition-colors ${
+                  meteringOn === o.v
+                    ? "border-primary bg-primary/10 text-primary"
+                    : "border-border text-muted-foreground hover:bg-secondary"
+                }`}
+              >
+                {o.label}
+              </button>
+            ))}
+            <Button
+              variant="outline"
+              size="sm"
+              disabled={busy}
+              onClick={() =>
+                void postSettings(
+                  { creditsMetering: meteringOn },
+                  "积分计费开关已保存"
+                )
+              }
+            >
+              {busy && <Loader2 className="h-4 w-4 animate-spin" />}
+              保存
+            </Button>
+          </div>
+        </div>
+
+        {/* 加/减积分 */}
+        <div className="space-y-3 rounded-2xl border border-border bg-card p-6 card-shadow">
+          <div className="flex items-center gap-2 text-sm font-semibold">
+            <Sparkles className="h-4 w-4 text-primary" />
+            给账号加 / 减积分
+          </div>
+          <p className="text-xs text-muted-foreground">
+            填邮箱和数值(正=加,负=减),永久有效不过期。给自己充就填自己的账号邮箱
+            (单用户默认 <code className="rounded bg-black/5 px-1 dark:bg-white/10">operator@novaryns.local</code>)。
+          </p>
+          <div className="flex flex-wrap items-center gap-2">
+            <Input
+              value={grantEmail}
+              onChange={(e) => setGrantEmail(e.target.value)}
+              placeholder="账号邮箱"
+              className="min-w-[220px] flex-1"
+            />
+            <Input
+              value={grantAmount}
+              inputMode="numeric"
+              onChange={(e) =>
+                setGrantAmount(e.target.value.replace(/[^0-9-]/g, ""))
+              }
+              placeholder="100"
+              className="w-24"
+            />
+            <Button
+              variant="outline"
+              size="sm"
+              disabled={busy}
+              onClick={() => void grantCredits()}
+            >
+              {busy && <Loader2 className="h-4 w-4 animate-spin" />}
+              执行
+            </Button>
+          </div>
+          {grantMsg && (
+            <p className="text-[12.5px] font-medium text-c-text2">{grantMsg}</p>
+          )}
         </div>
       </div>
       )}

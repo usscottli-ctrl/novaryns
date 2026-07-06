@@ -354,6 +354,11 @@ export async function saveMultiUser(on: boolean): Promise<void> {
   await setSetting(MULTI_USER_SETTING, on ? "1" : "0");
 }
 
+/** 保存「积分计费」开关(开启后生图按积分扣,单用户也扣;站长后台自行加积分)。 */
+export async function saveCreditsMetering(on: boolean): Promise<void> {
+  await setSetting("credits_metering", on ? "1" : "0");
+}
+
 export type SmtpConfig = {
   host: string;
   port: number;
@@ -639,6 +644,8 @@ export async function getAdminView() {
     pagePlans: (await getSetting(PAGE_PLANS_SETTING)) ?? "",
     // 原生多用户开关(前端后台展示;env NOVARYNS_MULTI_USER=1 也会强制开)
     multiUserEnabled: ((await getSetting(MULTI_USER_SETTING)) ?? "") === "1",
+    // 积分计费开关(开启后生图按积分扣,单用户也扣)
+    creditsMetering: ((await getSetting("credits_metering")) ?? "") === "1",
     // SMTP(忘记密码用):明文字段回显,密码只给"已配置"标志不回显
     smtpHost: (await getSetting(SMTP_HOST)) ?? "",
     smtpPort: (await getSetting(SMTP_PORT)) ?? "",
