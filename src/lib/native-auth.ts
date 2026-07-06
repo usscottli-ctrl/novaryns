@@ -14,6 +14,18 @@ import { supabaseEnabled } from "@/lib/auth-mode";
 export const USER_COOKIE = "nv_user";
 export const USER_TTL_MS = 30 * 24 * 60 * 60 * 1000; // 30 天
 export const MULTI_USER_SETTING = "multi_user_enabled";
+export const CREDITS_METERING_SETTING = "credits_metering";
+
+// 是否启用「积分计费」:开启后生图按积分扣(单用户也扣),站长后台自行加积分。
+// 独立于多用户 —— 单用户也能开来给自己/他人做用量控制。永不抛错。
+export async function creditsMeteringOn(): Promise<boolean> {
+  try {
+    const flag = (await getSetting(CREDITS_METERING_SETTING))?.trim();
+    return flag === "1" || flag === "true";
+  } catch {
+    return false;
+  }
+}
 
 function secret(): string {
   return process.env.SETTINGS_SECRET || "novaryns-insecure-default";

@@ -23,6 +23,7 @@ import {
   saveBrand,
   saveSitePages,
   saveMultiUser,
+  saveCreditsMetering,
   saveSmtp,
 } from "@/lib/settings";
 import { requireAdmin } from "@/lib/admin-auth";
@@ -83,6 +84,8 @@ export async function POST(req: Request) {
     pagePlans?: string;
     // 原生多用户开关(Pro 能力;!pro 时下方剥离)
     multiUserEnabled?: boolean;
+    // 积分计费开关(基础能力,单用户也可开)
+    creditsMetering?: boolean;
     // SMTP 邮件(Pro:忘记密码用;!pro 剥离)
     smtpHost?: string;
     smtpPort?: number;
@@ -282,6 +285,11 @@ export async function POST(req: Request) {
     // ---- 原生多用户开关(Pro)----
     if (typeof body.multiUserEnabled === "boolean") {
       await saveMultiUser(body.multiUserEnabled);
+    }
+
+    // ---- 积分计费开关(基础,单用户也可开)----
+    if (typeof body.creditsMetering === "boolean") {
+      await saveCreditsMetering(body.creditsMetering);
     }
 
     // ---- SMTP 邮件(Pro:忘记密码用)----

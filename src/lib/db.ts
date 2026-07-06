@@ -1553,20 +1553,17 @@ export async function reserveCredits(
   emailRaw: string,
   n: number
 ): Promise<boolean> {
-  // 计费仅在「Pro + 多用户」下对真实客户生效;其余一律放行(不扣积分)。
-  // 放行:①站长自己(OPERATOR_EMAIL,自托管实例的主人,永不计费)②开源版(pro=false)
-  // ③单用户自托管(既非 Supabase 多用户、也没开原生多用户开关)。
-  // 计费开启 = Pro 且(Supabase 多用户 或 原生多用户)。动态 import 避免静态循环。
+  // 是否计费:①Supabase 多用户(官方云)②原生多用户 ③站长手动开的「积分计费」开关
+  //(单用户也可开来给自己/他人做用量控制)。三者任一为真则扣分,否则放行(不扣)。
+  // 动态 import 避免静态循环。
   const email = emailRaw.toLowerCase();
-  const { OPERATOR_EMAIL } = await import("@/lib/operator");
-  if (email === OPERATOR_EMAIL) return true;
-  const { proEnabled } = await import("@/lib/edition");
-  if (!(await proEnabled())) return true;
   const { supabaseEnabled } = await import("@/lib/auth-mode");
-  if (!supabaseEnabled) {
-    const { multiUserEnabled } = await import("@/lib/native-auth");
-    if (!(await multiUserEnabled())) return true;
-  }
+  const { multiUserEnabled, creditsMeteringOn } = await import(
+    "@/lib/native-auth"
+  );
+  const meterOn =
+    supabaseEnabled || (await multiUserEnabled()) || (await creditsMeteringOn());
+  if (!meterOn) return true; // 未开计费 → 放行,不扣积分
   await ensureSchema();
   if (n <= 0) return true;
   await expireDueBatches(email);
@@ -1587,16 +1584,13 @@ export async function refundCredits(
   n: number
 ): Promise<void> {
   // 与 reserveCredits 放行口径一致:未计费的场景无需退款。
-  const email = emailRaw.toLowerCase();
-  const { OPERATOR_EMAIL } = await import("@/lib/operator");
-  if (email === OPERATOR_EMAIL) return;
-  const { proEnabled } = await import("@/lib/edition");
-  if (!(await proEnabled())) return;
   const { supabaseEnabled } = await import("@/lib/auth-mode");
-  if (!supabaseEnabled) {
-    const { multiUserEnabled } = await import("@/lib/native-auth");
-    if (!(await multiUserEnabled())) return;
-  }
+  const { multiUserEnabled, creditsMeteringOn } = await import(
+    "@/lib/native-auth"
+  );
+  const meterOn =
+    supabaseEnabled || (await multiUserEnabled()) || (await creditsMeteringOn());
+  if (!meterOn) return;
   await ensureSchema();
   await getPool().query(
     `UPDATE app_users
