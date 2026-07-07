@@ -45,6 +45,7 @@ import { SelectMenu } from "@/components/ui/select-menu";
 import { AdminPrompts } from "@/components/admin/admin-prompts";
 import { DeployCenter } from "@/components/operator/deploy-center";
 import { LicensesClient } from "@/components/operator/licenses-client";
+import { RelayTokensClient } from "@/components/operator/relay-tokens-client";
 import { CardkeysAdmin } from "@/components/operator/cardkeys-admin";
 
 type AdminUser = {
@@ -2480,6 +2481,10 @@ export function AdminSettings({ localAdmin = false }: { localAdmin?: boolean }) 
             </div>
             <LicensesClient embedded />
           </div>
+
+          {/* 中转密钥管理(仅签发站 ai.starzeco.com + 配置了 relay 时显示;
+              非签发站/未配置时 embedded 自动隐藏,不占位) */}
+          <RelayTokensClient embedded />
         </div>
       )}
 
