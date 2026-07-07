@@ -8,12 +8,21 @@ export const dynamic = "force-dynamic";
 // URLs otherwise just open in a new tab). Host-whitelisted to avoid an open
 // proxy / SSRF.
 function allowed(u: URL): boolean {
-  const r2 = (process.env.R2_PUBLIC_BASE_URL ?? "").trim();
-  if (r2) {
-    try {
-      if (u.host === new URL(r2).host) return true;
-    } catch {
-      /* ignore bad env */
+  // 允许的图片来源:R2 公共域、国内镜像 CDN(NEXT_PUBLIC_IMAGE_BASE_URL,如
+  // cdn.starzeco.com)、以及 *.r2.dev / unsplash。国内站渲染层会把 r2.dev 改写成
+  // CDN 域,下载/导出时传进来的就是 CDN 地址——必须放行,否则被白名单拒成 403,
+  // 浏览器报「无法从网站上提取文件」。CDN 与 R2 服务器端都可达,取哪个都行。
+  for (const base of [
+    process.env.R2_PUBLIC_BASE_URL,
+    process.env.NEXT_PUBLIC_IMAGE_BASE_URL,
+  ]) {
+    const b = (base ?? "").trim();
+    if (b) {
+      try {
+        if (u.host === new URL(b).host) return true;
+      } catch {
+        /* ignore bad env */
+      }
     }
   }
   return (
