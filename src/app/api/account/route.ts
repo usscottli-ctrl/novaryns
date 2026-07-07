@@ -32,10 +32,15 @@ export async function GET(request: Request) {
     return NextResponse.json({ error: "缺少 email 参数" }, { status: 400 });
   }
   try {
-    const user = await getUser(email);
+    // 是否有权看该 email 的私有数据(本人 或 管理员)——独立判断,不依赖用户行是否存在。
+    const allowed = await canSeePrivate(request, email);
+    let user = await getUser(email);
+    // 开源版单用户常见:操作员有有效登录态(nv_admin cookie)但用户行还没建起来。
+    // 授权本人/管理员首次访问时把行补上,否则下面按「user 为空」把作品全挡掉 → 展示为空。
+    if (allowed && !user) {
+      user = await getOrCreateUser(email, "").catch(() => null);
+    }
     // 防越权读:作品列表(图 URL + 提示词,较敏感)只返回给本人或管理员。
-    // user 对象仍返回(登录态恢复要用),但他人查不到别人的作品内容。
-    const allowed = user ? await canSeePrivate(request, email) : false;
     const artworks = allowed ? await listArtworks(email) : [];
     return NextResponse.json({ persisted: true, user, artworks });
   } catch (e) {

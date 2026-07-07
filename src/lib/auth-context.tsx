@@ -191,6 +191,28 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
           } catch {
             /* session unreachable — leave as-is */
           }
+        } else if (!cancelled && cfg?.db && cfg?.authMode === "mock") {
+          // 开源版单用户:身份以本地管理员会话(服务端 nv_admin cookie)为权威,
+          // 不依赖 localStorage —— 覆盖「只从 /admin 登录、主站 auth-context 未 signIn」
+          // 的情况(否则主站 user=null,作品/历史全拉不出)。
+          try {
+            const s = await fetch("/api/auth/session").then((r) => r.json());
+            if (!cancelled) {
+              if (s?.user) {
+                persist(s.user as SessionUser);
+              } else if (lastEmail) {
+                const res = await fetch(
+                  `/api/account?email=${encodeURIComponent(lastEmail)}`,
+                  { headers: await authHeader() }
+                ).then((r) => r.json());
+                if (!cancelled && res?.persisted && res.user) {
+                  persist(res.user as SessionUser);
+                }
+              }
+            }
+          } catch {
+            /* session unreachable — leave as-is */
+          }
         } else if (!cancelled && cfg?.db && lastEmail) {
           const res = await fetch(
             `/api/account?email=${encodeURIComponent(lastEmail)}`,
