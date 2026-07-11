@@ -10,6 +10,7 @@ import {
 } from "react";
 import { getPlan, type PlanKey } from "@/lib/mock-data";
 import { BRAND } from "@/lib/brand";
+import { supabaseEnabled } from "@/lib/auth-mode";
 import { authHeader } from "@/lib/supabase";
 
 // ---------------------------------------------------------------------------
@@ -283,6 +284,11 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     // 原生多用户:清服务端会话 cookie。
     if (multiUserRef.current) {
       fetch("/api/auth/logout", { method: "POST" }).catch(() => {});
+    }
+    // 单用户/本地管理员(无 Supabase):同时清后台会话(nv_admin)——
+    // 否则「退出」后仍是隐形管理员,/deploy 更新卡等站长内容照样可见。
+    if (!supabaseEnabled) {
+      fetch("/api/admin/login", { method: "DELETE" }).catch(() => {});
     }
     setUser(null);
     try {

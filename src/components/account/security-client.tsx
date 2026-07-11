@@ -19,6 +19,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { browserSupabase } from "@/lib/supabase";
 import { supabaseEnabled } from "@/lib/auth-mode";
+import { usePaymentConfig } from "@/lib/payment-context";
 import { cn } from "@/lib/utils";
 
 function fmt(s: string, vars: Record<string, string | number>): string {
@@ -42,6 +43,7 @@ export function SecurityClient() {
   const { t } = useI18n();
   const router = useRouter();
   const { openAuth } = useAuthModal();
+  const { pro } = usePaymentConfig();
 
   const [newPw, setNewPw] = useState("");
   const [newPw2, setNewPw2] = useState("");
@@ -188,7 +190,13 @@ export function SecurityClient() {
   }
 
   const isPhoneUser = user.email.endsWith(`@${PHONE_DOMAIN}`);
-  const account = isPhoneUser ? maskPhone(user.name) : user.email;
+  // 单用户站长的内部合成邮箱(operator@novaryns.local)是实现细节,不给用户看,
+  // 显示成「站长账号」更专业。
+  const account = isPhoneUser
+    ? maskPhone(user.name)
+    : user.email === "operator@novaryns.local"
+      ? "站长账号(单用户)"
+      : user.email;
 
   async function savePassword(e: React.FormEvent) {
     e.preventDefault();
@@ -247,11 +255,12 @@ export function SecurityClient() {
         </div>
       </div>
 
-      {/* 开源版单用户:密码 = 安装向导设的管理员密码;下面 Supabase 多用户功能不适用 */}
+      {/* 单用户模式说明(按版本):密码 = 安装向导设的管理员密码;Supabase 多用户功能不适用 */}
       {!supabaseEnabled && (
         <p className="mb-10 rounded-2xl border border-border bg-secondary/40 px-6 py-4 text-sm text-muted-foreground">
-          开源版单用户模式:登录密码即安装向导中设置的「管理员密码」。多用户账号 /
-          手机绑定 / 改密等功能为 Pro 版能力。
+          {pro
+            ? "商业版·站长账号:当前以站长身份登录,登录密码即安装向导中设置的「管理员密码」。到后台「登录与支付」开启多用户注册后,客户即可用邮箱自行注册登录、购买积分。"
+            : "开源版单用户模式:登录密码即安装向导中设置的「管理员密码」。多用户账号 / 改密等功能为 Pro 版能力。"}
         </p>
       )}
 

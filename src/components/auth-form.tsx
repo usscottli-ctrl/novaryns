@@ -352,9 +352,11 @@ export function AuthForm({
       </form>
 
       {pwMode ? (
-        // 单用户密码登录(开源版 / Pro 单用户):一句说明。
+        // 单用户密码登录(开源版 / Pro 单用户):按版本给说明。
         <p className="text-center text-sm text-muted-foreground">
-          用安装向导里设置的管理员密码登录
+          {pro
+            ? "商业版·站长登录:用安装向导里设置的管理员密码。到后台「登录与支付」开启多用户后,客户将用邮箱注册/登录。"
+            : "用安装向导里设置的管理员密码登录"}
         </p>
       ) : !pro ? (
         // 开源精简版且未设密码:提示多用户需 Pro。
