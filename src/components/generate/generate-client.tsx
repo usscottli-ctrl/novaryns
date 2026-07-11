@@ -20,7 +20,6 @@ import {
 } from "lucide-react";
 import { RatioTileGroup } from "@/components/ui/ratio-tile";
 import { Segmented } from "@/components/ui/segmented";
-import { Switch } from "@/components/ui/switch";
 import {
   CATEGORY_LABELS,
   GENERATION_RATIOS,
@@ -103,8 +102,7 @@ export function GenerateClient({
   const [images, setImages] = useState<GeneratedImage[]>([]);
   const [viewing, setViewing] = useState<GeneratedImage | null>(null);
   const [baseNotice, setBaseNotice] = useState(false);
-  // 透明底输出(可选);右栏「本工具记录」折叠态;结果筛选(全部/已完成)。
-  const [transparent, setTransparent] = useState(false);
+  // 右栏「本工具记录」折叠态;结果筛选(全部/已完成)。
   const [historyOpen, setHistoryOpen] = useState(true);
   const [recPage, setRecPage] = useState(0);
   const [resultFilter, setResultFilter] = useState<"all" | "done">("all");
@@ -474,7 +472,6 @@ export function GenerateClient({
       fd.append("quality", quality);
       fd.append("style", style);
       fd.append("count", String(count));
-      if (transparent) fd.append("transparent", "1");
       fd.append("email", user.email);
       if (parentId) fd.append("parentId", parentId);
       // 无显式父节点 + 来自模板「做同款」→ 传模板信息,服务端建/接"模板原图"根
@@ -773,12 +770,6 @@ export function GenerateClient({
                     options={[1, 2, 4].map((n) => ({ value: String(n), label: String(n) }))}
                   />
                 </div>
-              </div>
-
-              {/* 透明底 */}
-              <div className="flex items-center justify-between">
-                <span className="text-[13px] text-c-text2">透明底</span>
-                <Switch checked={transparent} onChange={setTransparent} />
               </div>
             </div>
 
