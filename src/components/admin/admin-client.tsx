@@ -70,9 +70,11 @@ export function AdminClient() {
         const d = (await r.json()) as {
           localAvailable?: boolean;
           localAuthed?: boolean;
+          nativeAdmin?: boolean;
         };
         if (cancelled) return;
-        if (d.localAuthed) {
+        // 本地密码会话 或 站长邮箱账号(role=admin)会话,都算已登录管理员。
+        if (d.localAuthed || d.nativeAdmin) {
           setLocalAdmin(true);
           setStatus("ok");
           return;

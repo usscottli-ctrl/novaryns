@@ -70,6 +70,9 @@ export type SetupInput = {
   siteName?: string;
   /** 选填:管理员密码(自托管无 Supabase 时的后台入口;scrypt 哈希落库)。 */
   adminPassword?: string;
+  /** 选填:管理员邮箱 —— 同密码一起建「站长邮箱账号」(role=admin),
+   * 站长即可像官方站一样在普通登录框用邮箱+密码登录。 */
+  adminEmail?: string;
 };
 
 export type SetupResult =
@@ -115,6 +118,23 @@ export async function applySetup(input: SetupInput): Promise<SetupResult> {
   if (adminPassword) {
     const { setAdminPassword } = await import("@/lib/admin-auth");
     await setAdminPassword(adminPassword);
+  }
+
+  // 5) 管理员邮箱(选填)—— 建「站长邮箱账号」(role=admin,密码同管理员密码),
+  //    站长即可像官方站一样在普通登录框用邮箱+密码登录;/admin 密码入口仍保留兜底。
+  const adminEmail = (input.adminEmail ?? "").trim().toLowerCase();
+  if (adminEmail && adminPassword && /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(adminEmail)) {
+    try {
+      const { getOrCreateUser, setUserPassword, setUserRole } = await import(
+        "@/lib/db"
+      );
+      const { hashPassword } = await import("@/lib/pw");
+      await getOrCreateUser(adminEmail, "站长");
+      await setUserPassword(adminEmail, hashPassword(adminPassword));
+      await setUserRole(adminEmail, "admin");
+    } catch {
+      /* 建号失败不阻断首启(密码入口仍可用,后台可再绑定) */
+    }
   }
 
   return { ok: true };

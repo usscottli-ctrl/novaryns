@@ -9,20 +9,34 @@ import {
 } from "@/lib/admin-auth";
 import { rateLimit } from "@/lib/rate-limit";
 import { clientIp } from "@/lib/ip";
+import { supabaseEnabled } from "@/lib/auth-mode";
+import { nativeUserEmail } from "@/lib/native-auth";
+import { getUserRole } from "@/lib/db";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
 // 本地管理员登录(开源版 / 自托管无 Supabase 时用)。
-//   GET    → { localAvailable, localAuthed } 供前端决定显不显示密码登录框。
+//   GET    → { localAvailable, localAuthed, nativeAdmin } 供前端决定显不显示密码框。
 //   POST   → { password } 校验通过 → 下发 HttpOnly 签名会话 cookie。
 //   DELETE → 退出,清 cookie。
 // 官方云走 Supabase,前端不会触发这里(localAvailable=false)。
 
 export async function GET(req: Request) {
+  // 站长邮箱账号(role=admin)已用邮箱登录 → /admin 免密码直进(与官方站一致)。
+  let nativeAdmin = false;
+  if (!supabaseEnabled) {
+    try {
+      const nu = nativeUserEmail(req);
+      if (nu) nativeAdmin = (await getUserRole(nu)) === "admin";
+    } catch {
+      /* 按非管理员 */
+    }
+  }
   return NextResponse.json({
     localAvailable: await hasAdminPassword(),
     localAuthed: localAdminOk(req),
+    nativeAdmin,
   });
 }
 

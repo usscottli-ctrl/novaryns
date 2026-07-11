@@ -141,6 +141,7 @@ export function SetupClient({ brand }: { brand: string }) {
   const [siteName, setSiteName] = useState("");
   const [adminPw, setAdminPw] = useState("");
   const [adminPw2, setAdminPw2] = useState("");
+  const [adminEmail, setAdminEmail] = useState("");
   const [busy, setBusy] = useState(false);
   const [done, setDone] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -185,6 +186,7 @@ export function SetupClient({ brand }: { brand: string }) {
           licenseKey: licenseKey.trim(),
           siteName: siteName.trim(),
           adminPassword: adminPw,
+          adminEmail: adminEmail.trim(),
         }),
       });
       const data = (await res.json().catch(() => null)) as
@@ -349,6 +351,18 @@ export function SetupClient({ brand }: { brand: string }) {
                   </span>
                 </label>
                 <Input
+                  type="email"
+                  autoComplete="email"
+                  value={adminEmail}
+                  onChange={(e) => setAdminEmail(e.target.value)}
+                  placeholder={
+                    locale === "en"
+                      ? "Admin email (used to sign in, optional)"
+                      : "管理员邮箱(登录账号,选填)"
+                  }
+                  disabled={busy}
+                />
+                <Input
                   type="password"
                   autoComplete="new-password"
                   value={adminPw}
@@ -368,6 +382,9 @@ export function SetupClient({ brand }: { brand: string }) {
                 />
                 <p className="text-[12px] leading-relaxed text-c-text3">
                   {t.adminPwHelp}
+                  {locale === "en"
+                    ? " With an admin email set, you can also sign in with email + password like a regular account."
+                    : " 填了管理员邮箱,即可像官方站一样在登录框用邮箱+密码登录。"}
                 </p>
               </div>
 
