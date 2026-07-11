@@ -2,7 +2,7 @@
 
 import * as React from "react";
 import Link from "next/link";
-import { ChevronRight, Copy, Sparkles, Radio } from "lucide-react";
+import { ChevronRight, Copy, Sparkles, Radio, Eye, EyeOff } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Segmented } from "@/components/ui/segmented";
 import { Input } from "@/components/ui/input";
@@ -62,6 +62,13 @@ function fmtDate(v: string | null): string {
   return v ? v.slice(0, 10) : "";
 }
 
+// 打码地址:隐藏域名 + token,只保留 https://…/v1 结构。防截图/共享泄露海外域名与凭证。
+// 复制按钮仍复制真实地址(发给买家用)。
+function maskAddr(addr: string): string {
+  const m = /^(https?:\/\/).+(\/v1\/?)$/.exec(addr);
+  return m ? `${m[1]}••••••••••••••••${m[2]}` : "https://••••••/v1";
+}
+
 export function RelayTokensClient({ embedded = false }: { embedded?: boolean }) {
   const { toast } = useToast();
 
@@ -78,6 +85,15 @@ export function RelayTokensClient({ embedded = false }: { embedded?: boolean }) 
 
   // 本次新生成的行(高亮 + 顶部大地址卡,方便直接复制发货)
   const [fresh, setFresh] = React.useState<RelayRow | null>(null);
+  // 默认打码显示的地址;点「眼睛」临时明文。id 在集合内=已展开。
+  const [revealed, setRevealed] = React.useState<Set<string>>(new Set());
+  const toggleReveal = (id: string) =>
+    setRevealed((s) => {
+      const n = new Set(s);
+      if (n.has(id)) n.delete(id);
+      else n.add(id);
+      return n;
+    });
 
   const [page, setPage] = React.useState(0);
   const PER_PAGE = 10;
@@ -399,8 +415,17 @@ export function RelayTokensClient({ embedded = false }: { embedded?: boolean }) 
                 </div>
                 <div className="mt-3 flex items-center gap-2 rounded-[8px] bg-c-card p-3">
                   <code className="min-w-0 flex-1 truncate font-mono text-[12.5px] text-c-text2">
-                    {fresh.address}
+                    {revealed.has(fresh.id) ? fresh.address : maskAddr(fresh.address)}
                   </code>
+                  <button
+                    type="button"
+                    onClick={() => toggleReveal(fresh.id)}
+                    aria-label={revealed.has(fresh.id) ? "隐藏" : "显示"}
+                    title={revealed.has(fresh.id) ? "隐藏" : "显示完整地址"}
+                    className="grid h-8 w-8 shrink-0 place-items-center rounded-[8px] text-c-text3 transition-colors hover:bg-c-subtle hover:text-c-text"
+                  >
+                    {revealed.has(fresh.id) ? <EyeOff size={15} /> : <Eye size={15} />}
+                  </button>
                   <Button
                     variant="secondary"
                     size="sm"
@@ -467,8 +492,17 @@ export function RelayTokensClient({ embedded = false }: { embedded?: boolean }) 
                       </span>
                       <span className="flex min-w-0 items-center gap-1.5">
                         <span className="truncate font-mono text-[12px] text-c-text2">
-                          {t.address}
+                          {revealed.has(t.id) ? t.address : maskAddr(t.address)}
                         </span>
+                        <button
+                          type="button"
+                          onClick={() => toggleReveal(t.id)}
+                          aria-label={revealed.has(t.id) ? "隐藏" : "显示"}
+                          title={revealed.has(t.id) ? "隐藏" : "显示完整地址"}
+                          className="grid h-6 w-6 shrink-0 place-items-center rounded-[6px] text-c-text3 transition-colors hover:bg-c-subtle hover:text-c-text"
+                        >
+                          {revealed.has(t.id) ? <EyeOff size={12} /> : <Eye size={12} />}
+                        </button>
                         <button
                           type="button"
                           onClick={() => copy(t.address)}
