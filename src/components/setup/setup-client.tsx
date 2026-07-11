@@ -383,8 +383,8 @@ export function SetupClient({ brand }: { brand: string }) {
                 <p className="text-[12px] leading-relaxed text-c-text3">
                   {t.adminPwHelp}
                   {locale === "en"
-                    ? " With an admin email set, you can also sign in with email + password like a regular account."
-                    : " 填了管理员邮箱,即可像官方站一样在登录框用邮箱+密码登录。"}
+                    ? " Admin email is optional: on Pro (multi-user), it lets you sign in with email + password like a regular account; on the free edition you can leave it blank."
+                    : " 管理员邮箱选填:商业版(多用户)下可用邮箱+密码从登录框登录;开源版可留空,照常用密码登录。"}
                 </p>
               </div>
 
