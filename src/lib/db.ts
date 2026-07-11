@@ -1051,6 +1051,85 @@ export async function setUserRole(
   );
 }
 
+export async function getUserRole(emailRaw: string): Promise<string | null> {
+  await ensureSchema();
+  const { rows } = await getPool().query(
+    `SELECT role FROM app_users WHERE email = $1`,
+    [emailRaw.toLowerCase()]
+  );
+  return (rows[0]?.role as string | undefined) ?? null;
+}
+
+/** 当前站长邮箱账号(role=admin 且非内部 operator 合成邮箱);未设置返回 null。 */
+export async function getOwnerEmail(): Promise<string | null> {
+  await ensureSchema();
+  const { rows } = await getPool().query(
+    `SELECT email FROM app_users
+      WHERE role = 'admin' AND email <> 'operator@novaryns.local'
+      ORDER BY created_at ASC LIMIT 1`
+  );
+  return (rows[0]?.email as string | undefined) ?? null;
+}
+
+/**
+ * 设置「站长邮箱账号」:把 oldEmail(通常是 operator@novaryns.local)名下的
+ * **全部数据整体迁移**到 newEmail(积分/作品/流水/订单等,凡带 email 列的 app_ 表
+ * 动态发现、事务内一并改名),并设 role=admin + 登录密码。
+ * 之后站长即可在普通登录框用邮箱+密码登录,与官方站体验一致。
+ */
+export async function setOwnerAccount(
+  oldEmailRaw: string,
+  newEmailRaw: string,
+  passwordHash: string
+): Promise<void> {
+  await ensureSchema();
+  const oldEmail = oldEmailRaw.toLowerCase();
+  const newEmail = newEmailRaw.toLowerCase();
+  if (oldEmail === newEmail) throw new Error("新旧邮箱相同");
+  const client = await getPool().connect();
+  try {
+    await client.query("BEGIN");
+    const dup = await client.query(`SELECT 1 FROM app_users WHERE email = $1`, [
+      newEmail,
+    ]);
+    if (dup.rows.length) {
+      throw new Error("该邮箱已被注册,请换一个邮箱");
+    }
+    // 动态发现所有带 email 列的业务表,整体改名(以后新表加 email 列也自动覆盖)。
+    const tables = await client.query(
+      `SELECT table_name FROM information_schema.columns
+        WHERE table_schema = 'public' AND column_name = 'email'
+          AND table_name LIKE 'app\\_%'`
+    );
+    for (const r of tables.rows as { table_name: string }[]) {
+      await client.query(
+        `UPDATE "${r.table_name}" SET email = $2 WHERE email = $1`,
+        [oldEmail, newEmail]
+      );
+    }
+    // operator 从没建过行(极早期实例)→ 直接建一行。
+    const has = await client.query(`SELECT 1 FROM app_users WHERE email = $1`, [
+      newEmail,
+    ]);
+    if (!has.rows.length) {
+      await client.query(
+        `INSERT INTO app_users (email, name, plan) VALUES ($1, $2, 'starter')`,
+        [newEmail, newEmail.split("@")[0]]
+      );
+    }
+    await client.query(
+      `UPDATE app_users SET role = 'admin', password_hash = $2, name = COALESCE(NULLIF(name,''), $3) WHERE email = $1`,
+      [newEmail, passwordHash, "站长"]
+    );
+    await client.query("COMMIT");
+  } catch (e) {
+    await client.query("ROLLBACK");
+    throw e;
+  } finally {
+    client.release();
+  }
+}
+
 // 后台手动调积分:正数 = 新建一个赠送批次(获取),有效期可按月设置(opts.months;
 // 0 或负 = 永久,缺省 = 24 个月);负数 = FIFO 扣本金 + 记消耗流水(不动在途占位)。
 export async function adjustUserCredits(

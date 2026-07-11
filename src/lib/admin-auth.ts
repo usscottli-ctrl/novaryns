@@ -103,6 +103,20 @@ export function localAdminOk(request: Request): boolean {
  */
 export async function requireAdmin(request: Request): Promise<boolean> {
   if (localAdminOk(request)) return true;
+  // 原生多用户:站长邮箱账号(app_users.role=admin)的会话也算管理员——
+  // 站长与官方站一致地用邮箱+密码从普通登录框登录,即拥有后台权限。
+  if (!supabaseEnabled) {
+    try {
+      const { nativeUserEmail } = await import("@/lib/native-auth");
+      const nu = nativeUserEmail(request);
+      if (nu) {
+        const { getUserRole } = await import("@/lib/db");
+        if ((await getUserRole(nu)) === "admin") return true;
+      }
+    } catch {
+      /* 查失败按非管理员处理 */
+    }
+  }
   return isAdminToken(bearer(request));
 }
 

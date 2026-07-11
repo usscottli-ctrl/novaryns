@@ -359,6 +359,10 @@ export function AdminSettings({ localAdmin = false }: { localAdmin?: boolean }) 
   const [smtpUser, setSmtpUser] = useState("");
   const [smtpPass, setSmtpPass] = useState("");
   const [smtpFrom, setSmtpFrom] = useState("");
+  // 站长邮箱账号(邮箱+密码登录,与官方站一致)
+  const [ownerEmail, setOwnerEmail] = useState<string | null>(null);
+  const [ownerEmailInput, setOwnerEmailInput] = useState("");
+  const [ownerPwInput, setOwnerPwInput] = useState("");
   // 支付宝商户
   const [alipayAppid, setAlipayAppid] = useState("");
   const [alipayPublicKey, setAlipayPublicKey] = useState("");
@@ -666,6 +670,27 @@ export function AdminSettings({ localAdmin = false }: { localAdmin?: boolean }) 
       setSection("api");
     }
   }, [pro, section]);
+
+  // 站长邮箱账号:读当前绑定状态(仅自托管有意义;官方云该接口按管理员校验放行也无妨)
+  useEffect(() => {
+    if (!isAdmin) return;
+    let cancelled = false;
+    (async () => {
+      try {
+        const r = await fetch("/api/admin/owner-account", {
+          headers: token ? { Authorization: `Bearer ${token}` } : undefined,
+        });
+        const d = await r.json().catch(() => null);
+        if (!cancelled && r.ok) setOwnerEmail(d?.ownerEmail || null);
+      } catch {
+        /* ignore */
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isAdmin, token]);
 
   if (!isAdmin) return null;
 
@@ -1780,6 +1805,81 @@ export function AdminSettings({ localAdmin = false }: { localAdmin?: boolean }) 
               保存
             </Button>
           </div>
+        </div>
+
+        {/* 站长邮箱账号:让站长也能像官方站一样在登录框用邮箱+密码登录 */}
+        <div className="mb-5 space-y-3 rounded-2xl border border-border bg-card p-6 card-shadow">
+          <div className="flex items-center gap-2 text-sm font-semibold">
+            <KeyRound className="h-4 w-4 text-primary" />
+            站长邮箱账号
+            <ReadyBadge ready={!!ownerEmail} className="ml-auto" />
+          </div>
+          <p className="text-xs text-muted-foreground">
+            设置后,你可以直接在网站登录框用<b>邮箱 + 密码</b>登录(与官方站一致),
+            自动拥有管理员权限;原「管理员密码」仍可用于 /admin 应急。
+            你现有的积分、作品会整体迁移到该邮箱名下。
+            {ownerEmail && (
+              <>
+                {" "}当前:<code className="rounded bg-black/5 px-1 dark:bg-white/10">{ownerEmail}</code>
+              </>
+            )}
+          </p>
+          <div className="grid gap-3 md:grid-cols-2">
+            <Input
+              type="email"
+              value={ownerEmailInput}
+              onChange={(e) => setOwnerEmailInput(e.target.value)}
+              placeholder={ownerEmail ? "改绑新邮箱" : "you@example.com"}
+            />
+            <Input
+              type="password"
+              autoComplete="new-password"
+              value={ownerPwInput}
+              onChange={(e) => setOwnerPwInput(e.target.value)}
+              placeholder="登录密码(至少 6 位)"
+            />
+          </div>
+          <Button
+            variant="outline"
+            size="sm"
+            disabled={busy || !ownerEmailInput.trim() || ownerPwInput.length < 6}
+            onClick={async () => {
+              setBusy(true);
+              setMsg(null);
+              try {
+                const res = await fetch("/api/admin/owner-account", {
+                  method: "POST",
+                  headers: {
+                    "Content-Type": "application/json",
+                    Authorization: `Bearer ${token}`,
+                  },
+                  body: JSON.stringify({
+                    email: ownerEmailInput.trim(),
+                    password: ownerPwInput,
+                  }),
+                });
+                const d = await res.json().catch(() => null);
+                if (res.ok && d?.ok) {
+                  setOwnerEmail(String(d.ownerEmail || ownerEmailInput.trim()));
+                  setOwnerEmailInput("");
+                  setOwnerPwInput("");
+                  setMsg({
+                    ok: true,
+                    text: "站长邮箱账号已设置,现在可以用邮箱+密码从登录框登录了",
+                  });
+                } else {
+                  setMsg({ ok: false, text: d?.error || "设置失败" });
+                }
+              } catch {
+                setMsg({ ok: false, text: "网络错误,请重试" });
+              } finally {
+                setBusy(false);
+              }
+            }}
+          >
+            {busy && <Loader2 className="h-4 w-4 animate-spin" />}
+            {ownerEmail ? "改绑并迁移数据" : "设置站长账号"}
+          </Button>
         </div>
 
         {/* 邮件服务(SMTP,忘记密码用) */}
