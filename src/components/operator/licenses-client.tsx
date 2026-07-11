@@ -2,7 +2,7 @@
 
 import * as React from "react";
 import Link from "next/link";
-import { ChevronRight, Copy, Sparkles } from "lucide-react";
+import { ChevronRight, Copy, KeyRound, Sparkles } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Segmented } from "@/components/ui/segmented";
 import { Input } from "@/components/ui/input";
@@ -87,6 +87,8 @@ export function LicensesClient({ embedded = false }: { embedded?: boolean }) {
   const [denied, setDenied] = React.useState(false);
   // 本站是否为许可证签发站(默认 true,GET 回来再校正);非签发站禁止生成。
   const [issuer, setIssuer] = React.useState(true);
+  // 首次 GET 是否已返回:嵌入模式在结果回来前不渲染,非签发站(买家实例)直接整块隐藏。
+  const [loaded, setLoaded] = React.useState(false);
 
   // 生成控件状态
   const [count, setCount] = React.useState("10");
@@ -121,6 +123,8 @@ export function LicensesClient({ embedded = false }: { embedded?: boolean }) {
         setIssuer(data.issuer !== false);
       } catch {
         if (!cancelled) setLoadError("网络异常");
+      } finally {
+        if (!cancelled) setLoaded(true);
       }
     })();
     return () => {
@@ -258,6 +262,10 @@ export function LicensesClient({ embedded = false }: { embedded?: boolean }) {
     }
   };
 
+  // 嵌入后台:非签发站(买家自托管实例)整块隐藏——「生成 License」是官方签发站
+  // 专属运营功能,买家实例不该看到这块界面(标题也在组件内,一起消失)。
+  if (embedded && (!loaded || !issuer || denied)) return null;
+
   if (denied) {
     return (
       <div className="flex min-h-[60vh] w-full flex-col items-center justify-center gap-3 px-5 text-center">
@@ -277,6 +285,13 @@ export function LicensesClient({ embedded = false }: { embedded?: boolean }) {
 
   return (
     <Shell embedded={embedded}>
+      {/* 嵌入模式:自带分隔与标题(签发站才会走到这里,非签发站上面已 return null) */}
+      {embedded && (
+        <div className="mb-2 mt-8 flex items-center gap-2 border-t border-border pt-6 text-sm font-semibold text-foreground">
+          <KeyRound className="h-4 w-4 text-primary" />
+          授权管理
+        </div>
+      )}
       {/* 面包屑 + 标题行(嵌入模式隐藏页级大标题头,仅保留加载错误提示) */}
       {!embedded ? (
         <div className="flex flex-wrap items-start justify-between gap-4">

@@ -2532,14 +2532,8 @@ export function AdminSettings({ localAdmin = false }: { localAdmin?: boolean }) 
           </div>
           <DeployCenter embedded />
 
-          {/* 分隔 + 授权管理 */}
-          <div className="mt-8 border-t border-border pt-6">
-            <div className="mb-2 flex items-center gap-2 text-sm font-semibold text-foreground">
-              <KeyRound className="h-4 w-4 text-primary" />
-              授权管理
-            </div>
-            <LicensesClient embedded />
-          </div>
+          {/* 授权管理(仅签发站显示;组件自带标题,买家实例整块自动隐藏) */}
+          <LicensesClient embedded />
 
           {/* 中转密钥管理(仅签发站 ai.starzeco.com + 配置了 relay 时显示;
               非签发站/未配置时 embedded 自动隐藏,不占位) */}

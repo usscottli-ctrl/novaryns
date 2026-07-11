@@ -113,7 +113,7 @@ export async function activateProLicense(
 // 判定优先级:显式 env LICENSE_ISSUER(1/true 强制是,0/false 强制否)> 比对本次
 // 请求 Host 与 license 服务器 Host。正常按域名访问的官方国内站即自动识别为签发站。
 // ---------------------------------------------------------------------------
-export function isLicenseIssuer(request?: Request): boolean {
+export function isLicenseIssuerHost(hostRaw: string | null | undefined): boolean {
   const flag = (process.env.LICENSE_ISSUER || "").trim().toLowerCase();
   if (flag === "1" || flag === "true" || flag === "yes") return true;
   if (flag === "0" || flag === "false" || flag === "no") return false;
@@ -125,7 +125,11 @@ export function isLicenseIssuer(request?: Request): boolean {
   } catch {
     /* 用默认 */
   }
-  const reqHost = (request?.headers.get("host") || "").toLowerCase().trim();
+  const reqHost = (hostRaw || "").toLowerCase().trim();
   if (!reqHost) return false;
   return reqHost === serverHost;
+}
+
+export function isLicenseIssuer(request?: Request): boolean {
+  return isLicenseIssuerHost(request?.headers.get("host"));
 }
