@@ -16,8 +16,6 @@ import {
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Segmented } from "@/components/ui/segmented";
-import { Switch } from "@/components/ui/switch";
-import { DropZone, UploadedThumb } from "@/components/ui/dropzone";
 import { useToast } from "@/components/ui/toast";
 import { cn } from "@/lib/utils";
 import { authHeader } from "@/lib/supabase";
@@ -25,7 +23,6 @@ import { ProDownloadModal } from "@/components/operator/pro-download-modal";
 import { CloudModal } from "@/components/operator/cloud-modal";
 
 type InstallTab = "docker" | "script" | "platform";
-type BrandColor = "indigo" | "blue" | "violet";
 
 // 真实安装命令:compose 一键起 app + 内置 Postgres + 数据卷(首启向导可落库)。
 // 镜像由仓库 GitHub Actions 构建推送 ghcr.io/usscottli-ctrl/novaryns:latest。
@@ -33,12 +30,6 @@ const DOCKER_CMD =
   "git clone https://github.com/usscottli-ctrl/novaryns && cd novaryns && docker compose up -d";
 const SCRIPT_CMD =
   "curl -fsSL https://raw.githubusercontent.com/usscottli-ctrl/novaryns/main/install.sh | bash";
-
-const BRAND_COLORS: { value: BrandColor; hex: string; label: string }[] = [
-  { value: "indigo", hex: "#4F46E5", label: "靛蓝" },
-  { value: "blue", hex: "#2E7CF6", label: "湖蓝" },
-  { value: "violet", hex: "#7C3AED", label: "紫罗兰" },
-];
 
 export function DeployCenter({ embedded = false }: { embedded?: boolean }) {
   const { toast } = useToast();
@@ -94,12 +85,36 @@ export function DeployCenter({ embedded = false }: { embedded?: boolean }) {
   const [copiedCmd, setCopiedCmd] = React.useState(false);
   const [licenseInput, setLicenseInput] = React.useState("");
 
-  // 云端品牌与域名
-  const [subdomain, setSubdomain] = React.useState("");
-  const [customDomain, setCustomDomain] = React.useState("");
-  const [brandColor, setBrandColor] = React.useState<BrandColor>("indigo");
-  const [logo, setLogo] = React.useState<string | null>(null);
-  const [whiteLabel, setWhiteLabel] = React.useState(false);
+  // 本实例 Pro 状态(/api/health,公开):决定 License 激活区显示
+  //   cloud → 整块隐藏(官方云本就 Pro,无需激活);
+  //   pro   → 「已激活」横幅 + 下一步指引(买家最关心「生效没有 / 然后干嘛」);
+  //   else  → 激活输入框。null = 还没查到,先按未激活渲染输入框。
+  const [proState, setProState] = React.useState<{
+    pro: boolean;
+    edition: string;
+    issuer: boolean;
+  } | null>(null);
+  React.useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const r = await fetch("/api/health");
+        const d = await r.json();
+        if (!cancelled && r.ok) {
+          setProState({
+            pro: !!d.pro,
+            edition: String(d.edition || ""),
+            issuer: !!d.issuer,
+          });
+        }
+      } catch {
+        /* ignore */
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   const currentCmd = installTab === "script" ? SCRIPT_CMD : DOCKER_CMD;
 
@@ -140,11 +155,6 @@ export function DeployCenter({ embedded = false }: { embedded?: boolean }) {
     }
   }
 
-  function onLogoFiles(files: File[]) {
-    const f = files[0];
-    if (f) setLogo(URL.createObjectURL(f));
-  }
-
   return (
     <Shell embedded={embedded}>
       <>
@@ -175,12 +185,15 @@ export function DeployCenter({ embedded = false }: { embedded?: boolean }) {
                   </Link>
                 </Button>
               )}
-              <Button asChild variant="secondary" size="md">
-                <Link href="/licenses">
-                  <Lock size={14} />
-                  我的授权
-                </Link>
-              </Button>
+              {/* 授权管理入口仅签发站显示(买家实例上 /licenses 会被跳走,别给入口) */}
+              {proState?.issuer && (
+                <Button asChild variant="secondary" size="md">
+                  <Link href="/licenses">
+                    <Lock size={14} />
+                    我的授权
+                  </Link>
+                </Button>
+              )}
             </div>
           </div>
         )}
@@ -378,136 +391,63 @@ export function DeployCenter({ embedded = false }: { embedded?: boolean }) {
             </div>
           )}
 
-          {/* License Key 激活 */}
-          <div className="mt-5 border-t border-c-line pt-5">
-            <label className="mb-1.5 flex items-center gap-1.5 text-[12.5px] font-medium text-c-text2">
-              <KeyRound size={13} className="text-c-text3" />
-              License Key 激活（Pro 自托管）
-            </label>
-            <div className="flex gap-2">
-              <Input
-                value={licenseInput}
-                onChange={(e) => setLicenseInput(e.target.value)}
-                onKeyDown={(e) => {
-                  if (e.key === "Enter") handleActivate();
-                }}
-                placeholder="NOVA-XXXX-XXXX-XXXX-XXXX"
-                className="flex-1 font-mono tracking-wide"
-                autoComplete="off"
-                spellCheck={false}
-              />
-              <Button
-                variant="primary"
-                size="md"
-                onClick={handleActivate}
-                className="shrink-0"
-              >
-                激活
-              </Button>
-            </div>
-          </div>
-        </section>
-
-        {/* ── 云端品牌与域名卡 ── */}
-        <section className="mt-6 rounded-card border border-c-border bg-c-card p-6 shadow-card">
-          <div className="flex items-center gap-2">
-            <h2 className="text-[16px] font-bold text-c-text">云端品牌与域名</h2>
-            <span className="inline-flex items-center rounded-[6px] bg-c-tint-gold px-1.5 py-[2px] text-[10px] font-bold text-c-gold">
-              PRO
-            </span>
-          </div>
-          <p className="mt-0.5 text-[12.5px] text-c-text3">
-            白标你的实例：专属域名、品牌主色、隐藏来源署名。
-          </p>
-
-          <div className="mt-5 grid grid-cols-2 gap-x-6 gap-y-5">
-            {/* 专属子域名 */}
-            <Field label="专属子域名">
-              <div className="flex items-stretch overflow-hidden rounded-[10px] border border-c-border2 bg-c-subtle2 focus-within:border-[1.5px] focus-within:border-acc focus-within:bg-c-card">
-                <input
-                  value={subdomain}
-                  onChange={(e) => setSubdomain(e.target.value)}
-                  placeholder="yourbrand"
-                  spellCheck={false}
-                  className="h-[40px] min-w-0 flex-1 bg-transparent px-[13px] text-[13.5px] text-c-text placeholder:text-c-text4 focus-visible:outline-none"
-                />
-                <span className="flex select-none items-center border-l border-c-border2 bg-c-subtle px-3 text-[13px] text-c-text4">
-                  .novaryns.app
-                </span>
-              </div>
-            </Field>
-
-            {/* 绑定独立域名 */}
-            <Field label="绑定独立域名">
-              <div className="flex items-center gap-2">
-                <Input
-                  value={customDomain}
-                  onChange={(e) => setCustomDomain(e.target.value)}
-                  placeholder="shop.yourbrand.com"
-                  spellCheck={false}
-                  className="flex-1"
-                />
-                <span className="inline-flex shrink-0 items-center gap-1 rounded-[6px] bg-c-tint-g px-2 py-[5px] text-[11px] font-semibold text-c-success">
-                  <Check size={12} strokeWidth={2.6} />
-                  已验证
-                </span>
-              </div>
-            </Field>
-
-            {/* 品牌主色 */}
-            <Field label="品牌主色">
-              <div className="flex items-center gap-3.5">
-                {BRAND_COLORS.map((c) => {
-                  const active = brandColor === c.value;
-                  return (
-                    <button
-                      key={c.value}
-                      type="button"
-                      aria-label={c.label}
-                      aria-pressed={active}
-                      onClick={() => setBrandColor(c.value)}
-                      className={cn(
-                        "h-7 w-7 rounded-full transition-transform hover:scale-105",
-                        active && "ring-2 ring-acc ring-offset-2"
-                      )}
-                      style={{ backgroundColor: c.hex }}
-                    />
-                  );
-                })}
-              </div>
-            </Field>
-
-            {/* 品牌 Logo */}
-            <Field label="品牌 Logo">
-              {logo ? (
-                <div className="flex items-center gap-3">
-                  <UploadedThumb src={logo} onRemove={() => setLogo(null)} />
-                  <span className="text-[12px] text-c-text3">已上传,点击 ✕ 移除</span>
-                </div>
-              ) : (
-                <DropZone
-                  compact
-                  onFiles={onLogoFiles}
-                  title="上传 Logo"
-                  hint="PNG / SVG · 建议透明底"
-                />
-              )}
-            </Field>
-          </div>
-
-          {/* 白标模式 */}
-          <div className="mt-5 flex items-center justify-between rounded-[12px] border border-c-border bg-c-subtle2 px-4 py-3.5">
-            <div className="flex items-start gap-2.5">
-              <ShieldCheck size={17} className="mt-0.5 shrink-0 text-acc" />
-              <div>
-                <div className="text-[13.5px] font-semibold text-c-text">白标模式</div>
-                <div className="mt-0.5 text-[12px] text-c-text3">
-                  隐藏页脚「由星泽商图提供」,完全以你的品牌示人。
+          {/* License Key 激活:官方云隐藏;已激活 → 绿色状态 + 下一步指引;未激活 → 输入框 */}
+          {proState?.edition !== "cloud" &&
+            (proState?.pro ? (
+              <div className="mt-5 border-t border-c-line pt-5">
+                <div className="rounded-xl border border-c-success/40 bg-c-tint-g/40 p-4">
+                  <div className="flex items-center gap-2 text-[14px] font-bold text-c-success">
+                    <ShieldCheck size={16} />
+                    Pro 已激活,本站已是商业版
+                  </div>
+                  <p className="mt-1.5 text-[12.5px] leading-relaxed text-c-text3">
+                    多用户注册、积分计费、收款、品牌白标等能力已全部解锁。接下来推荐:
+                  </p>
+                  <ul className="mt-1.5 list-disc space-y-1 pl-5 text-[12.5px] leading-relaxed text-c-text3">
+                    <li>
+                      到 <Link href="/admin" className="font-medium text-acc hover:underline">后台「登录与支付」</Link>
+                      开启<b className="text-c-text2">多用户注册</b>,让客户注册买积分;
+                    </li>
+                    <li>
+                      到 <Link href="/admin" className="font-medium text-acc hover:underline">后台「品牌与站点」</Link>
+                      换成你自己的<b className="text-c-text2">站名和 Logo</b>;
+                    </li>
+                    <li>
+                      到 <Link href="/admin" className="font-medium text-acc hover:underline">后台「积分计费」</Link>
+                      配置注册赠送与扣费规则。
+                    </li>
+                  </ul>
                 </div>
               </div>
-            </div>
-            <Switch checked={whiteLabel} onChange={setWhiteLabel} />
-          </div>
+            ) : (
+              <div className="mt-5 border-t border-c-line pt-5">
+                <label className="mb-1.5 flex items-center gap-1.5 text-[12.5px] font-medium text-c-text2">
+                  <KeyRound size={13} className="text-c-text3" />
+                  License Key 激活（Pro 自托管）
+                </label>
+                <div className="flex gap-2">
+                  <Input
+                    value={licenseInput}
+                    onChange={(e) => setLicenseInput(e.target.value)}
+                    onKeyDown={(e) => {
+                      if (e.key === "Enter") handleActivate();
+                    }}
+                    placeholder="NOVA-XXXX-XXXX-XXXX-XXXX"
+                    className="flex-1 font-mono tracking-wide"
+                    autoComplete="off"
+                    spellCheck={false}
+                  />
+                  <Button
+                    variant="primary"
+                    size="md"
+                    onClick={handleActivate}
+                    className="shrink-0"
+                  >
+                    激活
+                  </Button>
+                </div>
+              </div>
+            ))}
         </section>
 
         <ProDownloadModal open={showPro} onClose={() => setShowPro(false)} />
@@ -598,20 +538,3 @@ function PlanCard({
   );
 }
 
-/* ── 字段容器 ── */
-function Field({
-  label,
-  children,
-}: {
-  label: string;
-  children: React.ReactNode;
-}) {
-  return (
-    <div>
-      <label className="mb-1.5 block text-[12.5px] font-medium text-c-text2">
-        {label}
-      </label>
-      {children}
-    </div>
-  );
-}
