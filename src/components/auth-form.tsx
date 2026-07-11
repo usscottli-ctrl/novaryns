@@ -345,7 +345,8 @@ export function AuthForm({
         onSubmit={handleSubmit}
         className="space-y-4 rounded-2xl border border-border bg-card p-6 card-shadow"
       >
-        {isSignUp && (
+        {/* 多用户注册不填昵称(自动用邮箱前缀,注册后可改);其余模式保留 */}
+        {isSignUp && !multiMode && (
           <div className="space-y-1.5">
             <label className="text-sm font-medium">昵称</label>
             <Input
