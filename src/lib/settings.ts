@@ -185,9 +185,23 @@ export async function saveOpenAIModel(model: string): Promise<void> {
   await setSetting(OAI_MODEL, model.trim());
 }
 
-// AI 服务中转地址(OpenAI 兼容 baseURL)。明文;空串=清除→回退 env/直连。
+// AI 模型接口地址(OpenAI 兼容 baseURL)。**加密落库**(保护海外域名/服务器,
+// 地址里可能含 token 凭证)。空串=清除→回退 env/直连。同时清掉可能残留的历史明文。
 export async function saveOpenAIBaseUrl(url: string): Promise<void> {
-  await setSetting("openai_base_url", url.trim());
+  const v = url.trim();
+  await setSetting("openai_base_url_enc", v ? encryptAtRest(v) : "");
+  await setSetting("openai_base_url", ""); // 抹掉旧明文,避免明文残留
+}
+
+// 读当前接口地址明文:优先密文解密,兼容历史明文(下次保存即转成密文)。仅服务端内部用。
+export async function readOpenAIBaseUrlPlain(): Promise<string> {
+  const enc = (await getSetting("openai_base_url_enc"))?.trim();
+  if (enc) {
+    const d = decryptAtRest(enc);
+    if (d && d.trim()) return d.trim();
+  }
+  const legacy = (await getSetting("openai_base_url"))?.trim();
+  return legacy || "";
 }
 
 export async function saveCutoutModel(model: string): Promise<void> {
@@ -595,14 +609,16 @@ export async function getAdminView() {
   const c = await getCutoutSettings();
   const w = await getWechatSettings();
   const p = await getPaymentSettings();
+  const baseUrlPlain = await readOpenAIBaseUrlPlain();
   return {
     model: s.model,
     cutoutModel: s.cutoutModel,
     keyMasked: maskKey(s.apiKey),
     hasKey: !!s.apiKey,
     source: s.source,
-    // AI 服务中转地址(明文回显,便于站长核对)
-    openaiBaseUrl: (await getSetting("openai_base_url")) ?? "",
+    // AI 模型接口地址:**不回显明文**(保护海外域名),只给掩码 + 是否已配置。
+    openaiBaseUrlMasked: maskKey(baseUrlPlain),
+    openaiBaseUrlSet: !!baseUrlPlain,
     // 新用户注册赠送积分(后台可配)
     signupBonus: await getSignupBonus(),
     // 抠图后端:replicate(主) / openai(兜底)

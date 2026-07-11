@@ -60,7 +60,8 @@ export async function POST(req: Request) {
     cutoutModel?: string;
     cutoutBackend?: string;
     replicateModel?: string;
-    openaiBaseUrl?: string;
+    encryptedBaseUrl?: string; // AI 模型接口地址(RSA 加密传输)
+    baseUrlClear?: boolean; // 清除接口地址→回退直连
     encryptedKey?: string;
     encryptedReplicateToken?: string;
     signupBonus?: number;
@@ -144,9 +145,22 @@ export async function POST(req: Request) {
     if (typeof body.model === "string" && body.model.trim()) {
       await saveOpenAIModel(body.model);
     }
-    // 中转地址(空串=清除→回退直连);用 typeof 判断"字段是否出现",允许清空。
-    if (typeof body.openaiBaseUrl === "string") {
-      await saveOpenAIBaseUrl(body.openaiBaseUrl);
+    // AI 模型接口地址:RSA 加密传输、加密落库(保护海外域名/凭证,不走明文)。
+    // baseUrlClear=清除→回退直连;否则解密后保存(saveOpenAIBaseUrl 内部再 AES 落库)。
+    if (body.baseUrlClear === true) {
+      await saveOpenAIBaseUrl("");
+    } else if (
+      typeof body.encryptedBaseUrl === "string" &&
+      body.encryptedBaseUrl.trim()
+    ) {
+      const plain = await decryptFromClient(body.encryptedBaseUrl);
+      if (!plain || !plain.trim()) {
+        return NextResponse.json(
+          { error: "解密后的接口地址无效" },
+          { status: 400 }
+        );
+      }
+      await saveOpenAIBaseUrl(plain.trim());
     }
     if (typeof body.cutoutModel === "string" && body.cutoutModel.trim()) {
       await saveCutoutModel(body.cutoutModel);

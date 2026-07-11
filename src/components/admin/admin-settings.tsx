@@ -144,7 +144,8 @@ type View = {
   keyMasked: string;
   hasKey: boolean;
   source: "db" | "env" | "none";
-  openaiBaseUrl?: string;
+  openaiBaseUrlMasked?: string;
+  openaiBaseUrlSet?: boolean;
   cutoutBackend?: "openai" | "replicate";
   cutoutReplicateReady?: boolean;
   cutoutReplicateModel?: string;
@@ -324,6 +325,8 @@ export function AdminSettings({ localAdmin = false }: { localAdmin?: boolean }) 
   const [model, setModel] = useState("");
   const [cutoutModel, setCutoutModel] = useState("");
   const [baseUrl, setBaseUrl] = useState("");
+  const [baseUrlMasked, setBaseUrlMasked] = useState("");
+  const [baseUrlSet, setBaseUrlSet] = useState(false);
   const [cutoutBackend, setCutoutBackend] = useState<"openai" | "replicate">(
     "replicate"
   );
@@ -545,7 +548,9 @@ export function AdminSettings({ localAdmin = false }: { localAdmin?: boolean }) 
     setView(v);
     setModel(v.model);
     setCutoutModel(v.cutoutModel);
-    setBaseUrl(v.openaiBaseUrl ?? "");
+    setBaseUrl(""); // 不回显明文
+    setBaseUrlMasked(v.openaiBaseUrlMasked ?? "");
+    setBaseUrlSet(!!v.openaiBaseUrlSet);
     setCutoutBackend(v.cutoutBackend ?? "replicate");
     setReplicateModel(v.cutoutReplicateModel ?? "men1scus/birefnet");
     setBonus(String(v.signupBonus ?? 30));
@@ -808,6 +813,8 @@ export function AdminSettings({ localAdmin = false }: { localAdmin?: boolean }) 
       setWxpayCertSerial(v.wxpayCertSerial ?? "");
       setBrandName(v.brandName ?? "");
       setBrandLogo(v.brandLogo ?? "");
+      setBaseUrlMasked(v.openaiBaseUrlMasked ?? "");
+      setBaseUrlSet(!!v.openaiBaseUrlSet);
       clear?.();
       setMsg({ ok: true, text: okText });
     } catch (e) {
@@ -1383,57 +1390,89 @@ export function AdminSettings({ localAdmin = false }: { localAdmin?: boolean }) 
           </span>
         </div>
 
-        {/* 大陆服务器中转部署帮助 */}
+        {/* 大陆服务器:模型接口地址配置帮助 */}
         <div className="mb-5 rounded-xl border border-c-border2 bg-c-subtle2 p-4 text-[13px] leading-relaxed">
           <p className="font-semibold text-c-text">
             🇨🇳 大陆服务器:生图报「无法连接 AI 服务」怎么办
           </p>
           <p className="mt-1.5 text-c-text3">
-            大陆服务器直连不了 AI 模型,需要配置「中转地址」(反代)才能生图。两种办法:
+            大陆服务器直连不了 AI 模型,需要给模型配置一个可访问的接口地址才能生图。两种办法:
           </p>
           <ul className="mt-1.5 list-disc space-y-1 pl-5 text-c-text3">
             <li>
-              用一台海外服务器自建 OpenAI 兼容的中转/反代,把地址填到运行环境变量{" "}
+              用一台海外服务器搭一个 OpenAI 兼容的接口,把地址填到运行环境变量{" "}
               <code className="rounded bg-black/5 px-1 dark:bg-white/10">
                 OPENAI_BASE_URL
               </code>
               (compose 里加这行后 <code className="rounded bg-black/5 px-1 dark:bg-white/10">docker compose up -d</code> 重启)。
             </li>
             <li>
-              不想折腾:联系作者微信 <b className="text-c-text2">xingze063</b>,可付费代配中转 / 代部署。
+              不想折腾:联系作者微信 <b className="text-c-text2">xingze063</b>,可付费代配 / 代部署。
             </li>
           </ul>
           <p className="mt-1.5 text-c-text4">海外服务器一般直连即可,忽略本条。</p>
         </div>
 
-        {/* 中转地址:后台直接填,即时生效(免改 compose / 免重启) */}
+        {/* AI 模型接口地址:后台直接填,加密存储,即时生效(免改 compose / 免重启) */}
         <div className="mb-5 space-y-2 rounded-2xl border border-border bg-card p-6 card-shadow">
           <label className="flex items-center gap-2 text-sm font-semibold">
             <Cpu className="h-4 w-4 text-primary" />
-            AI 服务中转地址
+            AI 模型接口地址
           </label>
           <p className="text-xs text-muted-foreground">
-            大陆服务器把中转/反代地址填这里,<b>保存即时生效,免改 compose、免重启</b>。
-            留空 = 直连(海外默认)。找作者代配后,把拿到的地址粘贴进来即可。
+            大陆服务器把模型接口地址填这里,<b>保存后加密存储、即时生效(免改 compose、免重启)</b>。
+            留空 = 直连(海外默认)。
+            {baseUrlSet && (
+              <>
+                {" "}当前已配置:
+                <code className="rounded bg-black/5 px-1 dark:bg-white/10">
+                  {baseUrlMasked || "已设置"}
+                </code>
+                (出于安全不显示完整地址;重填即可覆盖)。
+              </>
+            )}
           </p>
           <div className="flex flex-wrap items-center gap-2">
             <Input
               value={baseUrl}
               onChange={(e) => setBaseUrl(e.target.value)}
-              placeholder="https://你的中转域名/v1"
+              placeholder={baseUrlSet ? "重新填写以更新" : "https://模型接口域名/v1"}
               className="min-w-[260px] flex-1"
             />
             <Button
               variant="outline"
               size="sm"
-              disabled={busy}
+              disabled={busy || !baseUrl.trim()}
               onClick={() =>
-                void postSettings({ openaiBaseUrl: baseUrl }, "中转地址已保存")
+                void saveEncrypted(
+                  "encryptedBaseUrl",
+                  baseUrl,
+                  "接口地址已保存(加密)",
+                  () => setBaseUrl("")
+                )
               }
             >
               {busy && <Loader2 className="h-4 w-4 animate-spin" />}
               保存
             </Button>
+            {baseUrlSet && (
+              <Button
+                variant="outline"
+                size="sm"
+                disabled={busy}
+                onClick={() => {
+                  if (
+                    !window.confirm(
+                      "清除后将恢复直连(海外默认),大陆服务器会无法生图。确定清除?"
+                    )
+                  )
+                    return;
+                  void postSettings({ baseUrlClear: true }, "已清除,恢复直连");
+                }}
+              >
+                清除
+              </Button>
+            )}
           </div>
         </div>
 
