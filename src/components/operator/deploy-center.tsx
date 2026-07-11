@@ -24,6 +24,16 @@ import { CloudModal } from "@/components/operator/cloud-modal";
 
 type InstallTab = "docker" | "script" | "platform";
 
+type UpdateInfo = {
+  current: string;
+  latest: string;
+  currentLabel: string;
+  latestLabel: string;
+  updateAvailable: boolean;
+  reachable: boolean;
+  updateCmd: string;
+};
+
 // 真实安装命令:compose 一键起 app + 内置 Postgres + 数据卷(首启向导可落库)。
 // 镜像由仓库 GitHub Actions 构建推送 ghcr.io/usscottli-ctrl/novaryns:latest。
 const DOCKER_CMD =
@@ -53,16 +63,8 @@ export function DeployCenter({ embedded = false }: { embedded?: boolean }) {
     };
   }, []);
 
-  // 更新检查(管理员):向官方站查最新版本,有新版则提示。
-  const [updateInfo, setUpdateInfo] = React.useState<{
-    current: string;
-    latest: string;
-    currentLabel: string;
-    latestLabel: string;
-    updateAvailable: boolean;
-    reachable: boolean;
-    updateCmd: string;
-  } | null>(null);
+  // 更新检查(管理员):查开源仓最新版本,有新版则提示。
+  const [updateInfo, setUpdateInfo] = React.useState<UpdateInfo | null>(null);
   React.useEffect(() => {
     let cancelled = false;
     (async () => {
@@ -108,13 +110,17 @@ export function DeployCenter({ embedded = false }: { embedded?: boolean }) {
           });
         }
       } catch {
-        /* ignore */
+        // health 拿不到就按"未激活"渲染(营销卡照常)
+        if (!cancelled) setProState({ pro: false, edition: "", issuer: false });
       }
     })();
     return () => {
       cancelled = true;
     };
   }, []);
+
+  // 已付费买家实例(Pro 且非官方云):收起全部营销卡/安装命令,给专业的商业版视图。
+  const buyerPro = !!proState?.pro && proState?.edition !== "cloud";
 
   const currentCmd = installTab === "script" ? SCRIPT_CMD : DOCKER_CMD;
 
@@ -198,7 +204,10 @@ export function DeployCenter({ embedded = false }: { embedded?: boolean }) {
           </div>
         )}
 
-        {/* ── 三档版本卡 ── */}
+        {/* ── 三档版本卡(营销/升级漏斗)──
+            开源实例保留(引导升级 Pro);**已付费买家实例整块收起**(别再对
+            付费用户推销);官方站保留(对外销售页)。 */}
+        {!buyerPro && (
         <div className="mt-7 grid grid-cols-3 gap-5">
           {/* 开源版 */}
           <PlanCard
@@ -289,8 +298,10 @@ export function DeployCenter({ embedded = false }: { embedded?: boolean }) {
             }
           />
         </div>
+        )}
 
-        {/* ── 一键安装卡 ── */}
+        {/* ── 一键安装卡(买家 Pro 实例隐藏——已装好还教装机是噪音) ── */}
+        {!buyerPro && (
         <section className="mt-6 rounded-card border border-c-border bg-c-card p-6 shadow-card">
           <div className="flex flex-wrap items-center justify-between gap-3">
             <div>
@@ -342,118 +353,132 @@ export function DeployCenter({ embedded = false }: { embedded?: boolean }) {
             )}
           </div>
 
-          {/* 系统更新检查 */}
-          {updateInfo && (
-            <div
-              className={`mt-5 rounded-xl border p-4 ${
-                updateInfo.updateAvailable
-                  ? "border-acc bg-acc/5"
-                  : "border-c-line"
-              }`}
-            >
-              <div className="flex flex-wrap items-center justify-between gap-2">
-                <span className="text-[13px] font-semibold text-c-text">
-                  {updateInfo.updateAvailable
-                    ? "🎉 有新版本可更新"
-                    : "✓ 已是最新版本"}
-                </span>
-                <span className="text-[11.5px] text-c-text3">
-                  当前版本 {updateInfo.currentLabel}
-                </span>
+          {/* 系统更新检查(查不到最新版时整卡隐藏,不显示可能不准的"已是最新") */}
+          {updateInfo?.reachable && <UpdateCard info={updateInfo} toast={toast} />}
+
+          {/* License Key 激活(官方云隐藏;已激活的买家实例走上面 buyerPro 分支,到不了这里) */}
+          {proState?.edition !== "cloud" && (
+            <div className="mt-5 border-t border-c-line pt-5">
+              <label className="mb-1.5 flex items-center gap-1.5 text-[12.5px] font-medium text-c-text2">
+                <KeyRound size={13} className="text-c-text3" />
+                License Key 激活（Pro 自托管）
+              </label>
+              <div className="flex gap-2">
+                <Input
+                  value={licenseInput}
+                  onChange={(e) => setLicenseInput(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter") handleActivate();
+                  }}
+                  placeholder="NOVA-XXXX-XXXX-XXXX-XXXX"
+                  className="flex-1 font-mono tracking-wide"
+                  autoComplete="off"
+                  spellCheck={false}
+                />
+                <Button
+                  variant="primary"
+                  size="md"
+                  onClick={handleActivate}
+                  className="shrink-0"
+                >
+                  激活
+                </Button>
               </div>
-              {updateInfo.updateAvailable && (
-                <>
-                  <p className="mt-1.5 text-[12px] leading-relaxed text-c-text3">
-                    最新 {updateInfo.latestLabel}。在服务器的项目目录执行下面命令即可更新
-                    <b className="text-c-text2">(数据不会丢失)</b>:
-                  </p>
-                  <div className="mt-2 flex items-center gap-2">
-                    <code className="min-w-0 flex-1 truncate rounded-md bg-c-subtle2 px-2.5 py-1.5 font-mono text-[12px] text-c-text2">
-                      {updateInfo.updateCmd}
-                    </code>
-                    <Button
-                      variant="outline"
-                      size="sm"
-                      onClick={() =>
-                        navigator.clipboard
-                          ?.writeText(updateInfo.updateCmd)
-                          .then(
-                            () => toast("更新命令已复制", "success"),
-                            () => toast("复制失败,请手动选择", "error")
-                          )
-                      }
-                    >
-                      复制
-                    </Button>
-                  </div>
-                </>
-              )}
             </div>
           )}
-
-          {/* License Key 激活:官方云隐藏;已激活 → 绿色状态 + 下一步指引;未激活 → 输入框 */}
-          {proState?.edition !== "cloud" &&
-            (proState?.pro ? (
-              <div className="mt-5 border-t border-c-line pt-5">
-                <div className="rounded-xl border border-c-success/40 bg-c-tint-g/40 p-4">
-                  <div className="flex items-center gap-2 text-[14px] font-bold text-c-success">
-                    <ShieldCheck size={16} />
-                    Pro 已激活,本站已是商业版
-                  </div>
-                  <p className="mt-1.5 text-[12.5px] leading-relaxed text-c-text3">
-                    多用户注册、积分计费、收款、品牌白标等能力已全部解锁。接下来推荐:
-                  </p>
-                  <ul className="mt-1.5 list-disc space-y-1 pl-5 text-[12.5px] leading-relaxed text-c-text3">
-                    <li>
-                      到 <Link href="/admin" className="font-medium text-acc hover:underline">后台「登录与支付」</Link>
-                      开启<b className="text-c-text2">多用户注册</b>,让客户注册买积分;
-                    </li>
-                    <li>
-                      到 <Link href="/admin" className="font-medium text-acc hover:underline">后台「品牌与站点」</Link>
-                      换成你自己的<b className="text-c-text2">站名和 Logo</b>;
-                    </li>
-                    <li>
-                      到 <Link href="/admin" className="font-medium text-acc hover:underline">后台「积分计费」</Link>
-                      配置注册赠送与扣费规则。
-                    </li>
-                  </ul>
-                </div>
-              </div>
-            ) : (
-              <div className="mt-5 border-t border-c-line pt-5">
-                <label className="mb-1.5 flex items-center gap-1.5 text-[12.5px] font-medium text-c-text2">
-                  <KeyRound size={13} className="text-c-text3" />
-                  License Key 激活（Pro 自托管）
-                </label>
-                <div className="flex gap-2">
-                  <Input
-                    value={licenseInput}
-                    onChange={(e) => setLicenseInput(e.target.value)}
-                    onKeyDown={(e) => {
-                      if (e.key === "Enter") handleActivate();
-                    }}
-                    placeholder="NOVA-XXXX-XXXX-XXXX-XXXX"
-                    className="flex-1 font-mono tracking-wide"
-                    autoComplete="off"
-                    spellCheck={false}
-                  />
-                  <Button
-                    variant="primary"
-                    size="md"
-                    onClick={handleActivate}
-                    className="shrink-0"
-                  >
-                    激活
-                  </Button>
-                </div>
-              </div>
-            ))}
         </section>
+        )}
+
+        {/* ── 商业版(已付费买家实例):专业干净的系统状态视图,无任何推销 ── */}
+        {buyerPro && (
+          <section className="mt-7 rounded-card border border-c-border bg-c-card p-6 shadow-card">
+            <div className="rounded-xl border border-c-success/40 bg-c-tint-g/40 p-4">
+              <div className="flex items-center gap-2 text-[14px] font-bold text-c-success">
+                <ShieldCheck size={16} />
+                Pro 商业版 · 已激活
+              </div>
+              <p className="mt-1.5 text-[12.5px] leading-relaxed text-c-text3">
+                感谢选择 Pro。多用户注册、积分计费、收款、品牌白标等商业能力已全部解锁:
+              </p>
+              <ul className="mt-1.5 list-disc space-y-1 pl-5 text-[12.5px] leading-relaxed text-c-text3">
+                <li>
+                  <Link href="/admin" className="font-medium text-acc hover:underline">后台「登录与支付」</Link>
+                  :开启<b className="text-c-text2">多用户注册</b>,让客户注册买积分;
+                </li>
+                <li>
+                  <Link href="/admin" className="font-medium text-acc hover:underline">后台「品牌与站点」</Link>
+                  :换成你自己的<b className="text-c-text2">站名和 Logo</b>;
+                </li>
+                <li>
+                  <Link href="/admin" className="font-medium text-acc hover:underline">后台「积分计费」</Link>
+                  :配置注册赠送与扣费规则;
+                </li>
+                <li>
+                  遇到问题可联系作者微信 <b className="text-c-text2">xingze063</b>(优先支持)。
+                </li>
+              </ul>
+            </div>
+            {updateInfo?.reachable && <UpdateCard info={updateInfo} toast={toast} />}
+          </section>
+        )}
 
         <ProDownloadModal open={showPro} onClose={() => setShowPro(false)} />
         <CloudModal open={showCloud} onClose={() => setShowCloud(false)} />
       </>
     </Shell>
+  );
+}
+
+/* ── 系统更新卡(共用:安装卡内 / 商业版状态视图) ── */
+function UpdateCard({
+  info,
+  toast,
+}: {
+  info: UpdateInfo;
+  toast: (text: string, kind?: "success" | "error" | "info") => void;
+}) {
+  return (
+    <div
+      className={`mt-5 rounded-xl border p-4 ${
+        info.updateAvailable ? "border-acc bg-acc/5" : "border-c-line"
+      }`}
+    >
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <span className="text-[13px] font-semibold text-c-text">
+          {info.updateAvailable ? "🎉 有新版本可更新" : "✓ 已是最新版本"}
+        </span>
+        <span className="text-[11.5px] text-c-text3">
+          当前版本 {info.currentLabel}
+        </span>
+      </div>
+      {info.updateAvailable && (
+        <>
+          <p className="mt-1.5 text-[12px] leading-relaxed text-c-text3">
+            最新 {info.latestLabel}。在服务器的项目目录执行下面命令即可更新
+            <b className="text-c-text2">(数据不会丢失)</b>:
+          </p>
+          <div className="mt-2 flex items-center gap-2">
+            <code className="min-w-0 flex-1 truncate rounded-md bg-c-subtle2 px-2.5 py-1.5 font-mono text-[12px] text-c-text2">
+              {info.updateCmd}
+            </code>
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() =>
+                navigator.clipboard
+                  ?.writeText(info.updateCmd)
+                  .then(
+                    () => toast("更新命令已复制", "success"),
+                    () => toast("复制失败,请手动选择", "error")
+                  )
+              }
+            >
+              复制
+            </Button>
+          </div>
+        </>
+      )}
+    </div>
   );
 }
 
