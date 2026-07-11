@@ -61,8 +61,10 @@ export async function POST(req: Request) {
     cutoutBackend?: string;
     replicateModel?: string;
     encryptedBaseUrl?: string; // AI 模型接口地址(RSA 加密传输)
+    baseUrlPlain?: string; // HTTP 无 crypto.subtle 时的明文兜底(服务端仍加密落库)
     baseUrlClear?: boolean; // 清除接口地址→回退直连
     encryptedKey?: string;
+    keyPlain?: string; // HTTP 无 crypto.subtle 时的明文兜底(服务端仍加密落库)
     encryptedReplicateToken?: string;
     signupBonus?: number;
     // 微信登录(明文)
@@ -161,6 +163,12 @@ export async function POST(req: Request) {
         );
       }
       await saveOpenAIBaseUrl(plain.trim());
+    } else if (
+      typeof body.baseUrlPlain === "string" &&
+      body.baseUrlPlain.trim()
+    ) {
+      // HTTP 自托管(无 crypto.subtle)兜底:明文传入,saveOpenAIBaseUrl 内部 AES 落库。
+      await saveOpenAIBaseUrl(body.baseUrlPlain.trim());
     }
     if (typeof body.cutoutModel === "string" && body.cutoutModel.trim()) {
       await saveCutoutModel(body.cutoutModel);
@@ -186,6 +194,12 @@ export async function POST(req: Request) {
         );
       }
       await saveOpenAIKey(plain);
+    } else if (typeof body.keyPlain === "string" && body.keyPlain.trim()) {
+      // HTTP 自托管(无 crypto.subtle)兜底:明文 key,saveOpenAIKey 内部 AES 落库。
+      if (body.keyPlain.trim().length < 8) {
+        return NextResponse.json({ error: "key 无效" }, { status: 400 });
+      }
+      await saveOpenAIKey(body.keyPlain.trim());
     }
     if (body.encryptedReplicateToken) {
       const plain = await decryptFromClient(body.encryptedReplicateToken);

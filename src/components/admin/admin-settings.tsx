@@ -263,6 +263,14 @@ async function encryptKey(plain: string, token: string): Promise<string> {
   return parts.join("|");
 }
 
+// 是否安全上下文(HTTPS / localhost)——只有此时浏览器才有 crypto.subtle。
+// HTTP 自托管(裸 IP,如 http://1.2.3.4)下 crypto.subtle=undefined,加密字段
+// 改走「明文传输 + 服务端 AES 加密落库」:HTTP 本就无 TLS,transit 加密无意义,
+// 真正保护的 at-rest 加密仍由服务端完成。
+function hasSubtle(): boolean {
+  return typeof window !== "undefined" && !!window.crypto?.subtle;
+}
+
 // 后台左侧分栏(方案 A)
 // pro:true = 运营/变现/多用户向的分栏,仅 Pro(官方云/自托管激活)可见;
 //            开源精简版(单个自托管者)隐藏。false = 自托管者配置自己实例要用的,始终开放。
@@ -672,10 +680,13 @@ export function AdminSettings({ localAdmin = false }: { localAdmin?: boolean }) 
         cutoutBackend?: string;
         replicateModel?: string;
         encryptedKey?: string;
+        keyPlain?: string; // HTTP 无 crypto.subtle 时的明文兜底(服务端仍加密落库)
       } = { model, cutoutModel, cutoutBackend, replicateModel };
       if (opts.withKey) {
         if (!keyInput.trim()) throw new Error("请输入新的 API Key");
-        payload.encryptedKey = await encryptKey(keyInput.trim(), token);
+        if (hasSubtle())
+          payload.encryptedKey = await encryptKey(keyInput.trim(), token);
+        else payload.keyPlain = keyInput.trim();
       }
       const res = await fetch("/api/admin/settings", {
         method: "POST",
@@ -1443,14 +1454,23 @@ export function AdminSettings({ localAdmin = false }: { localAdmin?: boolean }) 
               variant="outline"
               size="sm"
               disabled={busy || !baseUrl.trim()}
-              onClick={() =>
-                void saveEncrypted(
-                  "encryptedBaseUrl",
-                  baseUrl,
-                  "接口地址已保存(加密)",
-                  () => setBaseUrl("")
-                )
-              }
+              onClick={() => {
+                if (hasSubtle()) {
+                  void saveEncrypted(
+                    "encryptedBaseUrl",
+                    baseUrl,
+                    "接口地址已保存(加密)",
+                    () => setBaseUrl("")
+                  );
+                } else {
+                  // HTTP 自托管:明文传输(本就无 TLS),服务端仍 AES 加密落库
+                  void postSettings(
+                    { baseUrlPlain: baseUrl.trim() },
+                    "接口地址已保存(加密存储)",
+                    () => setBaseUrl("")
+                  );
+                }
+              }}
             >
               {busy && <Loader2 className="h-4 w-4 animate-spin" />}
               保存
