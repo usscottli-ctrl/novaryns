@@ -1066,7 +1066,7 @@ export async function getOwnerEmail(): Promise<string | null> {
   const { rows } = await getPool().query(
     `SELECT email FROM app_users
       WHERE role = 'admin' AND email <> 'operator@novaryns.local'
-      ORDER BY created_at ASC LIMIT 1`
+      ORDER BY joined_at ASC LIMIT 1`
   );
   return (rows[0]?.email as string | undefined) ?? null;
 }
@@ -1113,7 +1113,8 @@ export async function setOwnerAccount(
     ]);
     if (!has.rows.length) {
       await client.query(
-        `INSERT INTO app_users (email, name, plan) VALUES ($1, $2, 'starter')`,
+        `INSERT INTO app_users (email, name, plan, credits_total, credits_used, renews_at)
+           VALUES ($1, $2, 'starter', 0, 0, now() + interval '1 month')`,
         [newEmail, newEmail.split("@")[0]]
       );
     }
