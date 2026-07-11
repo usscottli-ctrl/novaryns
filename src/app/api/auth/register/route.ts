@@ -9,6 +9,8 @@ import { userExists, getOrCreateUser, setUserPassword } from "@/lib/db";
 import { hashPassword } from "@/lib/pw";
 import { rateLimit } from "@/lib/rate-limit";
 import { clientIp } from "@/lib/ip";
+import { smtpConfigured } from "@/lib/mailer";
+import { verifyEmailCode } from "@/lib/email-code";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -24,7 +26,12 @@ export async function POST(req: Request) {
   if (!rateLimit(`register:${ip}`, 10, 10 * 60 * 1000)) {
     return NextResponse.json({ error: "操作过于频繁,请稍后再试" }, { status: 429 });
   }
-  let body: { email?: string; password?: string; name?: string };
+  let body: {
+    email?: string;
+    password?: string;
+    name?: string;
+    code?: string;
+  };
   try {
     body = await req.json();
   } catch {
@@ -44,6 +51,17 @@ export async function POST(req: Request) {
       { error: "该邮箱已注册,请直接登录" },
       { status: 409 }
     );
+  }
+  // 邮箱验证码:站长配了 SMTP 就强制(与官方站一致,挡假邮箱裸注册薅赠送积分);
+  // 未配 SMTP 时退回免验证码注册(否则没人能注册,站长会在后台看到 SMTP 未生效)。
+  if (await smtpConfigured()) {
+    const code = String(body.code ?? "").trim();
+    if (!/^\d{6}$/.test(code) || !verifyEmailCode(email, code)) {
+      return NextResponse.json(
+        { error: "验证码错误或已过期,请重新获取" },
+        { status: 400 }
+      );
+    }
   }
   const user = await getOrCreateUser(email, name || email.split("@")[0]);
   await setUserPassword(email, hashPassword(password));

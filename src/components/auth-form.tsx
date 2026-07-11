@@ -68,6 +68,12 @@ export function AuthForm({
   const multiMode = multiUser;
   const isSignUp = (multiUser || pro) && mode === "sign-up";
   const pwMode = !multiUser && !supabaseEnabled && localAvailable === true;
+  // 原生多用户注册:是否需要邮箱验证码(站长配了 SMTP 即需要,与官方站一致)
+  const [emailCodeRequired, setEmailCodeRequired] = useState(false);
+  const [code, setCode] = useState("");
+  const [password2, setPassword2] = useState("");
+  const [codeCountdown, setCodeCountdown] = useState(0);
+  const [codeSending, setCodeSending] = useState(false);
 
   useEffect(() => {
     let cancelled = false;
@@ -79,11 +85,54 @@ export function AuthForm({
       } catch {
         if (!cancelled) setLocalAvailable(false);
       }
+      try {
+        const r = await fetch("/api/config");
+        const d = (await r.json()) as { emailCode?: boolean };
+        if (!cancelled) setEmailCodeRequired(!!d.emailCode);
+      } catch {
+        /* 拿不到就当不需要验证码(服务端仍会强校验) */
+      }
     })();
     return () => {
       cancelled = true;
     };
   }, []);
+
+  // 验证码倒计时
+  useEffect(() => {
+    if (codeCountdown <= 0) return;
+    const t = setTimeout(() => setCodeCountdown((n) => n - 1), 1000);
+    return () => clearTimeout(t);
+  }, [codeCountdown]);
+
+  async function sendRegisterCode() {
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email.trim())) {
+      setError("请先填写正确的邮箱");
+      return;
+    }
+    setCodeSending(true);
+    setError(null);
+    try {
+      const res = await fetch("/api/auth/register/send-code", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ email: email.trim() }),
+      });
+      const d = (await res.json().catch(() => null)) as {
+        ok?: boolean;
+        error?: string;
+      } | null;
+      if (!res.ok || !d?.ok) {
+        setError(d?.error || "验证码发送失败,请重试");
+        return;
+      }
+      setCodeCountdown(60);
+    } catch {
+      setError("网络错误,请重试");
+    } finally {
+      setCodeSending(false);
+    }
+  }
 
   const redirect = params.get("redirect");
   const plan = params.get("plan");
@@ -101,13 +150,28 @@ export function AuthForm({
 
     // Pro 原生多用户:邮箱+密码 注册/登录 → 服务端下发会话 cookie + 返回用户。
     if (multiMode) {
+      // 注册:确认密码 + (需要时)邮箱验证码
+      if (isSignUp) {
+        if (password !== password2) {
+          setError("两次输入的密码不一致");
+          setLoading(false);
+          return;
+        }
+        if (emailCodeRequired && !/^\d{6}$/.test(code.trim())) {
+          setError("请填写 6 位邮箱验证码");
+          setLoading(false);
+          return;
+        }
+      }
       try {
         const endpoint = isSignUp ? "/api/auth/register" : "/api/auth/login";
         const res = await fetch(endpoint, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify(
-            isSignUp ? { email, password, name } : { email, password }
+            isSignUp
+              ? { email, password, name, code: code.trim() }
+              : { email, password }
           ),
         });
         const d = (await res.json().catch(() => null)) as {
@@ -321,6 +385,51 @@ export function AuthForm({
             required
           />
         </div>
+
+        {/* 多用户注册:确认密码(与官方站一致) */}
+        {multiMode && isSignUp && (
+          <div className="space-y-1.5">
+            <label className="text-sm font-medium">确认密码</label>
+            <Input
+              type="password"
+              value={password2}
+              onChange={(e) => setPassword2(e.target.value)}
+              placeholder="再次输入密码"
+              autoComplete="new-password"
+              minLength={6}
+              required
+            />
+          </div>
+        )}
+
+        {/* 多用户注册:邮箱验证码(站长配了 SMTP 即需要) */}
+        {multiMode && isSignUp && emailCodeRequired && (
+          <div className="space-y-1.5">
+            <label className="text-sm font-medium">邮箱验证码</label>
+            <div className="flex gap-2">
+              <Input
+                value={code}
+                onChange={(e) =>
+                  setCode(e.target.value.replace(/[^0-9]/g, "").slice(0, 6))
+                }
+                inputMode="numeric"
+                placeholder="6 位验证码"
+                className="flex-1"
+                required
+              />
+              <Button
+                type="button"
+                variant="outline"
+                className="shrink-0"
+                disabled={codeSending || codeCountdown > 0}
+                onClick={() => void sendRegisterCode()}
+              >
+                {codeSending && <Loader2 className="h-4 w-4 animate-spin" />}
+                {codeCountdown > 0 ? `${codeCountdown}s 后重发` : "发送验证码"}
+              </Button>
+            </div>
+          </div>
+        )}
 
         {error && (
           <p className="text-[13px] font-medium text-c-danger">{error}</p>
