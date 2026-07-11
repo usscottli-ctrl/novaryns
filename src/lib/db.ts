@@ -2672,6 +2672,64 @@ export async function syncTemplatesFromCode(
   return { inserted, total: seed.length };
 }
 
+/**
+ * 导入一批模板(买家实例「同步官方模板库」用):ON CONFLICT DO NOTHING,
+ * 不覆盖站长本地改动。sort_index 按官方全库位置倒排(offset 越小 = 越新 = 越大),
+ * 与官方站展示顺序一致。
+ */
+export async function importTemplates(
+  items: Array<{
+    id: string;
+    title: string;
+    category: string;
+    industry?: string;
+    description?: string;
+    prompt?: string;
+    tags?: string[];
+    image?: string;
+    gradient?: string;
+    popular?: boolean;
+  }>,
+  totalCount: number,
+  offset: number
+): Promise<number> {
+  await ensureSchema();
+  if (items.length === 0) return 0;
+  const values: unknown[] = [];
+  const placeholders: string[] = [];
+  const COLS = 11;
+  items.forEach((t, j) => {
+    const base = j * COLS;
+    placeholders.push(
+      `($${base + 1},$${base + 2},$${base + 3},$${base + 4},$${base + 5},$${
+        base + 6
+      },$${base + 7},$${base + 8},$${base + 9},$${base + 10},$${base + 11})`
+    );
+    values.push(
+      t.id,
+      t.title,
+      t.category ?? "",
+      t.industry ?? "",
+      t.description ?? "",
+      t.prompt ?? "",
+      t.tags ?? [],
+      t.image ?? "",
+      t.gradient ?? "from-emerald-100 to-teal-100",
+      t.popular === true,
+      Math.max(0, totalCount - (offset + j))
+    );
+  });
+  const r = await getPool().query(
+    `INSERT INTO app_templates
+       (id, title, category, industry, description, prompt, tags,
+        image, gradient, popular, sort_index)
+     VALUES ${placeholders.join(",")}
+     ON CONFLICT (id) DO NOTHING`,
+    values
+  );
+  return r.rowCount ?? 0;
+}
+
 // --- Phone binding (a phone bound to an account is stored on app_users.phone;
 //     phone-OTP login resolves a bound phone to that account's email) ---------
 

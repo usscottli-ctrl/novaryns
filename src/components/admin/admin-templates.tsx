@@ -10,8 +10,10 @@ import {
   ImageIcon,
   X,
   RefreshCw,
+  Download,
 } from "lucide-react";
 import type { PromptTemplate } from "@/lib/mock-data";
+import { usePaymentConfig } from "@/lib/payment-context";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
@@ -22,6 +24,7 @@ type Props = { token: string | null };
 const PAGE = 20;
 
 export function AdminTemplates({ token }: Props) {
+  const { official } = usePaymentConfig();
   const [list, setList] = useState<PromptTemplate[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -30,6 +33,45 @@ export function AdminTemplates({ token }: Props) {
   const [editing, setEditing] = useState<PromptTemplate | null>(null);
   // 防浏览器把登录账号自动填进搜索框：初始只读，聚焦时才解锁（Chrome 不会往只读字段自动填充）。
   const [searchUnlocked, setSearchUnlocked] = useState(false);
+  // 同步官方模板库(Pro 权益):按页循环调 /api/admin/templates/sync 直至 done。
+  const [syncing, setSyncing] = useState(false);
+  const [syncMsg, setSyncMsg] = useState<string | null>(null);
+
+  async function syncOfficial(tok: string) {
+    setSyncing(true);
+    setSyncMsg("正在连接官方站…");
+    try {
+      let pageNo = 1;
+      let importedAll = 0;
+      // 上限 200 页(4 万条)防死循环;正常 16k+ 模板约 82 页。
+      for (; pageNo <= 200; pageNo++) {
+        const res = await fetch("/api/admin/templates/sync", {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            Authorization: `Bearer ${tok}`,
+          },
+          body: JSON.stringify({ page: pageNo }),
+        });
+        const d = await res.json().catch(() => null);
+        if (!res.ok || !d?.ok) {
+          setSyncMsg(d?.error || "同步失败,请重试(已导入部分会保留)");
+          return;
+        }
+        importedAll += Number(d.imported) || 0;
+        setSyncMsg(
+          `同步中… ${Math.min(pageNo * 200, d.total)} / ${d.total}(新增 ${importedAll})`
+        );
+        if (d.done) break;
+      }
+      setSyncMsg(`✓ 同步完成,新增 ${importedAll} 条模板`);
+      await load(tok);
+    } catch {
+      setSyncMsg("网络错误,请重试(已导入部分会保留)");
+    } finally {
+      setSyncing(false);
+    }
+  }
 
   async function load(tok: string) {
     setLoading(true);
@@ -86,18 +128,42 @@ export function AdminTemplates({ token }: Props) {
             仅管理员可见
           </span>
         </div>
-        {token && (
-          <Button
-            variant="outline"
-            size="sm"
-            onClick={() => void load(token)}
-            disabled={loading}
-          >
-            <RefreshCw className="h-3.5 w-3.5" />
-            刷新
-          </Button>
-        )}
+        <div className="flex items-center gap-2">
+          {/* 同步官方模板库(Pro 权益;官方站自身不显示) */}
+          {token && !official && (
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => void syncOfficial(token)}
+              disabled={syncing || loading}
+            >
+              {syncing ? (
+                <RefreshCw className="h-3.5 w-3.5 animate-spin" />
+              ) : (
+                <Download className="h-3.5 w-3.5" />
+              )}
+              同步官方模板库
+            </Button>
+          )}
+          {token && (
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => void load(token)}
+              disabled={loading}
+            >
+              <RefreshCw className="h-3.5 w-3.5" />
+              刷新
+            </Button>
+          )}
+        </div>
       </div>
+
+      {syncMsg && (
+        <p className="mb-3 rounded-lg border border-border bg-secondary/40 px-3 py-2 text-sm text-muted-foreground">
+          {syncMsg}
+        </p>
+      )}
 
       <div className="mb-4 flex flex-col gap-3 sm:flex-row sm:items-center">
         <div className="relative flex-1">
