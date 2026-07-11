@@ -1850,27 +1850,64 @@ export function AdminSettings({ localAdmin = false }: { localAdmin?: boolean }) 
               />
             </div>
           </div>
-          <Button
-            variant="outline"
-            size="sm"
-            disabled={busy}
-            onClick={() =>
-              void postSettings(
-                {
-                  smtpHost,
-                  smtpPort: Number(smtpPort) || 465,
-                  smtpUser,
-                  smtpFrom,
-                  smtpPass,
-                },
-                "邮件配置已保存",
-                () => setSmtpPass("")
-              )
-            }
-          >
-            {busy && <Loader2 className="h-4 w-4 animate-spin" />}
-            保存邮件配置
-          </Button>
+          <div className="flex flex-wrap items-center gap-2">
+            <Button
+              variant="outline"
+              size="sm"
+              disabled={busy}
+              onClick={() =>
+                void postSettings(
+                  {
+                    smtpHost,
+                    smtpPort: Number(smtpPort) || 465,
+                    smtpUser,
+                    smtpFrom,
+                    smtpPass,
+                  },
+                  "邮件配置已保存",
+                  () => setSmtpPass("")
+                )
+              }
+            >
+              {busy && <Loader2 className="h-4 w-4 animate-spin" />}
+              保存邮件配置
+            </Button>
+            {/* 一键验证连通性:先保存再点这个,不用走完整「忘记密码」流程 */}
+            <Button
+              variant="outline"
+              size="sm"
+              disabled={busy}
+              onClick={async () => {
+                const to = window.prompt(
+                  "把测试邮件发到哪个邮箱?(先点「保存邮件配置」再测试)"
+                );
+                if (!to || !to.trim()) return;
+                setBusy(true);
+                try {
+                  const res = await fetch("/api/admin/smtp-test", {
+                    method: "POST",
+                    headers: {
+                      "Content-Type": "application/json",
+                      Authorization: `Bearer ${token}`,
+                    },
+                    body: JSON.stringify({ to: to.trim() }),
+                  });
+                  const d = await res.json().catch(() => null);
+                  if (res.ok && d?.ok) {
+                    setMsg({ ok: true, text: `测试邮件已发出,去 ${to.trim()} 收件箱(含垃圾箱)确认` });
+                  } else {
+                    setMsg({ ok: false, text: d?.error || "发送失败" });
+                  }
+                } catch {
+                  setMsg({ ok: false, text: "网络错误,请重试" });
+                } finally {
+                  setBusy(false);
+                }
+              }}
+            >
+              发送测试邮件
+            </Button>
+          </div>
         </div>
 
         {/* 当前收款模式(只读说明) */}
