@@ -78,6 +78,7 @@ export function PromptAssistPopup({
   const [optErr, setOptErr] = React.useState<string | null>(null);
   const [optBusy, setOptBusy] = React.useState(false);
   const [optUsed, setOptUsed] = React.useState(false);
+  const [optStarted, setOptStarted] = React.useState(false); // 智能优化:是否已点「开始」(点了才跑)
   // 定位
   const [pos, setPos] = React.useState<{ left: number; top: number } | null>(null);
   const [sheet, setSheet] = React.useState(false); // 小屏:底部弹层
@@ -200,13 +201,22 @@ export function PromptAssistPopup({
     [callApi]
   );
 
-  // 外部点「AI帮写 / 智能优化」(run.nonce 变化)→ 按模式分流
+  // 外部点「AI帮写 / 智能优化」(run.nonce 变化)→ 只打开弹窗,**不自动跑**。
+  // 用户在弹窗里主动点「发送」/「开始智能优化」才发请求(避免一打开就烧 key、也更可控)。
   React.useEffect(() => {
     if (!run || run.nonce === lastNonce.current) return;
     lastNonce.current = run.nonce;
     setView(run.mode);
-    if (run.mode === "optimize") void doOptimize(currentPrompt);
-    else void doWrite(currentPrompt);
+    if (run.mode === "write") {
+      // 帮写:把当前提示词带进输入框,用户可改后点「发送」
+      setInput(currentPrompt || "");
+    } else {
+      // 智能优化:回到「待开始」态,用户点按钮再优化
+      setOptStarted(false);
+      setOptText("");
+      setOptErr(null);
+      setOptBusy(false);
+    }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [run]);
 
@@ -245,8 +255,41 @@ export function PromptAssistPopup({
               <Loader2 className="h-4 w-4 animate-spin" />
               {L("AI 正在优化…", "Optimizing…")}
             </div>
+          ) : !optStarted ? (
+            // 待开始:展示当前提示词,用户主动点「开始智能优化」才跑
+            <>
+              <div className="max-h-[220px] overflow-y-auto whitespace-pre-wrap rounded-xl border border-c-border2 bg-c-subtle2 px-3.5 py-3 text-[13px] leading-relaxed text-c-text2">
+                {currentPrompt.trim()
+                  ? currentPrompt
+                  : L(
+                      "请先在提示词框写点内容,再来智能优化。",
+                      "Write a prompt first, then optimize."
+                    )}
+              </div>
+              <button
+                type="button"
+                onClick={() => {
+                  setOptStarted(true);
+                  void doOptimize(currentPrompt);
+                }}
+                disabled={!currentPrompt.trim()}
+                className="mt-3 flex w-full items-center justify-center gap-1.5 rounded-[12px] bg-acc px-4 py-2.5 text-[14px] font-medium text-white transition-opacity hover:opacity-90 disabled:opacity-50"
+              >
+                <Sparkles className="h-4 w-4" />
+                {L("开始智能优化", "Optimize now")}
+              </button>
+            </>
           ) : optErr ? (
-            <p className="py-10 text-center text-[13px] text-c-danger">{optErr}</p>
+            <>
+              <p className="py-8 text-center text-[13px] text-c-danger">{optErr}</p>
+              <button
+                type="button"
+                onClick={() => void doOptimize(currentPrompt)}
+                className="flex w-full items-center justify-center gap-1.5 rounded-[12px] border border-c-border2 bg-c-card px-4 py-2.5 text-[14px] font-medium text-c-text transition-colors hover:bg-c-subtle"
+              >
+                {L("重试", "Retry")}
+              </button>
+            </>
           ) : (
             <>
               <textarea
@@ -370,7 +413,7 @@ export function PromptAssistPopup({
             value={input}
             onChange={(e) => setInput(e.target.value)}
             rows={1}
-            placeholder={L("补充想法,继续帮写…", "Add an idea…")}
+            placeholder={L("写下你的想法,点「发送」让 AI 帮你扩写…", "Describe your idea, then click Send…")}
             className="max-h-24 min-h-[38px] flex-1 resize-none rounded-[10px] border border-c-border2 bg-c-subtle2 px-3 py-2 text-[13px] text-c-text placeholder:text-c-text4 focus-visible:border-acc focus-visible:bg-c-card focus-visible:outline-none"
           />
           <button
