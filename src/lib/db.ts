@@ -2730,6 +2730,37 @@ export async function importTemplates(
   return r.rowCount ?? 0;
 }
 
+/**
+ * 把模板表里现存的 *.r2.dev 直链图片改写为同源代理(/api/tpl-image?u=…)。
+ * 「同步官方模板库」首页调用一次,修掉早期同步进来的直链(大陆浏览器对 r2.dev
+ * 有 SNI 阻断,直链会加载失败)。幂等:已是代理形式的行不匹配、不再改。
+ */
+export async function rewriteTemplateImagesToProxy(): Promise<number> {
+  await ensureSchema();
+  const { rows } = await getPool().query<{ id: string; image: string }>(
+    `SELECT id, image FROM app_templates
+      WHERE image LIKE 'https://%.r2.dev/%'`
+  );
+  if (rows.length === 0) return 0;
+  const client = await getPool().connect();
+  try {
+    await client.query("BEGIN");
+    for (const r of rows) {
+      await client.query(`UPDATE app_templates SET image = $2 WHERE id = $1`, [
+        r.id,
+        `/api/tpl-image?u=${encodeURIComponent(r.image)}`,
+      ]);
+    }
+    await client.query("COMMIT");
+  } catch (e) {
+    await client.query("ROLLBACK");
+    throw e;
+  } finally {
+    client.release();
+  }
+  return rows.length;
+}
+
 // --- Phone binding (a phone bound to an account is stored on app_users.phone;
 //     phone-OTP login resolves a bound phone to that account's email) ---------
 

@@ -1,7 +1,22 @@
 import { NextResponse } from "next/server";
 import { requireAdmin } from "@/lib/admin-auth";
 import { proEnabled } from "@/lib/edition";
-import { dbEnabled, getSetting, importTemplates } from "@/lib/db";
+import {
+  dbEnabled,
+  getSetting,
+  importTemplates,
+  rewriteTemplateImagesToProxy,
+} from "@/lib/db";
+
+// 大陆浏览器对 *.r2.dev 有 SNI 阻断,直链会加载失败;导入时把图片改写为
+// 本站同源代理(服务器直连 R2 没问题),客户浏览器只访问买家自己的站。
+function proxifyImage(url: string | undefined): string {
+  const u = (url ?? "").trim();
+  if (/^https:\/\/[^/]+\.r2\.dev\//i.test(u)) {
+    return `/api/tpl-image?u=${encodeURIComponent(u)}`;
+  }
+  return u;
+}
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -71,7 +86,13 @@ export async function POST(req: Request) {
     }
     const total = Number(d.total) || 0;
     const offset = (page - 1) * 200;
-    const imported = await importTemplates(d.templates, total, offset);
+    // 首页顺手把早期同步进来的 r2.dev 直链修成同源代理(幂等)
+    if (page === 1) await rewriteTemplateImagesToProxy().catch(() => {});
+    const items = d.templates.map((t) => ({
+      ...t,
+      image: proxifyImage(t.image),
+    }));
+    const imported = await importTemplates(items, total, offset);
     const done = offset + d.templates.length >= total;
     return NextResponse.json({
       ok: true,
