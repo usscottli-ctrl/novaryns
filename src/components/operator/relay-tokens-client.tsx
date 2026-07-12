@@ -32,10 +32,14 @@ type RelayRow = {
   id: string;
   label: string;
   contact: string;
+  kind: "byok" | "managed";
   status: RelayStatus;
   created_at: string;
   expires_at: string | null;
   request_count: number;
+  quota_total: number;
+  quota_used: number;
+  quota_left: number | null;
   last_used_at: string | null;
   address: string;
 };
@@ -49,6 +53,13 @@ const MONTH_OPTIONS = [
   { value: "12", label: "12 个月" },
 ] as const;
 type MonthValue = (typeof MONTH_OPTIONS)[number]["value"];
+
+// 类型:byok=Pro 买家自带 Key / managed=云端租户含算力(relay 注入我们的 Key + 配额)
+const KIND_OPTIONS = [
+  { value: "byok", label: "买家自带Key" },
+  { value: "managed", label: "云端租户(含算力)" },
+] as const;
+type KindValue = (typeof KIND_OPTIONS)[number]["value"];
 
 const COL_TEMPLATE = "1.3fr 2fr .8fr .9fr .7fr 1.15fr";
 
@@ -81,6 +92,8 @@ export function RelayTokensClient({ embedded = false }: { embedded?: boolean }) 
   const [label, setLabel] = React.useState("");
   const [contact, setContact] = React.useState("");
   const [months, setMonths] = React.useState<MonthValue>("12");
+  const [kind, setKind] = React.useState<KindValue>("byok");
+  const [quota, setQuota] = React.useState("2000"); // managed 初始配额(次)
   const [generating, setGenerating] = React.useState(false);
 
   // 本次新生成的行(高亮 + 顶部大地址卡,方便直接复制发货)
@@ -157,6 +170,8 @@ export function RelayTokensClient({ embedded = false }: { embedded?: boolean }) 
           label: label.trim(),
           contact: contact.trim(),
           months: months === "0" ? null : Number(months),
+          kind,
+          quota: kind === "managed" ? Number(quota) || 0 : 0,
         }),
       });
       const data = await res.json();
@@ -233,6 +248,35 @@ export function RelayTokensClient({ embedded = false }: { embedded?: boolean }) 
       toast(`已续费 ${m} 个月`, "success");
     } catch {
       toast("续费失败,请重试", "error");
+    }
+  };
+
+  // ── 充算力配额(managed;正数=充,负数=收回)──
+  const handleTopup = async (t: RelayRow) => {
+    const raw = window.prompt(
+      `给「${t.label || t.id}」充多少算力(生图次数)?当前已用 ${t.quota_used} / 配额 ${
+        t.quota_total > 0 ? t.quota_total : "不限量"
+      }。填负数可收回。`,
+      "1000"
+    );
+    if (raw == null) return;
+    const n = Number(raw);
+    if (!Number.isFinite(n) || n === 0) {
+      toast("请输入非零整数", "error");
+      return;
+    }
+    try {
+      const res = await fetch("/api/operator/relay", {
+        method: "PATCH",
+        headers: { ...(await authHeader()), "Content-Type": "application/json" },
+        body: JSON.stringify({ id: t.id, addQuota: n }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error();
+      setTokens((p) => p.map((x) => (x.id === t.id ? (data.token as RelayRow) : x)));
+      toast(n > 0 ? `已充 ${n} 次算力` : `已收回 ${-n} 次`, "success");
+    } catch {
+      toast("充值失败,请重试", "error");
     }
   };
 
@@ -389,6 +433,40 @@ export function RelayTokensClient({ embedded = false }: { embedded?: boolean }) 
               </div>
             </div>
 
+            {/* 类型 + 配额 */}
+            <div className="mt-5 grid grid-cols-1 gap-5 md:grid-cols-2">
+              <div>
+                <label className="mb-2 block text-[12.5px] font-medium text-c-text3">
+                  类型
+                </label>
+                <Segmented<KindValue>
+                  options={KIND_OPTIONS.map((o) => ({ ...o }))}
+                  value={kind}
+                  onChange={setKind}
+                />
+                <p className="mt-1.5 text-[11.5px] leading-relaxed text-c-text4">
+                  {kind === "managed"
+                    ? "云端租户:relay 注入我们的 OpenAI Key,租户碰不到 Key,按下方配额计量,超额自动断供。"
+                    : "买家自带 Key:买家在自己后台填自己的 OpenAI Key,我们只做中转,不消耗我们的算力。"}
+                </p>
+              </div>
+              {kind === "managed" && (
+                <div>
+                  <label className="mb-2 block text-[12.5px] font-medium text-c-text3">
+                    算力配额(生图次数,0=不限量)
+                  </label>
+                  <Input
+                    value={quota}
+                    inputMode="numeric"
+                    onChange={(e: React.ChangeEvent<HTMLInputElement>) =>
+                      setQuota(e.target.value.replace(/[^0-9]/g, ""))
+                    }
+                    placeholder="2000"
+                  />
+                </div>
+              )}
+            </div>
+
             <div className="mt-5 flex justify-end">
               <Button
                 variant="primary"
@@ -483,6 +561,11 @@ export function RelayTokensClient({ embedded = false }: { embedded?: boolean }) 
                       <span className="min-w-0">
                         <span className="block truncate text-[13px] font-medium text-c-text">
                           {t.label || <span className="text-c-text4">未命名</span>}
+                          {t.kind === "managed" && (
+                            <span className="ml-1.5 inline-flex items-center rounded-[5px] bg-c-tint-b px-1.5 py-[1px] align-middle text-[10px] font-semibold text-c-blue">
+                              云端
+                            </span>
+                          )}
                         </span>
                         {t.contact && (
                           <span className="block truncate text-[12px] text-c-text3">
@@ -531,9 +614,27 @@ export function RelayTokensClient({ embedded = false }: { embedded?: boolean }) 
                         )}
                       </span>
                       <span className="text-[12.5px] font-medium text-c-text2">
-                        {t.request_count}
+                        {t.kind === "managed" ? (
+                          <span title="已用 / 配额">
+                            {t.quota_used}
+                            <span className="text-c-text4">
+                              /{t.quota_total > 0 ? t.quota_total : "∞"}
+                            </span>
+                          </span>
+                        ) : (
+                          t.request_count
+                        )}
                       </span>
                       <span className="flex items-center justify-end gap-0.5">
+                        {t.kind === "managed" && (
+                          <button
+                            type="button"
+                            onClick={() => handleTopup(t)}
+                            className="rounded-[8px] px-2 py-1.5 text-[12.5px] font-medium text-c-blue transition-colors hover:bg-c-tint-b"
+                          >
+                            充配额
+                          </button>
+                        )}
                         <button
                           type="button"
                           onClick={() => handleRenew(t)}

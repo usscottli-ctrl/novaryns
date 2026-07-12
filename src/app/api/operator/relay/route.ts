@@ -52,7 +52,13 @@ export async function GET(request: Request) {
 export async function POST(request: Request) {
   const blocked = await guard(request);
   if (blocked) return blocked;
-  let body: { label?: string; contact?: string; months?: number | null };
+  let body: {
+    label?: string;
+    contact?: string;
+    months?: number | null;
+    kind?: "byok" | "managed";
+    quota?: number;
+  };
   try {
     body = await request.json();
   } catch {
@@ -65,6 +71,11 @@ export async function POST(request: Request) {
       label: String(body.label ?? "").slice(0, 200),
       contact: String(body.contact ?? "").slice(0, 200),
       months,
+      kind: body.kind === "managed" ? "managed" : "byok",
+      quota:
+        Number.isFinite(Number(body.quota)) && Number(body.quota) > 0
+          ? Math.floor(Number(body.quota))
+          : 0,
     });
     return NextResponse.json({ token });
   } catch (e) {
@@ -82,6 +93,8 @@ export async function PATCH(request: Request) {
     id?: string;
     status?: "active" | "disabled";
     addMonths?: number;
+    addQuota?: number;
+    kind?: "byok" | "managed";
     label?: string;
     contact?: string;
     expires_at?: string | null;
@@ -102,6 +115,11 @@ export async function PATCH(request: Request) {
         Number.isFinite(Number(body.addMonths)) && Number(body.addMonths) > 0
           ? Number(body.addMonths)
           : undefined,
+      addQuota:
+        Number.isFinite(Number(body.addQuota)) && Number(body.addQuota) !== 0
+          ? Math.floor(Number(body.addQuota))
+          : undefined,
+      kind: body.kind === "managed" || body.kind === "byok" ? body.kind : undefined,
       label: typeof body.label === "string" ? body.label.slice(0, 200) : undefined,
       contact:
         typeof body.contact === "string" ? body.contact.slice(0, 200) : undefined,
