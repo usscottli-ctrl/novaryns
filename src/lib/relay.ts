@@ -17,11 +17,16 @@ export interface RelayToken {
   id: string;
   label: string;
   contact: string;
+  // byok = Pro 买家自带 OpenAI Key(透传);managed = 云端租户,relay 注入我们的 Key + 计量配额
+  kind: "byok" | "managed";
   status: "active" | "disabled" | "expired";
   stored_status: "active" | "disabled";
   created_at: string;
   expires_at: string | null;
   request_count: number;
+  quota_total: number; // managed 的算力配额上限(次);0=不限量
+  quota_used: number;
+  quota_left: number | null; // null=不限量
   last_used_at: string | null;
   address: string;
 }
@@ -58,6 +63,8 @@ export async function createToken(input: {
   label?: string;
   contact?: string;
   months?: number | null;
+  kind?: "byok" | "managed";
+  quota?: number; // managed 初始配额
 }): Promise<RelayToken> {
   const r = await call("/tokens", {
     method: "POST",
@@ -72,6 +79,8 @@ export async function patchToken(
   input: {
     status?: "active" | "disabled";
     addMonths?: number;
+    addQuota?: number; // 充/收算力配额(managed)
+    kind?: "byok" | "managed";
     label?: string;
     contact?: string;
     expires_at?: string | null;
