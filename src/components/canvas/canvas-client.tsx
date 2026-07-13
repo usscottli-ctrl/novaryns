@@ -1,4 +1,5 @@
 "use client";
+import { copyText } from "@/lib/clipboard";
 
 import {
   createContext,
@@ -2815,17 +2816,15 @@ export function CanvasClient() {
           c.toBlob((b) => resolve(b as Blob), "image/png")
         );
       }
+      // 图片写剪贴板仅安全上下文(HTTPS)可用;HTTP 下抛错 → 落到下面复制链接兜底
+      if (!navigator.clipboard?.write) throw new Error("no clipboard");
       await navigator.clipboard.write([
         new ClipboardItem({ "image/png": blob }),
       ]);
       showCopyTip();
     } catch {
-      try {
-        await navigator.clipboard.writeText(cdnUrl(image));
-        showCopyTip();
-      } catch {
-        /* ignore */
-      }
+      // 兜底:复制图片链接(copyText 内含 HTTP execCommand 兜底)
+      if (await copyText(cdnUrl(image))) showCopyTip();
     }
   }
   function copyNodeToClip(a: Artwork) {

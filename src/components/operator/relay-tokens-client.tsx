@@ -1,4 +1,5 @@
 "use client";
+import { copyText } from "@/lib/clipboard";
 
 import * as React from "react";
 import Link from "next/link";
@@ -152,7 +153,7 @@ export function RelayTokensClient({ embedded = false }: { embedded?: boolean }) 
 
   const copy = async (text: string, ok = "已复制地址") => {
     try {
-      await navigator.clipboard.writeText(text);
+      if (!(await copyText(text))) throw new Error();
       toast(ok, "success");
     } catch {
       toast("复制失败,请手动选择", "error");

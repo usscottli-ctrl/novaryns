@@ -1,4 +1,5 @@
 "use client";
+import { copyText } from "@/lib/clipboard";
 
 import { useEffect, useRef, useState } from "react";
 import {
@@ -172,11 +173,11 @@ export function TitleGenClient() {
     setThumb(URL.createObjectURL(f));
   }
 
-  function copy(text: string, key: string) {
-    navigator.clipboard?.writeText(text).then(() => {
+  async function copy(text: string, key: string) {
+    if (await copyText(text)) {
       setCopied(key);
       setTimeout(() => setCopied((c) => (c === key ? null : c)), 1500);
-    });
+    }
   }
 
   async function generate() {

@@ -1,4 +1,5 @@
 "use client";
+import { copyText } from "@/lib/clipboard";
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
@@ -393,7 +394,7 @@ export function TemplatesClient({
   async function copyPrompt(id: string, text: string) {
     if (!text) return;
     try {
-      await navigator.clipboard.writeText(text);
+      if (!(await copyText(text))) throw new Error();
       setCopiedId(id);
       setTimeout(() => setCopiedId((c) => (c === id ? null : c)), 1600);
     } catch {

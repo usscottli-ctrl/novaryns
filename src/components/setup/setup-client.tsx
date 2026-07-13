@@ -1,4 +1,5 @@
 "use client";
+import { copyText } from "@/lib/clipboard";
 
 import { useState } from "react";
 import { useRouter } from "next/navigation";
@@ -154,7 +155,7 @@ export function SetupClient({ brand }: { brand: string }) {
   }
   async function copyPw() {
     try {
-      await navigator.clipboard.writeText(adminPw);
+      if (!(await copyText(adminPw))) throw new Error();
       setCopied(true);
       setTimeout(() => setCopied(false), 1500);
     } catch {
