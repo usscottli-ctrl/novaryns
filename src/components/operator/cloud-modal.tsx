@@ -1,4 +1,5 @@
 "use client";
+import { copyText } from "@/lib/clipboard";
 
 import * as React from "react";
 import { Check, Cloud, Copy, ExternalLink, MessageCircle } from "lucide-react";
@@ -44,7 +45,7 @@ export function CloudModal({
 
   const copyWechat = async () => {
     try {
-      await navigator.clipboard.writeText(WECHAT_ID);
+      if (!(await copyText(WECHAT_ID))) throw new Error();
       setCopied(true);
       toast("微信号已复制", "success");
       setTimeout(() => setCopied(false), 1600);

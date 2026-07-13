@@ -1,4 +1,5 @@
 "use client";
+import { copyText } from "@/lib/clipboard";
 
 import * as React from "react";
 import Link from "next/link";
@@ -244,7 +245,7 @@ export function LicensesClient({ embedded = false }: { embedded?: boolean }) {
   // ── 复制单个 key ──
   const handleCopy = async (key: string) => {
     try {
-      await navigator.clipboard.writeText(key);
+      if (!(await copyText(key))) throw new Error();
       toast("已复制 License", "success");
     } catch {
       toast("复制失败,请手动选择", "error");
@@ -255,7 +256,7 @@ export function LicensesClient({ embedded = false }: { embedded?: boolean }) {
   const handleCopyBatch = async () => {
     if (freshKeys.length === 0) return;
     try {
-      await navigator.clipboard.writeText(freshKeys.join("\n"));
+      if (!(await copyText(freshKeys.join("\n")))) throw new Error();
       toast(`已复制本批 ${freshKeys.length} 个 License`, "success");
     } catch {
       toast("复制失败,请手动选择", "error");

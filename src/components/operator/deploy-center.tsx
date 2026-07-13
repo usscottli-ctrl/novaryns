@@ -19,6 +19,7 @@ import { Segmented } from "@/components/ui/segmented";
 import { useToast } from "@/components/ui/toast";
 import { cn } from "@/lib/utils";
 import { authHeader } from "@/lib/supabase";
+import { copyText } from "@/lib/clipboard";
 import { ProDownloadModal } from "@/components/operator/pro-download-modal";
 import { CloudModal } from "@/components/operator/cloud-modal";
 
@@ -124,14 +125,13 @@ export function DeployCenter({ embedded = false }: { embedded?: boolean }) {
 
   const currentCmd = installTab === "script" ? SCRIPT_CMD : DOCKER_CMD;
 
-  function copyCmd() {
-    navigator.clipboard?.writeText(currentCmd).then(
-      () => {
-        setCopiedCmd(true);
-        setTimeout(() => setCopiedCmd(false), 2000);
-      },
-      () => toast("复制失败,请手动选择", "error")
-    );
+  async function copyCmd() {
+    if (await copyText(currentCmd)) {
+      setCopiedCmd(true);
+      setTimeout(() => setCopiedCmd(false), 2000);
+    } else {
+      toast("复制失败,请手动选择", "error");
+    }
   }
 
   async function handleActivate() {
@@ -464,14 +464,13 @@ function UpdateCard({
             <Button
               variant="outline"
               size="sm"
-              onClick={() =>
-                navigator.clipboard
-                  ?.writeText(info.updateCmd)
-                  .then(
-                    () => toast("更新命令已复制", "success"),
-                    () => toast("复制失败,请手动选择", "error")
-                  )
-              }
+              onClick={async () => {
+                const ok = await copyText(info.updateCmd);
+                toast(
+                  ok ? "更新命令已复制" : "复制失败,请手动选择",
+                  ok ? "success" : "error"
+                );
+              }}
             >
               复制
             </Button>

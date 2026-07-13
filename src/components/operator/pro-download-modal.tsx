@@ -1,4 +1,5 @@
 "use client";
+import { copyText } from "@/lib/clipboard";
 
 import * as React from "react";
 import { Check, Copy, ExternalLink, KeyRound, MessageCircle } from "lucide-react";
@@ -165,15 +166,14 @@ export function ProDownloadModal({
     toast(`已到账,但拉取授权超时 —— 请联系微信 ${WECHAT_ID} 补发`, "error");
   }
 
-  function copyText(text: string, key: "docker" | "license") {
+  async function doCopy(text: string, key: "docker" | "license") {
     if (!text) return;
-    navigator.clipboard?.writeText(text).then(
-      () => {
-        setCopied(key);
-        setTimeout(() => setCopied((c) => (c === key ? null : c)), 2000);
-      },
-      () => toast("复制失败,请手动选择", "error")
-    );
+    if (await copyText(text)) {
+      setCopied(key);
+      setTimeout(() => setCopied((c) => (c === key ? null : c)), 2000);
+    } else {
+      toast("复制失败,请手动选择", "error");
+    }
   }
 
   const priceYuan = (RMB_PRO_LICENSE_FEN / 100).toLocaleString("zh-CN");
@@ -304,7 +304,7 @@ export function ProDownloadModal({
               </pre>
               <button
                 type="button"
-                onClick={() => copyText(info?.dockerRun ?? "", "docker")}
+                onClick={() => doCopy(info?.dockerRun ?? "", "docker")}
                 className="absolute right-2 top-2 inline-flex items-center gap-1 rounded-[7px] bg-[rgba(255,255,255,.08)] px-2 py-1 text-[11px] font-medium text-[#E6E8EC] transition-colors hover:bg-[rgba(255,255,255,.16)]"
               >
                 {copied === "docker" ? <Check size={12} /> : <Copy size={12} />}
@@ -325,7 +325,7 @@ export function ProDownloadModal({
               </span>
               <button
                 type="button"
-                onClick={() => copyText(info?.licenseKey ?? "", "license")}
+                onClick={() => doCopy(info?.licenseKey ?? "", "license")}
                 className="inline-flex items-center gap-1 rounded-[7px] px-2 py-1 text-[11.5px] font-medium text-c-text3 transition-colors hover:bg-c-subtle hover:text-c-text"
               >
                 {copied === "license" ? <Check size={12} /> : <Copy size={12} />}

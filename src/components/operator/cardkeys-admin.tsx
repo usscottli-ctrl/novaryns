@@ -1,4 +1,5 @@
 "use client";
+import { copyText } from "@/lib/clipboard";
 
 import * as React from "react";
 import Link from "next/link";
@@ -254,7 +255,7 @@ export function CardkeysAdmin({ embedded = false }: { embedded?: boolean }) {
   // ── 复制 ──
   const handleCopy = async (code: string) => {
     try {
-      await navigator.clipboard.writeText(code);
+      if (!(await copyText(code))) throw new Error();
       toast("已复制兑换码", "success");
     } catch {
       toast("复制失败,请手动选择", "error");
