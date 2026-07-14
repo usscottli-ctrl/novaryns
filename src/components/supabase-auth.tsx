@@ -1103,8 +1103,17 @@ export function AuthPanel({
               </>
             )}
 
-            {/* 服务协议 / 隐私政策同意(勾选后才能登录/注册) */}
-            <label className="flex items-start gap-2 text-[12px] leading-relaxed text-c-text3">
+            {/* 服务协议 / 隐私政策同意(勾选后才能登录/注册)。
+                未勾时:上方按钮均置灰,故这里做成醒目的琥珀提示框 + 一句引导,
+                让用户一眼看出「登录被这里卡住,勾上即可」,不误以为功能失效。 */}
+            <label
+              className={cn(
+                "flex items-start gap-2 rounded-lg px-2.5 py-2 text-[12px] leading-relaxed transition-colors",
+                agree
+                  ? "text-c-text3"
+                  : "bg-c-tint-a/60 text-c-text2 ring-1 ring-c-warn/45"
+              )}
+            >
               <input
                 type="checkbox"
                 checked={agree}
@@ -1112,6 +1121,11 @@ export function AuthPanel({
                 className="mt-0.5 h-4 w-4 accent-[color:var(--acc)]"
               />
               <span>
+                {!agree && (
+                  <b className="mr-1 text-c-warn">
+                    {locale === "en" ? "Check to enable login —" : "勾选后即可登录 ——"}
+                  </b>
+                )}
                 {locale === "en" ? "I have read and agree to the " : "我已阅读并同意"}
                 <Link href="/terms" target="_blank" className="text-acc hover:underline">
                   {locale === "en" ? "Terms" : "《服务协议》"}
