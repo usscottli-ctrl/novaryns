@@ -153,8 +153,27 @@ export function AuthPanel({
   const [error, setError] = useState<string | null>(null);
   const [info, setInfo] = useState<string | null>(null);
   const [cooldown, setCooldown] = useState(0);
-  // 服务协议/隐私政策同意:勾选后才能登录/注册(PRC 合规 + 设计稿要求,门控登录按钮)。
+  // 服务协议/隐私政策同意(PRC 合规)。**不再置灰登录按钮**(大站通行做法):
+  // 按钮永远可点,未勾时点击 → 弹「同意协议」确认,点「同意并继续」自动勾选 + 继续原动作。
   const [agree, setAgree] = useState(false);
+  const [agreePrompt, setAgreePrompt] = useState(false);
+  const pendingRef = useRef<null | (() => void)>(null);
+  // 各登录入口统一经此:已同意直接跑;未同意先弹确认,记住待办动作。
+  function ensureAgree(run: () => void) {
+    if (agree) {
+      run();
+      return;
+    }
+    pendingRef.current = run;
+    setAgreePrompt(true);
+  }
+  function confirmAgree() {
+    setAgree(true);
+    setAgreePrompt(false);
+    const run = pendingRef.current;
+    pendingRef.current = null;
+    run?.(); // 被包装的动作内部不再查 agree,直接执行
+  }
   // 微信扫码登录浮层:打开时取带参二维码并轮询;后端未配置(503)时回退「即将开放」占位
   const [wechatOpen, setWechatOpen] = useState(false);
   const [wxQr, setWxQr] = useState<{ sid: string; qr: string } | null>(null);
@@ -204,8 +223,8 @@ export function AuthPanel({
     }, 1000);
   }
 
-  async function handleSubmit(e: React.FormEvent) {
-    e.preventDefault();
+  async function handleSubmit(e?: React.FormEvent) {
+    e?.preventDefault();
     setError(null);
     setInfo(null);
     if (isSignUp && password !== confirmPassword) {
@@ -437,8 +456,8 @@ export function AuthPanel({
     }
   }
 
-  async function verifyPhoneCode(e: React.FormEvent) {
-    e.preventDefault();
+  async function verifyPhoneCode(e?: React.FormEvent) {
+    e?.preventDefault();
     setError(null);
     setInfo(null);
     const code = smsCode.trim();
@@ -550,8 +569,8 @@ export function AuthPanel({
 
   // Phone + password sign-in (for users who set a password in their account).
   // A phone account's identity is a synthetic email, derived client-side.
-  async function phonePasswordLogin(e: React.FormEvent) {
-    e.preventDefault();
+  async function phonePasswordLogin(e?: React.FormEvent) {
+    e?.preventDefault();
     setError(null);
     setInfo(null);
     if (!PHONE_RE.test(phone.trim())) {
@@ -904,9 +923,14 @@ export function AuthPanel({
 
             {loginMode === "phone" ? (
               <form
-                onSubmit={
-                  phoneAuthMode === "code" ? verifyPhoneCode : phonePasswordLogin
-                }
+                onSubmit={(e) => {
+                  e.preventDefault();
+                  ensureAgree(() =>
+                    phoneAuthMode === "code"
+                      ? void verifyPhoneCode()
+                      : void phonePasswordLogin()
+                  );
+                }}
                 className="space-y-4"
               >
                 <div className="space-y-1.5">
@@ -987,7 +1011,7 @@ export function AuthPanel({
                   type="submit"
                   variant="gradient"
                   className="h-12 w-full text-[15px]"
-                  disabled={loading || !agree}
+                  disabled={loading}
                 >
                   {loading && <Loader2 className="h-4 w-4 animate-spin" />}
                   {phoneAuthMode === "code"
@@ -1001,8 +1025,8 @@ export function AuthPanel({
                   <>
                     <button
                       type="button"
-                      onClick={googleLogin}
-                      disabled={googleLoading || loading || !agree}
+                      onClick={() => ensureAgree(googleLogin)}
+                      disabled={googleLoading || loading}
                       className="flex h-10 w-full items-center justify-center gap-2.5 rounded-lg border border-border bg-card text-sm font-medium text-foreground transition-colors hover:bg-secondary disabled:opacity-60"
                     >
                       {googleLoading ? (
@@ -1021,7 +1045,13 @@ export function AuthPanel({
                   </>
                 )}
 
-                <form onSubmit={handleSubmit} className="space-y-4">
+                <form
+                  onSubmit={(e) => {
+                    e.preventDefault();
+                    ensureAgree(() => void handleSubmit());
+                  }}
+                  className="space-y-4"
+                >
               <div className="space-y-1.5">
                 <label className="text-sm font-medium">{t("auth.email")}</label>
                 <Input
@@ -1089,7 +1119,7 @@ export function AuthPanel({
                 type="submit"
                 variant="gradient"
                 className="h-12 w-full text-[15px]"
-                disabled={loading || !agree}
+                disabled={loading}
               >
                 {loading && <Loader2 className="h-4 w-4 animate-spin" />}
                 {isSignUp
@@ -1103,17 +1133,8 @@ export function AuthPanel({
               </>
             )}
 
-            {/* 服务协议 / 隐私政策同意(勾选后才能登录/注册)。
-                未勾时:上方按钮均置灰,故这里做成醒目的琥珀提示框 + 一句引导,
-                让用户一眼看出「登录被这里卡住,勾上即可」,不误以为功能失效。 */}
-            <label
-              className={cn(
-                "flex items-start gap-2 rounded-lg px-2.5 py-2 text-[12px] leading-relaxed transition-colors",
-                agree
-                  ? "text-c-text3"
-                  : "bg-c-tint-a/60 text-c-text2 ring-1 ring-c-warn/45"
-              )}
-            >
+            {/* 服务协议 / 隐私政策同意。可直接勾选;不勾直接点登录会弹确认(见下 agreePrompt)。 */}
+            <label className="flex items-start gap-2 text-[12px] leading-relaxed text-c-text3">
               <input
                 type="checkbox"
                 checked={agree}
@@ -1121,11 +1142,6 @@ export function AuthPanel({
                 className="mt-0.5 h-4 w-4 accent-[color:var(--acc)]"
               />
               <span>
-                {!agree && (
-                  <b className="mr-1 text-c-warn">
-                    {locale === "en" ? "Check to enable login —" : "勾选后即可登录 ——"}
-                  </b>
-                )}
                 {locale === "en" ? "I have read and agree to the " : "我已阅读并同意"}
                 <Link href="/terms" target="_blank" className="text-acc hover:underline">
                   {locale === "en" ? "Terms" : "《服务协议》"}
@@ -1203,10 +1219,9 @@ export function AuthPanel({
               <div className="flex justify-center">
                 <button
                   type="button"
-                  onClick={() => setWechatOpen(true)}
-                  disabled={!agree}
+                  onClick={() => ensureAgree(() => setWechatOpen(true))}
                   aria-label={t("auth.wechatLogin")}
-                  className="flex h-11 w-11 items-center justify-center rounded-full border border-border bg-card transition-colors hover:bg-secondary disabled:cursor-not-allowed disabled:opacity-50"
+                  className="flex h-11 w-11 items-center justify-center rounded-full border border-border bg-card transition-colors hover:bg-secondary"
                 >
                   <WechatIcon className="h-6 w-6" />
                 </button>
@@ -1265,6 +1280,48 @@ export function AuthPanel({
                 >
                   {t("auth.wechatBack")}
                 </button>
+              </div>
+            </div>
+          )}
+
+          {/* 同意协议确认(未勾选就点登录时弹出;同意后自动继续原动作)——大站通行做法 */}
+          {agreePrompt && (
+            <div
+              className="fixed inset-0 z-[60] flex items-center justify-center bg-black/45 p-4"
+              onClick={() => setAgreePrompt(false)}
+            >
+              <div
+                className="w-[min(360px,92vw)] rounded-2xl bg-c-card p-5 shadow-pop"
+                onClick={(e) => e.stopPropagation()}
+              >
+                <h3 className="text-[16px] font-bold text-c-text">
+                  {locale === "en" ? "Terms & Privacy" : "服务协议与隐私政策"}
+                </h3>
+                <p className="mt-2 text-[13px] leading-relaxed text-c-text3">
+                  {locale === "en"
+                    ? "Before signing in, please read and agree to our "
+                    : "登录 / 注册前,请阅读并同意"}
+                  <Link href="/terms" target="_blank" className="text-acc hover:underline">
+                    {locale === "en" ? "Terms" : "《服务协议》"}
+                  </Link>
+                  {locale === "en" ? " and " : "与"}
+                  <Link href="/privacy" target="_blank" className="text-acc hover:underline">
+                    {locale === "en" ? "Privacy Policy" : "《隐私政策》"}
+                  </Link>
+                  {locale === "en" ? "." : "。"}
+                </p>
+                <div className="mt-4 flex gap-2">
+                  <Button
+                    variant="outline"
+                    className="flex-1"
+                    onClick={() => setAgreePrompt(false)}
+                  >
+                    {locale === "en" ? "Cancel" : "取消"}
+                  </Button>
+                  <Button variant="gradient" className="flex-1" onClick={confirmAgree}>
+                    {locale === "en" ? "Agree & continue" : "同意并继续"}
+                  </Button>
+                </div>
               </div>
             </div>
           )}
