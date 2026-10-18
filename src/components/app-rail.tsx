@@ -214,7 +214,7 @@ export function AppRail() {
               {displayEmail(user.email) || user.name}
             </div>
             <div className="text-[11px] text-muted-foreground">
-              💎 {remaining} {t("nav.credits")}
+              💎 {Number.isFinite(remaining) ? remaining : "不限"} {t("nav.credits")}
             </div>
           </div>
         </div>
@@ -406,7 +406,7 @@ export function AppRail() {
             className="flex items-center gap-1.5 rounded-[10px] border border-c-border2 px-3 py-1.5 text-[13px] font-semibold text-c-text transition-colors hover:bg-c-subtle"
           >
             <Gem className="h-4 w-4 text-acc" />
-            <span className="tabular-nums">{remaining}</span>
+            <span className="tabular-nums">{Number.isFinite(remaining) ? remaining : "不限"}</span>
           </Link>
         )}
         {user && rechargeEnabled && (

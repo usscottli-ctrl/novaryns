@@ -149,7 +149,7 @@ export function RechargeModal() {
       <h2 className="text-[18px] font-bold text-c-text">{L("充值积分", "Top Up Credits")}</h2>
       <p className="mt-1 text-[12.5px] text-c-text3">
         {L(
-          `当前余额 ${fmtCredits(remaining)} 积分 · 按量消耗`,
+          `当前余额 ${Number.isFinite(remaining) ? fmtCredits(remaining) : "不限"} 积分 · 按量消耗`,
           `Current balance ${fmtCredits(remaining)} credits · pay as you go`
         )}
       </p>

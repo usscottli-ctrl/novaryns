@@ -155,7 +155,7 @@ export function AccountClient() {
             )}
           </div>
           <div className="mt-2.5 text-[27px] font-bold leading-none tabular-nums text-acc">
-            {fmtCredits(remaining)}
+            {Number.isFinite(remaining) ? fmtCredits(remaining) : "不限"}
           </div>
         </div>
         <StatCard

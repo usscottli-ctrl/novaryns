@@ -100,7 +100,7 @@ export function HomeDashboard({ hot }: { hot: PickedTemplate[] }) {
     },
     {
       label: L("积分余额", "Credits"),
-      value: remaining.toLocaleString("en-US"),
+      value: Number.isFinite(remaining) ? remaining.toLocaleString("en-US") : "不限",
       unit: "",
       accent: true,
     },

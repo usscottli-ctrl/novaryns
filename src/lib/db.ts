@@ -1159,6 +1159,7 @@ async function toSessionUser(row: UserRow): Promise<SessionUser> {
     joinedAt: new Date(row.joined_at).toISOString(),
     renewsAt: new Date(row.renews_at).toISOString(),
     invoices: await invoicesFor(row.email),
+    unmetered: await creditsExempt(row.email).catch(() => false),
   };
 }
 
@@ -1541,6 +1542,7 @@ export async function addLedgerEntry(
 ): Promise<void> {
   await ensureSchema();
   const email = emailRaw.toLowerCase();
+  if (delta < 0 && (await creditsExempt(email))) return; // 不计积分的人不扣(见 creditsExempt)
   if (delta < 0) {
     const client = await getPool().connect();
     try {
@@ -2369,6 +2371,33 @@ export async function isBanned(
 
 /** 原子预扣占位:credits_used += n,门槛 = 活批次余额 - 已占位 >= n。
  *  本金不在此刻扣,真正扣减发生在结算(addLedgerEntry 负数)。余额不足返回 false。 */
+/**
+ * 这个人出图**不计积分**吗?(预扣 / 退款 / 实扣 / 前端拦截 统一用这一个口径)
+ *
+ *   · 官方云(Supabase):人人计费。
+ *   · 自托管且站长手动开了「积分计费」:人人计费(站长自己要用量控制)。
+ *   · 自托管开了多用户:**站长不计**,其他用户计费 —— 站长花的是自己的中转/Key 额度,
+ *     再扣站内积分没意义,还会出现「站长积分用完自己的站出不了图」。
+ *   · 自托管单人模式(没开计费):不计。
+ *
+ * 2026-10-19 首个商业版客户实测踩到:开多用户后站长被积分卡住;
+ * 单人模式下前端仍按余额拦截(开源版 30 分用完就卡死)也是同一处没统一口径。
+ */
+export async function creditsExempt(emailRaw: string): Promise<boolean> {
+  const { supabaseEnabled } = await import("@/lib/auth-mode");
+  if (supabaseEnabled) return false;
+  const { multiUserEnabled, creditsMeteringOn } = await import("@/lib/native-auth");
+  if (await creditsMeteringOn()) return false;
+  if (!(await multiUserEnabled())) return true;
+  const email = emailRaw.toLowerCase();
+  if (email === "operator@novaryns.local") return true; // 管理员密码登录的站长(lib/operator)
+  try {
+    return (await getUserRole(email)) === "admin";
+  } catch {
+    return false;
+  }
+}
+
 export async function reserveCredits(
   emailRaw: string,
   n: number
@@ -2377,13 +2406,7 @@ export async function reserveCredits(
   //(单用户也可开来给自己/他人做用量控制)。三者任一为真则扣分,否则放行(不扣)。
   // 动态 import 避免静态循环。
   const email = emailRaw.toLowerCase();
-  const { supabaseEnabled } = await import("@/lib/auth-mode");
-  const { multiUserEnabled, creditsMeteringOn } = await import(
-    "@/lib/native-auth"
-  );
-  const meterOn =
-    supabaseEnabled || (await multiUserEnabled()) || (await creditsMeteringOn());
-  if (!meterOn) return true; // 未开计费 → 放行,不扣积分
+  if (await creditsExempt(email)) return true; // 不计积分(见 creditsExempt)→ 放行
   await ensureSchema();
   if (n <= 0) return true;
   await expireDueBatches(email);
@@ -2403,14 +2426,8 @@ export async function refundCredits(
   emailRaw: string,
   n: number
 ): Promise<void> {
-  // 与 reserveCredits 放行口径一致:未计费的场景无需退款。
-  const { supabaseEnabled } = await import("@/lib/auth-mode");
-  const { multiUserEnabled, creditsMeteringOn } = await import(
-    "@/lib/native-auth"
-  );
-  const meterOn =
-    supabaseEnabled || (await multiUserEnabled()) || (await creditsMeteringOn());
-  if (!meterOn) return;
+  // 与 reserveCredits 放行口径一致:不计积分的人无需退款。
+  if (await creditsExempt(emailRaw.toLowerCase())) return;
   await ensureSchema();
   await getPool().query(
     `UPDATE app_users

@@ -309,7 +309,7 @@ export function VideoStudio() {
         </div>
         {ready && user && (
           <p className="-mt-3 text-right text-xs text-muted-foreground">
-            {t("vid.balance")}: {remaining}
+            {t("vid.balance")}: {Number.isFinite(remaining) ? remaining : "不限"}
           </p>
         )}
 

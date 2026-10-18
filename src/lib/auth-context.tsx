@@ -42,6 +42,8 @@ export type SessionUser = {
   invoices: Invoice[];
   /** 累计充值 ≥ 999 元解锁「高阶」出图模式 */
   canHigh?: boolean;
+  /** 出图不计积分(自托管站长 / 未开计费的单人站),前端不按余额拦截。见 db.ts creditsExempt。 */
+  unmetered?: boolean;
 };
 
 type Identity = { name: string; email: string };
@@ -395,7 +397,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const consumeCredits = useCallback(
     (n: number): boolean => {
       if (!user) return false;
-      if (user.creditsUsed + n > user.creditsTotal) return false;
+      if (!user.unmetered && user.creditsUsed + n > user.creditsTotal) return false;
       // In server mode the generate route reserves credits and returns the
       // authoritative user (applied via applyServerUser); this optimistic
       // update just keeps the UI snappy in the meantime.
@@ -405,7 +407,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     [user, persist]
   );
 
-  const remaining = user ? user.creditsTotal - user.creditsUsed : 0;
+  // 不计积分的人给无穷大:各工具页 `remaining < cost` 的拦截自然放行;显示处另判 unmetered。
+  const remaining = user ? (user.unmetered ? Infinity : user.creditsTotal - user.creditsUsed) : 0;
 
   return (
     <AuthContext.Provider

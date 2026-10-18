@@ -708,7 +708,8 @@ export async function getAdminView() {
     pageContact: (await getSetting(PAGE_CONTACT_SETTING)) ?? "",
     pagePlans: (await getSetting(PAGE_PLANS_SETTING)) ?? "",
     // 原生多用户开关(前端后台展示;env NOVARYNS_MULTI_USER=1 也会强制开)
-    multiUserEnabled: ((await getSetting(MULTI_USER_SETTING)) ?? "") === "1",
+    // 与 native-auth.multiUserEnabled 同一默认:没设置过 = 开(商业版默认全功能)
+    multiUserEnabled: ((await getSetting(MULTI_USER_SETTING)) ?? "1").trim() !== "0",
     // 积分计费开关(开启后生图按积分扣,单用户也扣)
     creditsMetering: ((await getSetting("credits_metering")) ?? "") === "1",
     // SMTP(忘记密码用):明文字段回显,密码只给"已配置"标志不回显

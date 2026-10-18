@@ -118,7 +118,10 @@ export async function multiUserEnabled(): Promise<boolean> {
     if (!(await proEnabled())) return false; // 多用户是 Pro 能力
     // env 开关(compose 里设 NOVARYNS_MULTI_USER=1 即开,适合技术站长)或后台开关。
     if ((process.env.NOVARYNS_MULTI_USER ?? "").trim() === "1") return true;
+    // 商业版默认全功能:没设置过 = 开。站长在后台明确关掉(存 "0")才关。
+    // (2026-10-19 之前默认关,首个商业版客户装好后找不到注册/登录/账户页)
     const flag = (await getSetting(MULTI_USER_SETTING))?.trim();
+    if (!flag) return true;
     return flag === "1" || flag === "true";
   } catch {
     return false;
