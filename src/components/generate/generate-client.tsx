@@ -1012,7 +1012,9 @@ export function GenerateClient({
               {/* 出图质量。**只有 OpenAI 系有这个参数** —— Gemini 接口里根本没有
                   quality 字段(实测三种写法全 400),显示出来会让用户选了高阶白付 4 倍钱。
                   ⚠️ 但**不能直接隐藏**:那会让下面的生成按钮上下跳。改成"始终占位",
-                  没有质量档时用等高的一行灰字说明,布局纹丝不动。 */}
+                  没有质量档时用等高的一行灰字说明,布局纹丝不动。
+                  自定义模型(第三方中转)**整栏不显示**:它们全都没有质量档,切换时不会跳。 */}
+              {!isCustomModel && (
               <div className="space-y-1.5">
                 <div className="flex items-baseline justify-between">
                   <span className="text-[13px] text-c-text2">出图质量</span>
@@ -1038,6 +1040,7 @@ export function GenerateClient({
                   </div>
                 )}
               </div>
+              )}
 
               {/* 分辨率 / 数量:分段 */}
               <div className="grid grid-cols-2 gap-3">
