@@ -249,11 +249,10 @@ export async function POST(request: Request) {
       // 而 v1 只能出 1024 系固定尺寸 —— 所以**透明档的 2K/4K 仍然是后期放大**(页面已如实标注)。
       // 选了白底/黑底的没有这个约束:走 gpt-image-2 **原生直出**真实尺寸。
       const nativeModel = genModel || "gpt-image-2";
-      const nativeSizeStr =
-        input.bg === "transparent"
-          ? null
-          : nativeEditSize(ratioHint, input.resolution, nativeModel);
-      if (nativeSizeStr) {
+      // 白底/黑底**一律走主力模型**,不管分辨率档。2026-10-19 修:原来按"有没有原生尺寸"判断,
+      // 1K 没有原生尺寸 → 白底 1K 也掉进了透明底分支去用 gpt-image-1;而第三方中转往往
+      // 根本没有 gpt-image-1,于是白底 1K 直接失败。1K 用固定尺寸,2K/4K 用原生尺寸。
+      if (input.bg !== "transparent") {
         out = await generateBuffer({
           prompt: prompt.replace(
             "on a fully transparent background",
@@ -261,7 +260,9 @@ export async function POST(request: Request) {
           ),
           images: [{ buf: png }],
           model: nativeModel,
-          size: nativeSizeStr,
+          size:
+            nativeEditSize(ratioHint, input.resolution, nativeModel) ??
+            (sizeForRatio(input.ratio) as "1024x1024"),
         });
       } else {
         out = await generateBuffer({
