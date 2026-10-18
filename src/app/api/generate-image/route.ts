@@ -70,6 +70,8 @@ export type GeneratedImage = {
 
 type GenImage = { buf: Buffer; type: string };
 type GenParams = {
+  /** p.model 是后台配置的自定义模型名(第三方中转),原样调用、按 GPT 价格表计费 */
+  customModel?: boolean;
   prompt: string;
   // 落库用的「用户原始提示词」:仅用户自己输入的内容(图裂变/融图客户端拼了系统词进 prompt,
   // 这里单独传原始词),用于 addArtworks 落库,避免系统提示词被同行抄袭。模型调用仍用完整 prompt。
@@ -608,9 +610,8 @@ async function parseParams(request: Request): Promise<GenParams | null> {
       resolution: s("resolution") || "1K",
       style: s("style"),
       quality: s("quality").trim(),
-      model: IMAGE_MODELS.some((m) => m.id === s("model").trim())
-        ? s("model").trim()
-        : "",
+      // 内置模型或形如模型名的字符串都先收下;是否在本站自定义列表里,POST 里再核对
+      model: /^[A-Za-z0-9._:\/-]{1,80}$/.test(s("model").trim()) ? s("model").trim() : "",
       count: Math.min(Math.max(Number(s("count")) || 4, 1), 8),
       transparent: s("transparent") === "1",
       ratiogen: s("ratiogen") === "1",
@@ -629,7 +630,7 @@ async function parseParams(request: Request): Promise<GenParams | null> {
     prompt: (j.prompt ?? "").trim(),
     userPrompt: (j.userPrompt ?? "").trim(),
     userPromptProvided: j.userPrompt !== undefined,
-    model: IMAGE_MODELS.some((m) => m.id === j.model) ? (j.model as string) : "",
+    model: /^[A-Za-z0-9._:\/-]{1,80}$/.test(String(j.model ?? "")) ? String(j.model) : "",
     category: j.category || "main",
     ratio: j.ratio || "1:1",
     resolution: j.resolution || "1K",
@@ -711,8 +712,9 @@ async function runJob(
     // 不这么映射的话,前台带上 `gpt-image-2` 会覆盖后台设置,中转直接报 model_not_found
     // (2026-10-19 首个商业版客户实测:网页上点生成必失败,直调接口不带 model 反而成功)。
     // 官方两站后台配的就是 gpt-image-2,行为不变。
+    // 自定义模型就是中转站的真实模型名,原样调用,不做映射。
     const callModel =
-      p.model && modelProvider(p.model) === "openai" && model && modelProvider(model) === "openai"
+      !p.customModel && p.model && modelProvider(p.model) === "openai" && model && modelProvider(model) === "openai"
         ? model
         : p.model || model;
     let images = apiKey
@@ -925,12 +927,18 @@ export async function POST(request: Request) {
       { status: 400 }
     );
   }
-  const allowed = modelResolutions(p.model || model);
+  // 自定义模型(后台配置的第三方中转模型名)按 GPT生图 的能力和价格表处理;
+  // 既不是内置也不在自定义列表里的名字一律丢弃,走后台默认模型(防止随便传模型名白嫖贵模型)。
+  const { getCustomImageModels } = await import("@/lib/settings");
+  p.customModel = !!p.model && (await getCustomImageModels()).some((m) => m.id === p.model);
+  if (p.model && !p.customModel && !IMAGE_MODELS.some((m) => m.id === p.model)) p.model = "";
+  const priceModel = p.customModel ? "gpt-image-2" : p.model || model;
+  const allowed = modelResolutions(priceModel);
   if (!allowed.includes(p.resolution)) {
     p.resolution = allowed[allowed.length - 1];
   }
-  const billQuality = modelHasQuality(p.model || model) ? p.quality : "medium";
-  const cost = p.count * resolutionCost(p.resolution, billQuality, p.model || model);
+  const billQuality = modelHasQuality(priceModel) ? p.quality : "medium";
+  const cost = p.count * resolutionCost(p.resolution, billQuality, priceModel);
 
   if (dbEnabled && (await isBanned(p.email, ip))) {
     return NextResponse.json(

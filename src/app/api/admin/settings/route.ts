@@ -5,6 +5,7 @@ import {
   getAdminView,
   saveOpenAIKey,
   saveOpenAIModel,
+  saveCustomImageModels,
   saveOpenAIBaseUrl,
   saveCutoutModel,
   saveReplicateToken,
@@ -90,6 +91,7 @@ export async function POST(req: Request) {
     multiUserEnabled?: boolean;
     // 积分计费开关(基础能力,单用户也可开)
     creditsMetering?: boolean;
+    customImageModels?: string;
     // SMTP 邮件(Pro:忘记密码用;!pro 剥离)
     smtpHost?: string;
     smtpPort?: number;
@@ -344,6 +346,9 @@ export async function POST(req: Request) {
     // ---- 积分计费开关(基础,单用户也可开)----
     if (typeof body.creditsMetering === "boolean") {
       await saveCreditsMetering(body.creditsMetering);
+    }
+    if (typeof body.customImageModels === "string") {
+      await saveCustomImageModels(body.customImageModels);
     }
 
     // ---- SMTP 邮件(Pro:忘记密码用)----

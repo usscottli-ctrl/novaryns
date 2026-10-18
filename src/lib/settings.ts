@@ -414,6 +414,44 @@ export async function saveMultiUser(on: boolean): Promise<void> {
 }
 
 /** 保存「积分计费」开关(开启后生图按积分扣,单用户也扣;站长后台自行加积分)。 */
+// ── 自定义生图模型列表(接第三方中转用)───────────────────────────────────
+// 每行「显示名=中转站模型名」,如:
+//   Image2.5=gpt-image-2.5-cdn
+//   Image2=gpt-image-2-cdn
+// 配了它,生图页的模型按钮就**换成这个列表**(内置的「GPT生图」等不再显示);
+// 不配 = 行为与原来完全一致。这些模型都按 OpenAI 兼容接口调用、按 GPT生图 的价格表计费。
+// 为什么需要:第三方中转的模型名五花八门(-cdn / -flare …),写死在代码里每换一家都要改代码。
+const CUSTOM_IMAGE_MODELS = "custom_image_models";
+
+export type CustomImageModel = { id: string; label: string };
+
+export function parseCustomImageModels(text: string): CustomImageModel[] {
+  const out: CustomImageModel[] = [];
+  for (const raw of (text || "").split(/\r?\n/)) {
+    const line = raw.trim();
+    if (!line || line.startsWith("#")) continue;
+    const i = line.indexOf("=");
+    const label = (i > 0 ? line.slice(0, i) : line).trim().slice(0, 20);
+    const id = (i > 0 ? line.slice(i + 1) : line).trim();
+    if (!/^[A-Za-z0-9._:\/-]{1,80}$/.test(id) || out.some((m) => m.id === id)) continue;
+    out.push({ id, label: label || id });
+    if (out.length >= 8) break;
+  }
+  return out;
+}
+
+export async function getCustomImageModels(): Promise<CustomImageModel[]> {
+  try {
+    return parseCustomImageModels((await getSetting(CUSTOM_IMAGE_MODELS)) ?? "");
+  } catch {
+    return [];
+  }
+}
+
+export async function saveCustomImageModels(text: string): Promise<void> {
+  await setSetting(CUSTOM_IMAGE_MODELS, text.slice(0, 2000));
+}
+
 export async function saveCreditsMetering(on: boolean): Promise<void> {
   await setSetting("credits_metering", on ? "1" : "0");
 }
@@ -712,6 +750,7 @@ export async function getAdminView() {
     multiUserEnabled: ((await getSetting(MULTI_USER_SETTING)) ?? "1").trim() !== "0",
     // 积分计费开关(开启后生图按积分扣,单用户也扣)
     creditsMetering: ((await getSetting("credits_metering")) ?? "") === "1",
+    customImageModels: (await getSetting(CUSTOM_IMAGE_MODELS)) ?? "",
     // SMTP(忘记密码用):明文字段回显,密码只给"已配置"标志不回显
     smtpHost: (await getSetting(SMTP_HOST)) ?? "",
     smtpPort: (await getSetting(SMTP_PORT)) ?? "",

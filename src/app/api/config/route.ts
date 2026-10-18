@@ -28,6 +28,8 @@ export async function GET() {
     // 本实例是否启用「云端托管开通」编排(= 配了 provisioner)。只有官方购买站为真;
     // 据此在后台显示/隐藏「云端租户」面板,避免向普通自托管 Pro 买家暴露不属于他们的功能。
     cloudAdmin: provisionerConfigured(),
+    // 后台配了自定义生图模型就用它替换生图页的模型按钮(见 settings.getCustomImageModels)
+    customImageModels: await (await import("@/lib/settings")).getCustomImageModels(),
     // 视频生成(火山引擎方舟 Seedance)是否可用 = 后台或 env 配了 Key。
     // 前端据此显示/隐藏「视频」入口 —— 没配还显示的话,点进去只会拿到 503。
     videoEnabled: await videoEnabled(),

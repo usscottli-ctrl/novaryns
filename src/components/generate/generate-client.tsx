@@ -122,32 +122,39 @@ export function GenerateClient({
     GENERATION_QUALITIES.some((q) => q.id === v)
   );
   // 生图模型:用户自选(GPT Image 2 / Nano Banana),不同调性各有强项。
+  // 校验放宽到"任意非空字符串":自定义模型名不在内置表里;不可用的由下面的回落逻辑兜住。
   const [model, setModel] = useStickyState<string>("gen.model", IMAGE_MODELS[0].id, (v) =>
-    IMAGE_MODELS.some((m) => m.id === v)
+    typeof v === "string" && v.length > 0
   );
   // 本实例是否配了香蕉(Gemini)。云端租户只有 relay 注入的 OpenAI 通道、没有 GEMINI_*,
   // 全列出来的话客户选了香蕉、传完图、等完进度条,最后才拿到「Nano Banana 未配置」。
   // 默认 true:接口没答上来之前先按"全都有"渲染,避免主站闪一下少两个按钮。
   const [geminiOk, setGeminiOk] = useState(true);
   const [fluxOk, setFluxOk] = useState(true);
+  // 后台「自定义生图模型」:配了就整体替换模型按钮(接第三方中转,模型名由站长填)
+  const [customModels, setCustomModels] = useState<{ id: string; label: string }[]>([]);
   useEffect(() => {
     fetch("/api/config", { cache: "no-store" })
       .then((r) => r.json())
       .then((d) => {
         setGeminiOk(!!d.geminiEnabled);
         setFluxOk(!!d.fluxEnabled);
+        if (Array.isArray(d.customImageModels)) setCustomModels(d.customImageModels);
       })
       .catch(() => {});
   }, []);
-  const availableModels = useMemo(
+  const availableModels = useMemo<{ id: string; label: string; hint?: string }[]>(
     () =>
-      IMAGE_MODELS.filter((m) => {
-        if (m.provider === "gemini") return geminiOk;
-        if (m.provider === "replicate") return fluxOk;
-        return true;
-      }),
-    [geminiOk, fluxOk]
+      customModels.length > 0
+        ? customModels
+        : IMAGE_MODELS.filter((m) => {
+            if (m.provider === "gemini") return geminiOk;
+            if (m.provider === "replicate") return fluxOk;
+            return true;
+          }),
+    [geminiOk, fluxOk, customModels]
   );
+  const isCustomModel = customModels.some((m) => m.id === model);
   // 记住的模型若在本实例不可用(换实例/配置变了),回落到第一个可用的,
   // 否则会停在一个点了必失败的选项上。
   useEffect(() => {
@@ -589,8 +596,10 @@ export function GenerateClient({
   }
 
   // 当前模型支持哪些分辨率 / 有没有质量档(Lite 只有 1K;Gemini 系无质量档)
-  const allowedRes = modelResolutions(model);
-  const hasQuality = modelHasQuality(model);
+  // 自定义模型(第三方中转)按 GPT生图 的能力与价格表处理,和后端口径一致
+  const capModel = isCustomModel ? "gpt-image-2" : model;
+  const allowedRes = modelResolutions(capModel);
+  const hasQuality = modelHasQuality(capModel);
   // 切到能力更窄的模型时,把非法选择拉回合法值,避免带着 4K 去点 Lite 直接报错。
   useEffect(() => {
     if (!allowedRes.includes(resolution)) setResolution(allowedRes[0]);
@@ -601,7 +610,7 @@ export function GenerateClient({
   const costPerImage = resolutionCost(
     resolution,
     hasQuality ? quality : "medium",
-    model
+    capModel
   );
   // 预计耗时:4K/高阶是分钟级,必须提前告诉用户,否则会以为卡死。
   const etaSec = estimateGenSeconds(resolution, hasQuality ? quality : "medium", count);
@@ -973,7 +982,7 @@ export function GenerateClient({
                 <div className="flex items-baseline justify-between">
                   <span className="text-[13px] text-c-text2">生图模型</span>
                   <span className="text-[11.5px] text-c-text3">
-                    {IMAGE_MODELS.find((m) => m.id === model)?.hint}
+                    {availableModels.find((m) => m.id === model)?.hint}
                   </span>
                 </div>
                 {/* 用按钮组不用下拉(用户要求)。**2x2 网格而不是一行4个** ——

@@ -173,6 +173,7 @@ type View = {
   multiUserEnabled?: boolean;
   // 积分计费开关
   creditsMetering?: boolean;
+  customImageModels?: string;
   // SMTP(忘记密码用)
   smtpHost?: string;
   smtpPort?: string;
@@ -370,6 +371,7 @@ export function AdminSettings({ localAdmin = false }: { localAdmin?: boolean }) 
   const [payEnabled, setPayEnabled] = useState(false);
   const [multiUserOn, setMultiUserOn] = useState(false);
   const [meteringOn, setMeteringOn] = useState(false);
+  const [customModelsText, setCustomModelsText] = useState("");
   const [grantEmail, setGrantEmail] = useState("operator@novaryns.local");
   const [grantAmount, setGrantAmount] = useState("100");
   const [grantMsg, setGrantMsg] = useState<string | null>(null);
@@ -615,6 +617,7 @@ export function AdminSettings({ localAdmin = false }: { localAdmin?: boolean }) 
     setPayEnabled(!!v.payEnabled);
     setMultiUserOn(!!v.multiUserEnabled);
     setMeteringOn(!!v.creditsMetering);
+    setCustomModelsText(v.customImageModels ?? "");
     setSmtpHost(v.smtpHost ?? "");
     setSmtpPort(v.smtpPort || "465");
     setSmtpUser(v.smtpUser ?? "");
@@ -920,6 +923,7 @@ export function AdminSettings({ localAdmin = false }: { localAdmin?: boolean }) 
       setPayEnabled(!!v.payEnabled);
     setMultiUserOn(!!v.multiUserEnabled);
     setMeteringOn(!!v.creditsMetering);
+    setCustomModelsText(v.customImageModels ?? "");
     setSmtpHost(v.smtpHost ?? "");
     setSmtpPort(v.smtpPort || "465");
     setSmtpUser(v.smtpUser ?? "");
@@ -1656,6 +1660,34 @@ export function AdminSettings({ localAdmin = false }: { localAdmin?: boolean }) 
             >
               {busy && <Loader2 className="h-4 w-4 animate-spin" />}
               保存图像模型
+            </Button>
+
+            {/* 自定义生图模型列表:接第三方中转时,替换生图页的模型按钮 */}
+            <div className="mt-2 border-t border-border pt-3 text-sm font-semibold">
+              生图页模型按钮(可选)
+            </div>
+            <p className="text-xs leading-5 text-muted-foreground">
+              每行一个,格式「显示名=接口里的模型名」,例如 <code>Image2.5=gpt-image-2.5-cdn</code>。
+              填了就用这个列表替换生图页的模型按钮,第一行为默认;留空则用系统内置的模型。
+              计费按「GPT生图」的价格表。
+            </p>
+            <textarea
+              value={customModelsText}
+              onChange={(e) => setCustomModelsText(e.target.value)}
+              rows={4}
+              placeholder={"Image2.5=gpt-image-2.5-cdn" + String.fromCharCode(10) + "Image2=gpt-image-2-cdn"}
+              className="w-full rounded-lg border border-border bg-background px-3 py-2 font-mono text-xs"
+            />
+            <Button
+              variant="outline"
+              size="sm"
+              disabled={busy}
+              onClick={() =>
+                void postSettings({ customImageModels: customModelsText }, "生图页模型按钮已保存")
+              }
+            >
+              {busy && <Loader2 className="h-4 w-4 animate-spin" />}
+              保存模型按钮
             </Button>
 
             {/* OpenAI API Key(图像模型对应的 key) */}
