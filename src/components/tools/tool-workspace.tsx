@@ -1,5 +1,6 @@
 "use client";
 
+import { useArtworkKeepDays, keepNote } from "@/lib/use-keep-days";
 import { cdnUrl } from "@/lib/cdn";
 import * as React from "react";
 import Link from "next/link";
@@ -130,6 +131,7 @@ export function ToolWorkspace({
   /** 当前输入图变化时通知(AI帮写等需要拿到图的场景);null=清空 */
   onFileChange?: (file: File | null, previewUrl: string) => void;
 }) {
+  const keepDays = useArtworkKeepDays();
   const { user, ready, remaining, consumeCredits, applyServerUser } = useAuth();
   const { openAuth } = useAuthModal();
   const { locale } = useI18n();
@@ -521,7 +523,7 @@ export function ToolWorkspace({
             </>
           )}
           <p className="mt-3 text-center text-[11px] text-c-text4">
-            {L("生成结果将自动保存到「作品库」,保留 180 天", "Results are auto-saved to your Library for 180 days")}
+            {L(keepNote(keepDays), keepNote(keepDays, true))}
           </p>
         </div>
 

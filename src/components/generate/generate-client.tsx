@@ -1,5 +1,6 @@
 "use client";
 
+import { useArtworkKeepDays, keepNote } from "@/lib/use-keep-days";
 import { cdnUrl } from "@/lib/cdn";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
@@ -132,6 +133,7 @@ export function GenerateClient({
   const [geminiOk, setGeminiOk] = useState(true);
   const [fluxOk, setFluxOk] = useState(true);
   // 后台「自定义生图模型」:配了就整体替换模型按钮(接第三方中转,模型名由站长填)
+  const keepDays = useArtworkKeepDays();
   const [customModels, setCustomModels] = useState<{ id: string; label: string }[]>([]);
   useEffect(() => {
     fetch("/api/config", { cache: "no-store" })
@@ -1325,9 +1327,7 @@ export function GenerateClient({
                 </div>
                 <ToolDemo {...getDemo("image")!} />
                 <p className="mt-3 text-center text-[11px] text-c-text4">
-                  {locale === "en"
-                    ? "Results are auto-saved to your Library for 180 days"
-                    : "生成结果将自动保存到「作品库」,保留 180 天"}
+                  {keepNote(keepDays, locale === "en")}
                 </p>
               </>
             )}

@@ -1,5 +1,6 @@
 "use client";
 
+import { useArtworkKeepDays, keepNote } from "@/lib/use-keep-days";
 import { useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import {
@@ -60,6 +61,7 @@ type Shot = {
 };
 
 export function SuiteClient() {
+  const keepDays = useArtworkKeepDays();
   const { user, ready, remaining, applyServerUser } = useAuth();
   const { openAuth } = useAuthModal();
   const { t, locale } = useI18n();
@@ -594,10 +596,7 @@ export function SuiteClient() {
             </div>
             <ToolDemo {...getDemo("suite")!} />
             <p className="mt-3 text-center text-[11px] text-c-text4">
-              {L(
-                "生成结果将自动保存到「作品库」,保留 180 天",
-                "Results are auto-saved to your Library for 180 days"
-              )}
+              {L(keepNote(keepDays), keepNote(keepDays, true))}
             </p>
           </>
         )}

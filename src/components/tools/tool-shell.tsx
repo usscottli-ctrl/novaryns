@@ -1,5 +1,6 @@
 "use client";
 
+import { useArtworkKeepDays, keepNote } from "@/lib/use-keep-days";
 import { cdnUrl } from "@/lib/cdn";
 import * as React from "react";
 import Link from "next/link";
@@ -53,7 +54,7 @@ export function ToolShell({
   resultTitle = "处理结果",
   resultHint,
   refreshKey,
-  footerNote = "生成结果将自动保存到「作品库」,保留 180 天",
+  footerNote,
   onRegen,
   regenLabel = "以此图重新生成",
   rightPanel,
@@ -86,6 +87,7 @@ export function ToolShell({
   /** 记录详情里那栏文字的标签(默认「提示词」;标题生成传「生成标题」)。 */
   promptLabel?: string;
 }) {
+  const keepDays = useArtworkKeepDays();
   const { user, ready } = useAuth();
   const { openAuth } = useAuthModal();
   const { locale } = useI18n();
@@ -364,7 +366,7 @@ export function ToolShell({
               children(setViewing)
             )}
           </div>
-          <p className="mt-3 text-center text-[11px] text-c-text4">{footerNote}</p>
+          <p className="mt-3 text-center text-[11px] text-c-text4">{footerNote ?? keepNote(keepDays)}</p>
         </section>
 
         {/* 右:自定义面板(标题生成的「图片列表」等),传了就替代本工具记录 */}

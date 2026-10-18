@@ -34,6 +34,8 @@ services:
       OPENAI_BASE_URL: ${OPENAI_BASE_URL:-}
       # 可选:第三方中转返回的是图片链接时,经此代取地址把图拉回(大陆服务器提速用)
       IMAGE_FETCH_PROXY: ${IMAGE_FETCH_PROXY:-}
+      # 作品保留天数(页面提示 + 后台「存储治理」清理口径),默认 180
+      ARTWORK_KEEP_DAYS: ${ARTWORK_KEEP_DAYS:-180}
       # AES key for encrypting stored API keys at rest.
       # ⚠️ Set a long random value BEFORE first run and never change it afterwards.
       # 会话签名 + API Key 落库加密的密钥。install.sh 首装时自动生成随机值写进 .env;
