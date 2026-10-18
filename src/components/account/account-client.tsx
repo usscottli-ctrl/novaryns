@@ -14,6 +14,7 @@ import { useRecharge } from "@/lib/recharge-modal-context";
 import { useI18n } from "@/lib/i18n/locale-context";
 import { authHeader } from "@/lib/supabase";
 import { displayEmail } from "@/lib/account-identity";
+import { isUserOutput, type ArtworkLike } from "@/lib/artwork-filter";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { StatCard } from "@/components/ui/stat-card";
@@ -46,9 +47,9 @@ export function AccountClient() {
         );
         if (!r.ok || cancelled) return;
         const d = await r.json();
-        const arts = (d.artworks ?? []) as { image?: string; status?: string }[];
-        if (!cancelled)
-          setTotalWorks(arts.filter((a) => a.image && a.status !== "failed").length);
+        const arts = (d.artworks ?? []) as ArtworkLike[];
+        // 计数口径必须和作品页一致 —— 否则账户页说 11 张、作品页只列 8 张。
+        if (!cancelled) setTotalWorks(arts.filter(isUserOutput).length);
       } catch {
         /* ignore */
       }

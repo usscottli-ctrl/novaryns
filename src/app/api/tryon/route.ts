@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { generateBuffer } from "@/lib/image-gen";
 import OpenAI, { toFile } from "openai";
 import {
   dbEnabled,
@@ -156,15 +157,17 @@ async function runTryonJob(
 
       // 组装参考图序列:上装/下装 → 模特 → 场景。并据此拼角色说明。
       const files: Awaited<ReturnType<typeof toFile>>[] = [];
+      // 同步收集原始字节:统一层要 Buffer(国内站走境外代跑时用),files 仅本地直调用。
+      const bufs: Buffer[] = [];
       const roles: string[] = [];
       let idx = 1;
       if (input.top) {
-        files.push(await toFile(await toPng(input.top), "top.png", { type: "image/png" }));
+        { const b = await toPng(input.top); bufs.push(b); files.push(await toFile(b, "top.png", { type: "image/png" })); }
         roles.push(`Image ${idx} is the TOP garment (upper-body clothing) to put on the model.`);
         idx++;
       }
       if (input.bottom) {
-        files.push(await toFile(await toPng(input.bottom), "bottom.png", { type: "image/png" }));
+        { const b = await toPng(input.bottom); bufs.push(b); files.push(await toFile(b, "bottom.png", { type: "image/png" })); }
         roles.push(`Image ${idx} is the BOTTOM garment (lower-body clothing) to put on the model.`);
         idx++;
       }
@@ -174,6 +177,7 @@ async function runTryonJob(
         const mp = await fetchPng(model.url);
         if (mp) {
           personBytes = mp;
+          bufs.push(mp);
           files.push(await toFile(mp, "model.png", { type: "image/png" }));
           roles.push(
             `Image ${idx} is the human model — keep this exact person's face, identity, body type and skin tone.`
@@ -184,6 +188,7 @@ async function runTryonJob(
       if (scene) {
         const sp = await fetchPng(scene.url);
         if (sp) {
+          bufs.push(sp);
           files.push(await toFile(sp, "scene.png", { type: "image/png" }));
           roles.push(
             `Image ${idx} is the scene / background & styling reference — place the model in this environment, pose and lighting mood.`
@@ -210,17 +215,13 @@ async function runTryonJob(
         `Natural pose, realistic proportions, high quality, sharp, no text, no watermark, no border.` +
         (input.prompt ? ` Extra requirements: ${input.prompt}` : "");
 
-      const r = await client.images.edit({
-        model: genModel || "gpt-image-2",
-        image: files,
+      out = await generateBuffer({
         prompt,
-        n: 1,
-        size: "1024x1536" as "1024x1536",
-        quality: "high" as "high",
+        images: bufs.map((b) => ({ buf: b })),
+        model: genModel || "gpt-image-2",
+        size: "1024x1536",
+        quality: "high",
       });
-      const b64 = r.data?.[0]?.b64_json;
-      if (!b64) throw new Error("未返回试穿图");
-      out = Buffer.from(b64, "base64");
     } catch (e) {
       if (useDb && cost > 0)
         await refundCredits(input.email, cost).catch(() => {});

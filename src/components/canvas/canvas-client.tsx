@@ -45,6 +45,7 @@ import {
   Rotate3d,
   Wand2,
   Image as ImageIcon,
+  Film,
   ChevronDown,
   Home,
   LayoutGrid,
@@ -83,6 +84,7 @@ import {
   type Artwork,
   GENERATION_STYLES,
   resolutionCost,
+  videoCost,
 } from "@/lib/mock-data";
 
 // 横向链路布局(对齐原型 node-canvas-preview):深度→x 向右展开,同层兄弟→y 竖排。
@@ -310,13 +312,15 @@ function PendNode({ data, selected }: NodeProps) {
     fileInfo?: string;
     generating?: boolean;
     selected?: boolean;
+    kind?: "image" | "video";
   };
   const sel = selected || d.selected;
+  const isVideo = d.kind === "video";
   return (
     <div className="group relative w-[170px]">
       {/* 标签(图片上方,对齐原型 .lb2) */}
       <div className="mb-1.5 flex items-center gap-1.5 truncate pl-0.5 text-[12px] text-[#9aa1ae]">
-        <span>🖼</span>
+        <span>{isVideo ? "🎬" : "🖼"}</span>
         <span className="truncate">{d.label}</span>
       </div>
       {/* 占位卡(原型 .nb2 + .ph2:单层卡片,选中=teal) */}
@@ -353,6 +357,16 @@ function PendNode({ data, selected }: NodeProps) {
               </div>
             )}
           </div>
+        ) : isVideo ? (
+          // 视频节点没有"上传"这条路 —— 上游只做图生视频,必须从左侧端口连一张图进来当首帧。
+          <>
+            <Film className="mb-2 h-6 w-6 text-slate-600" />
+            <div className="text-[11.5px] leading-snug text-slate-400">
+              从左侧连一张图
+              <br />
+              作为首帧
+            </div>
+          </>
         ) : (
           <>
             <ImageIcon className="mb-2 h-6 w-6 text-slate-600" />
@@ -453,6 +467,7 @@ function ArtNode({ data, selected }: NodeProps) {
     date?: string;
     pending?: boolean;
     inChain?: boolean;
+    isVideo?: boolean;
   };
   const title = d.pending
     ? d.label
@@ -489,13 +504,32 @@ function ArtNode({ data, selected }: NodeProps) {
           </div>
         ) : (
           <>
-            {/* eslint-disable-next-line @next/next/no-img-element */}
-            <img
-              src={cdnUrl(d.image as string)}
-              alt={d.label}
-              draggable={false}
-              className="block h-[110px] w-full object-cover"
-            />
+            {d.isVideo ? (
+              // 视频节点:静音循环自动播放当动态缩略图(不给 controls —— 画布上
+              // 节点只有 110px 高,控件会盖满;要看大图/带声音走灯箱)。
+              <video
+                src={cdnUrl(d.image as string)}
+                muted
+                loop
+                autoPlay
+                playsInline
+                draggable={false}
+                className="block h-[110px] w-full bg-black object-cover"
+              />
+            ) : (
+              // eslint-disable-next-line @next/next/no-img-element
+              <img
+                src={cdnUrl(d.image as string)}
+                alt={d.label}
+                draggable={false}
+                className="block h-[110px] w-full object-cover"
+              />
+            )}
+            {d.isVideo && (
+              <span className="pointer-events-none absolute right-1.5 top-1.5 rounded bg-black/70 px-1.5 py-0.5 text-[10px] font-semibold text-white">
+                ▶ 视频
+              </span>
+            )}
             {d.rootLabel && (
               <span className="absolute left-1.5 top-1.5 rounded bg-black/70 px-1.5 py-0.5 text-[10px] font-medium text-white">
                 {d.rootLabel}
@@ -638,6 +672,8 @@ function layoutGraph(
         version: idx + 1, // 项目内按生成时间的版本序号
         prompt: a.prompt,
         date: a.createdAt,
+        // 视频作品要用 <video> 渲染,拿 <img> 渲染会是一张裂图。
+        isVideo: a.category === "video" || /\.mp4($|\?)/i.test(a.image || ""),
       },
     };
   });
@@ -711,6 +747,20 @@ export function CanvasClient() {
   const [genStyle, setGenStyle] = useState(GENERATION_STYLES[0]);
   const [genCount, setGenCount] = useState(1);
   const [generating, setGenerating] = useState(false);
+  // ── 视频生成(火山引擎方舟 Seedance)。2026-08-15 用户拍板:**只在画布做**,
+  // 生图页不放入口 —— 画布里现成的图片节点正好当首帧,图生视频最顺。
+  // dock 切到「视频」时,底部参数换成时长/清晰度,生成结果落成该节点的子节点。
+  const [dockMode, setDockMode] = useState<"image" | "video">("image");
+  const [vidDuration, setVidDuration] = useState(5);
+  const [vidResolution, setVidResolution] = useState("720p");
+  // 本实例是否配了视频 Key(没配就不显示「视频」切换,免得点了只拿到 503)。
+  const [videoAvailable, setVideoAvailable] = useState(false);
+  useEffect(() => {
+    fetch("/api/config", { cache: "no-store" })
+      .then((r) => r.json())
+      .then((d) => setVideoAvailable(!!d.videoEnabled))
+      .catch(() => {});
+  }, []);
   // 生成中占位节点挂靠的源节点(独立于"选中",这样点空白取消选中也不会让占位消失)
   const [genSourceId, setGenSourceId] = useState<string | null>(null);
   // 左下控件:小地图开关、网格吸附(原型默认吸附 on)
@@ -788,6 +838,11 @@ export function CanvasClient() {
     fileInfo?: string;
     inputs: string[]; // 多输入:连进这个空白节点的源节点 id(生成时作参考图)
     generating?: boolean; // 该空白节点正在文生图/合并生成中
+    seq?: number; // 序号:标签按"当前模式 + 序号"实时派生,切模式后名字跟着变
+    // 当前**生成模式**(不是锁死的节点类型):image=出图 / video=出视频。
+    // 与图片节点 dock 的「图片/视频」切换是同一套心智 —— 随时可切,
+    // 菜单里的「视频节点」只是把初始值预设成 video。
+    kind?: "image" | "video";
   };
   const [pendNodes, setPendNodes] = useState<Pend[]>([]);
   const pendSeqRef = useRef(1);
@@ -1381,12 +1436,16 @@ export function CanvasClient() {
         // 不设 RF 受控 selected(避免与 onSelectionChange 互相触发循环),只用 data.selected 做高亮
         data: {
           __id: p.id,
-          label: p.label,
+          // 标签跟着当前模式走:切到视频就叫"视频节点 N",切回来就叫"图片节点 N"
+          label: p.seq
+            ? `${(p.kind ?? "image") === "video" ? t("canvas.videoNode") : t("canvas.imageNode")} ${p.seq}`
+            : p.label,
           uploading: p.uploading,
           progress: p.progress,
           fileInfo: p.fileInfo,
           generating: p.generating,
           selected: p.id === selectedPendId,
+          kind: p.kind ?? "image",
         },
       } as Node);
       for (const src of p.inputs ?? []) {
@@ -1878,6 +1937,154 @@ export function CanvasClient() {
       );
     } finally {
       setGenSourceId(null);
+      setGenerating(false);
+    }
+  }
+
+  // 轮询视频任务直到出片,返回新作品 id。5 秒一次,最多 8 分钟
+  // (12 秒 720p 偶尔要跑 3 分钟以上)。结算/退分都在 status 路由里做。
+  async function pollVideo(taskId: string): Promise<string> {
+    if (!taskId) throw new Error(t("canvas.genFail"));
+    const deadline = Date.now() + 8 * 60 * 1000;
+    for (;;) {
+      await new Promise((r) => setTimeout(r, 5000));
+      if (Date.now() > deadline) throw new Error(t("canvas.videoTimeout"));
+      const sres = await fetch(
+        `/api/video/status?taskId=${encodeURIComponent(taskId)}`,
+        { headers: await authHeader(), cache: "no-store" }
+      );
+      const s = await readJsonSafe(sres);
+      if (s.status === "done") {
+        if (s.user) applyServerUser(s.user); // 回写余额
+        if (!s.id) throw new Error(t("canvas.genFail"));
+        return s.id as string;
+      }
+      if (s.status === "failed" || (!sres.ok && s.error)) {
+        throw new Error(s.error || t("canvas.genFail"));
+      }
+      // queued / processing → 继续轮询
+    }
+  }
+
+  // 视频生成(方舟 Seedance):以选中节点的图当**首帧**,生成的视频落成它的子节点。
+  // 与生图流的差别:上游是异步任务,POST 拿 taskId 后要轮询 /api/video/status,
+  // 结算(转存 R2 + 落作品 + 扣分 / 失败退分)全在 status 路由里做,这里只管轮询和落节点。
+  async function runVideo(source: Artwork, prompt: string) {
+    if (readOnly || !user || generating) return;
+    setSelectedId(source.id);
+    setGenSourceId(source.id);
+    pendingPosRef.current = null;
+    setGenerating(true);
+    setGenError(null);
+    try {
+      const fd = new FormData();
+      fd.append("sourceUrl", source.image); // 已有作品图,免重新上传
+      fd.append("email", user.email);
+      fd.append("parentId", source.id);
+      fd.append("title", `${source.title || "作品"} · 视频`);
+      fd.append("prompt", prompt);
+      fd.append("duration", String(vidDuration));
+      fd.append("resolution", vidResolution);
+      fd.append("ratio", source.ratio || "16:9");
+      const res = await fetch("/api/video", {
+        method: "POST",
+        headers: await authHeader(),
+        body: fd,
+      });
+      const j = await readJsonSafe(res);
+      if (!res.ok || !j.ok) throw new Error(j.error || t("canvas.genFail"));
+      const newId = await pollVideo(j.taskId);
+
+      // 落到生成占位处(源节点右侧),与生图/抠图流一致
+      const srcNode = rfNodes.find((n) => n.id === source.id);
+      const basePos =
+        pendingPosRef.current ??
+        (srcNode
+          ? { x: srcNode.position.x + NODE_W + X_GAP, y: srcNode.position.y }
+          : null);
+      if (basePos) {
+        await fetch("/api/artworks/position", {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({
+            email: user.email,
+            id: newId,
+            x: Math.round(basePos.x),
+            y: Math.round(basePos.y),
+          }),
+        }).catch(() => {});
+      }
+      await mergeWorks([newId]);
+      setSelectedId(newId);
+    } catch (e) {
+      setGenError(
+        e instanceof Error && e.message ? e.message : t("canvas.genFail")
+      );
+    } finally {
+      setGenSourceId(null);
+      setGenerating(false);
+    }
+  }
+
+  // 视频节点(空白节点 kind=video)的生成:拿连进来的第一张图当首帧,
+  // 出片后**替换**这个空白节点(与 generatePend 的行为一致:占位消失、真节点落在原位)。
+  async function generatePendVideo() {
+    const pend = selectedPend;
+    if (!pend || readOnly || !user || generating) return;
+    const src = pendInputArts[0];
+    if (!src) {
+      setGenError(t("canvas.videoNeedInputHint"));
+      return;
+    }
+    setGenerating(true);
+    setGenError(null);
+    setPendNodes((prev) =>
+      prev.map((p) => (p.id === pend.id ? { ...p, generating: true } : p))
+    );
+    try {
+      const prompt =
+        editPrompt.trim() || src.prompt || t("canvas.videoDefaultPrompt");
+      const fd = new FormData();
+      fd.append("sourceUrl", src.image);
+      fd.append("email", user.email);
+      fd.append("parentId", src.id);
+      fd.append("title", `${src.title || "作品"} · 视频`);
+      fd.append("prompt", prompt);
+      fd.append("duration", String(vidDuration));
+      fd.append("resolution", vidResolution);
+      fd.append("ratio", src.ratio || "16:9");
+      const res = await fetch("/api/video", {
+        method: "POST",
+        headers: await authHeader(),
+        body: fd,
+      });
+      const j = await readJsonSafe(res);
+      if (!res.ok || !j.ok) throw new Error(j.error || t("canvas.genFail"));
+      const newId = await pollVideo(j.taskId);
+
+      // 视频节点落在这个空白节点的位置上,然后把空白节点撤掉
+      await fetch("/api/artworks/position", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          email: user.email,
+          id: newId,
+          x: Math.round(pend.x),
+          y: Math.round(pend.y),
+        }),
+      }).catch(() => {});
+      await mergeWorks([newId]);
+      setPendNodes((prev) => prev.filter((p) => p.id !== pend.id));
+      setSelectedPendId(null);
+      setSelectedId(newId);
+    } catch (e) {
+      setGenError(
+        e instanceof Error && e.message ? e.message : t("canvas.genFail")
+      );
+      setPendNodes((prev) =>
+        prev.map((p) => (p.id === pend.id ? { ...p, generating: false } : p))
+      );
+    } finally {
       setGenerating(false);
     }
   }
@@ -2559,9 +2766,12 @@ export function CanvasClient() {
       parentId,
       linked,
       label: `${t("canvas.imageNode")} ${seq}`,
+      seq,
       uploading: false,
       progress: 0,
       inputs: linked && parentId ? [parentId] : [],
+      // 新节点一律从"图片"模式起步,用户在 dock 里切到视频。
+      kind: "image",
     };
     setPendNodes((prev) => [...prev, pend]);
     // 选中新空白节点 → 自动出生成 dock(图3:加节点即可直接写提示词生成)
@@ -2581,7 +2791,8 @@ export function CanvasClient() {
       y: (box?.clientHeight ?? 400) / 2,
     };
   }
-  // 底部工具条:＋ 添加空白节点(画布中心)
+  // 底部工具条:＋ 添加空白节点(画布中心)。
+  // 出图还是出视频由节点 dock 的「图片/视频」切换决定,不在这里分叉。
   function toolAddNode() {
     if (readOnly) return;
     const c = centerScreen();
@@ -4493,34 +4704,97 @@ export function CanvasClient() {
                 )}
               </div>
 
-              {/* dbar:模型 / 比例·清晰度 / 数量 + 积分 + 发送(对齐原型 .dbar) */}
+              {/* dbar:模型 / 比例·清晰度 / 数量 + 积分 + 发送(对齐原型 .dbar)。
+                  配了视频 Key 时,最左侧多一个「图片 / 视频」切换,切到视频后
+                  参数换成时长·清晰度,生成走图生视频(本节点的图当首帧)。 */}
               {!readOnly && (
                 <div className="flex flex-none items-center gap-2 border-t border-[#2a2d36] px-3.5 py-2.5">
-                  <span
-                    className="flex items-center gap-1.5 rounded-[9px] bg-[#1f2229] px-2.5 py-1.5 text-[12.5px] font-semibold text-[#e7e9ee]"
-                    title={t("canvas.dockModelHint")}
-                  >
-                    {t("canvas.dockModel")}
-                  </span>
-                  {ratioControl}
-                  <DarkSelect
-                    dir="up"
-                    value={String(genCount)}
-                    options={[1, 2, 4].map((n) => ({
-                      value: String(n),
-                      label: `${n} 张`,
-                    }))}
-                    onPick={(v) => setGenCount(Number(v))}
-                    triggerClass="flex cursor-pointer items-center gap-1.5 rounded-[9px] bg-[#1f2229] px-2.5 py-1.5 text-[12.5px] font-semibold text-[#e7e9ee]"
-                    trigger={<>🖼 {genCount} 张</>}
-                  />
+                  {videoAvailable ? (
+                    <div className="flex flex-none gap-0.5 rounded-[9px] bg-[#15171c] p-[3px]">
+                      {(["image", "video"] as const).map((m) => (
+                        <button
+                          key={m}
+                          type="button"
+                          onClick={() => setDockMode(m)}
+                          className={cn(
+                            "rounded-[7px] px-2.5 py-1 text-[12px] font-semibold transition-colors",
+                            dockMode === m
+                              ? "bg-[#1f2229] text-[#e7e9ee]"
+                              : "text-[#9aa1ae] hover:text-[#e7e9ee]"
+                          )}
+                        >
+                          {m === "image" ? t("canvas.dockTabImage") : t("canvas.dockTabVideo")}
+                        </button>
+                      ))}
+                    </div>
+                  ) : (
+                    <span
+                      className="flex items-center gap-1.5 rounded-[9px] bg-[#1f2229] px-2.5 py-1.5 text-[12.5px] font-semibold text-[#e7e9ee]"
+                      title={t("canvas.dockModelHint")}
+                    >
+                      {t("canvas.dockModel")}
+                    </span>
+                  )}
+                  {dockMode === "video" ? (
+                    <>
+                      <DarkSelect
+                        dir="up"
+                        value={String(vidDuration)}
+                        options={[5, 8, 10, 12].map((n) => ({
+                          value: String(n),
+                          label: `${n} 秒`,
+                        }))}
+                        onPick={(v) => setVidDuration(Number(v))}
+                        triggerClass="flex cursor-pointer items-center gap-1.5 rounded-[9px] bg-[#1f2229] px-2.5 py-1.5 text-[12.5px] font-semibold text-[#e7e9ee]"
+                        trigger={<>⏱ {vidDuration} 秒</>}
+                      />
+                      <DarkSelect
+                        dir="up"
+                        value={vidResolution}
+                        options={["480p", "720p"].map((r) => ({
+                          value: r,
+                          label: r,
+                        }))}
+                        onPick={setVidResolution}
+                        triggerClass="flex cursor-pointer items-center gap-1.5 rounded-[9px] bg-[#1f2229] px-2.5 py-1.5 text-[12.5px] font-semibold text-[#e7e9ee]"
+                        trigger={<>🎬 {vidResolution}</>}
+                      />
+                    </>
+                  ) : (
+                    <>
+                      {ratioControl}
+                      <DarkSelect
+                        dir="up"
+                        value={String(genCount)}
+                        options={[1, 2, 4].map((n) => ({
+                          value: String(n),
+                          label: `${n} 张`,
+                        }))}
+                        onPick={(v) => setGenCount(Number(v))}
+                        triggerClass="flex cursor-pointer items-center gap-1.5 rounded-[9px] bg-[#1f2229] px-2.5 py-1.5 text-[12.5px] font-semibold text-[#e7e9ee]"
+                        trigger={<>🖼 {genCount} 张</>}
+                      />
+                    </>
+                  )}
                   <span className="flex-1" />
                   <span className="text-[13px] font-semibold text-[#f0c64a]">
-                    ⚡ {genCount * resolutionCost(genResolution)}
+                    ⚡{" "}
+                    {dockMode === "video"
+                      ? videoCost(vidDuration, vidResolution)
+                      : genCount * resolutionCost(genResolution)}
                   </span>
                   <button
                     type="button"
-                    onClick={generateChild}
+                    onClick={() =>
+                      dockMode === "video"
+                        ? void runVideo(
+                            selected!,
+                            editPrompt.trim() ||
+                              selected!.prompt ||
+                              t("canvas.videoDefaultPrompt")
+                          )
+                        : generateChild()
+                    }
                     disabled={generating}
                     title={t("canvas.generate")}
                     className="flex h-10 w-10 flex-none items-center justify-center rounded-[11px] bg-white text-[18px] font-bold text-[#111] transition-opacity hover:opacity-90 disabled:opacity-50"
@@ -4564,13 +4838,19 @@ export function CanvasClient() {
                     ))
                   ) : (
                     <span className="flex h-[46px] items-center rounded-[9px] border border-dashed border-[#2a2d36] px-3 text-[12px] text-[#9aa1ae]">
-                      🅰️ {t("canvas.pendText2img")}
+                      {selectedPend.kind === "video"
+                        ? `🎬 ${t("canvas.videoNeedInput")}`
+                        : `🅰️ ${t("canvas.pendText2img")}`}
                     </span>
                   )}
                   <span className="ml-1 min-w-0 flex-1 truncate text-[12px] text-[#9aa1ae]">
-                    {pendInputArts.length > 0
-                      ? fmt(t("canvas.pendMerge"), { n: pendInputArts.length })
-                      : t("canvas.pendNewImage")}
+                    {selectedPend.kind === "video"
+                      ? pendInputArts.length > 0
+                        ? t("canvas.videoFromFrame")
+                        : t("canvas.videoNeedInputHint")
+                      : pendInputArts.length > 0
+                        ? fmt(t("canvas.pendMerge"), { n: pendInputArts.length })
+                        : t("canvas.pendNewImage")}
                   </span>
                   <button
                     type="button"
@@ -4595,30 +4875,102 @@ export function CanvasClient() {
                 )}
               </div>
               <div className="flex flex-none items-center gap-2 border-t border-[#2a2d36] px-3.5 py-2.5">
-                <span className="flex items-center gap-1.5 rounded-[9px] bg-[#1f2229] px-2.5 py-1.5 text-[12.5px] font-semibold text-[#e7e9ee]">
-                  {t("canvas.dockModel")}
-                </span>
-                {ratioControl}
-                <DarkSelect
-                  dir="up"
-                  value={String(genCount)}
-                  options={[1, 2, 4].map((n) => ({
-                    value: String(n),
-                    label: `${n} 张`,
-                  }))}
-                  onPick={(v) => setGenCount(Number(v))}
-                  triggerClass="flex cursor-pointer items-center gap-1.5 rounded-[9px] bg-[#1f2229] px-2.5 py-1.5 text-[12.5px] font-semibold text-[#e7e9ee]"
-                  trigger={<>🖼 {genCount} 张</>}
-                />
+                {/* 图片/视频 切换 —— 与图片节点 dock 完全同一套控件和行为。
+                    空白节点不是"视频专用节点",随时可切回出图。 */}
+                {videoAvailable && (
+                  <div className="flex flex-none gap-0.5 rounded-[9px] bg-[#15171c] p-[3px]">
+                    {(["image", "video"] as const).map((m) => (
+                      <button
+                        key={m}
+                        type="button"
+                        onClick={() =>
+                          setPendNodes((prev) =>
+                            prev.map((p) =>
+                              p.id === selectedPend.id ? { ...p, kind: m } : p
+                            )
+                          )
+                        }
+                        className={cn(
+                          "rounded-[7px] px-2.5 py-1 text-[12px] font-semibold transition-colors",
+                          (selectedPend.kind ?? "image") === m
+                            ? "bg-[#1f2229] text-[#e7e9ee]"
+                            : "text-[#9aa1ae] hover:text-[#e7e9ee]"
+                        )}
+                      >
+                        {m === "image"
+                          ? t("canvas.dockTabImage")
+                          : t("canvas.dockTabVideo")}
+                      </button>
+                    ))}
+                  </div>
+                )}
+                {selectedPend.kind === "video" ? (
+                  <>
+                    <DarkSelect
+                      dir="up"
+                      value={String(vidDuration)}
+                      options={[5, 8, 10, 12].map((n) => ({
+                        value: String(n),
+                        label: `${n} 秒`,
+                      }))}
+                      onPick={(v) => setVidDuration(Number(v))}
+                      triggerClass="flex cursor-pointer items-center gap-1.5 rounded-[9px] bg-[#1f2229] px-2.5 py-1.5 text-[12.5px] font-semibold text-[#e7e9ee]"
+                      trigger={<>⏱ {vidDuration} 秒</>}
+                    />
+                    <DarkSelect
+                      dir="up"
+                      value={vidResolution}
+                      options={["480p", "720p"].map((r) => ({ value: r, label: r }))}
+                      onPick={setVidResolution}
+                      triggerClass="flex cursor-pointer items-center gap-1.5 rounded-[9px] bg-[#1f2229] px-2.5 py-1.5 text-[12.5px] font-semibold text-[#e7e9ee]"
+                      trigger={<>🎞 {vidResolution}</>}
+                    />
+                  </>
+                ) : (
+                  <>
+                    {!videoAvailable && (
+                      <span className="flex items-center gap-1.5 rounded-[9px] bg-[#1f2229] px-2.5 py-1.5 text-[12.5px] font-semibold text-[#e7e9ee]">
+                        {t("canvas.dockModel")}
+                      </span>
+                    )}
+                    {ratioControl}
+                    <DarkSelect
+                      dir="up"
+                      value={String(genCount)}
+                      options={[1, 2, 4].map((n) => ({
+                        value: String(n),
+                        label: `${n} 张`,
+                      }))}
+                      onPick={(v) => setGenCount(Number(v))}
+                      triggerClass="flex cursor-pointer items-center gap-1.5 rounded-[9px] bg-[#1f2229] px-2.5 py-1.5 text-[12.5px] font-semibold text-[#e7e9ee]"
+                      trigger={<>🖼 {genCount} 张</>}
+                    />
+                  </>
+                )}
                 <span className="flex-1" />
                 <span className="text-[13px] font-semibold text-[#f0c64a]">
-                  ⚡ {genCount * resolutionCost(genResolution)}
+                  ⚡{" "}
+                  {selectedPend.kind === "video"
+                    ? videoCost(vidDuration, vidResolution)
+                    : genCount * resolutionCost(genResolution)}
                 </span>
                 <button
                   type="button"
-                  onClick={() => void generatePend()}
-                  disabled={generating}
-                  title={t("canvas.generate")}
+                  onClick={() =>
+                    selectedPend.kind === "video"
+                      ? void generatePendVideo()
+                      : void generatePend()
+                  }
+                  // 视频节点必须有一张输入图当首帧,没连图就禁用(上游没有纯文生视频)
+                  disabled={
+                    generating ||
+                    (selectedPend.kind === "video" && pendInputArts.length === 0)
+                  }
+                  title={
+                    selectedPend.kind === "video" && pendInputArts.length === 0
+                      ? t("canvas.videoNeedInputHint")
+                      : t("canvas.generate")
+                  }
                   className="flex h-10 w-10 flex-none items-center justify-center rounded-[11px] bg-white text-[18px] font-bold text-[#111] transition-opacity hover:opacity-90 disabled:opacity-50"
                 >
                   {generating ? (

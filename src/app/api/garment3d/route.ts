@@ -13,9 +13,11 @@ import { clientIp } from "@/lib/ip";
 import { rateLimit } from "@/lib/rate-limit";
 import { resolveUserEmail } from "@/lib/admin-auth";
 import { storageEnabled, uploadImage } from "@/lib/storage";
+import { generateBuffer } from "@/lib/image-gen";
 import { getOpenAISettings } from "@/lib/settings";
 import { getOpenAIBaseUrl } from "@/lib/openai-base";
 import { garment3dCost, resolutionLongSide } from "@/lib/mock-data";
+import { nativeEditSize } from "@/lib/image-size";
 import { safeError } from "@/lib/api-error";
 
 // ---------------------------------------------------------------------------
@@ -159,18 +161,29 @@ async function runJob(
       const hint = cat ? ` The item is a ${cat}.` : "";
       const userHint = input.prompt ? ` Extra requirement: ${input.prompt}.` : "";
       const prompt = BASE_PROMPT + hint + userHint;
-      const r = await client.images.edit({
-        model: genModel || "gpt-image-2",
-        image: await toFile(png, "image.png", { type: "image/png" }),
-        prompt,
-        n: 1,
-        size: sizeForRatio(input.ratio) as "1024x1024",
-        quality: "high" as "high",
+      const model = genModel || "gpt-image-2";
+      // 原生直出要知道真实宽高比(用户选"自动"时按源图推)。
+      let ratioHint = input.ratio;
+      if (!/^\d+:\d+$/.test(ratioHint)) {
+        try {
+          const sharp = (await import("sharp")).default;
+          const meta = await sharp(png).metadata();
+          ratioHint = `${meta.width ?? 1024}:${meta.height ?? 1024}`;
+        } catch {
+          ratioHint = "1:1";
+        }
+      }
+      // **2K/4K 原生直出**(2026-08-26):gpt-image-2 接受任意 16 倍数尺寸,直接按
+      // 档位请求真实尺寸。原来是出 1024 再 sharp 插值 —— 像素变大但细节一个不增,
+      // 客户量完尺寸就知道高分辨率档卖的是插值(生图页 2026-08-15 已经这么改过)。
+      const nativeSizeStr = nativeEditSize(ratioHint, input.resolution, model);
+      out = await generateBuffer({
+          prompt: prompt,
+          images: [{ buf: png }],
+          model,
+          size: nativeSizeStr ?? (sizeForRatio(input.ratio) as "1024x1024"),
       });
-      const b64 = r.data?.[0]?.b64_json;
-      if (!b64) throw new Error("未返回 3D 图");
-      out = Buffer.from(b64, "base64");
-      // 2K/4K:出图后服务端放大长边(1K 原生不放大)。
+      // 兜底:模型不是 v2(自部署改过配置)时仍按老办法放大长边,不然高档位白收钱。
       out = await upscaleTo(out, input.resolution);
     } catch (e) {
       if (useDb && cost > 0) await refundCredits(input.email, cost).catch(() => {});

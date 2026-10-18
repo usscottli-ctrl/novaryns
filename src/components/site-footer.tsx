@@ -143,10 +143,17 @@ export function SiteFooter() {
             <Link href="/terms" className="transition-colors hover:text-foreground">
               {L("服务条款", "Terms")}
             </Link>
-            <span>·</span>
-            <Link href="/deploy" className="transition-colors hover:text-foreground">
-              {L("部署 / 自托管", "Deploy / Self-host")}
-            </Link>
+            {/* 「部署/自托管」只在官方站显示。云端托管租户看到它 = 在买家自己的白标站上
+                挂着"其实可以免费自部署"的入口(且会暴露我们的标准价);自托管实例的站长
+                走账户页「部署与授权」进入即可,终端用户点了本来也会被 /deploy 挡回首页。 */}
+            {official && (
+              <>
+                <span>·</span>
+                <Link href="/deploy" className="transition-colors hover:text-foreground">
+                  {L("部署 / 自托管", "Deploy / Self-host")}
+                </Link>
+              </>
+            )}
             {/* 白标门控:非 Pro(开源精简版)显示不可移除的 Powered by 署名。
                 署名归属上游产品(BRAND=Novaryns),不用运营者自定义的 brandName——
                 否则自部署者改了站名会变成"Powered by 他的站名",失去上游归属意义。 */}

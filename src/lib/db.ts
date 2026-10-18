@@ -6,6 +6,14 @@ import {
   type PromptTemplate,
 } from "@/lib/mock-data";
 import type { SessionUser, Invoice } from "@/lib/auth-context";
+import { provisionTenant, resumeTenant, provisionerConfigured } from "@/lib/provisioner";
+import { normalizeSubdomain, cloudDomainFor, parseCloudItemId } from "@/lib/cloud";
+import {
+  ANALYTICS_TZ,
+  type AnalyticsOverview,
+  type CountRow,
+  type DailyRow,
+} from "@/lib/analytics";
 
 // ---------------------------------------------------------------------------
 // Postgres persistence. Active only when DATABASE_URL is set; otherwise the
@@ -87,6 +95,16 @@ async function ensureSchema(): Promise<void> {
         -- 稳定项目分组:同一画布项目的所有节点共享 group_id,删中间节点也不改它,
         -- 避免"删一个连接节点 → 下游节点跑去别的项目"。
         ALTER TABLE app_artworks ADD COLUMN IF NOT EXISTS group_id text;
+        -- 出图当时的计费与参数快照。**必须落库,不能事后推算**:积分单价/质量倍率
+        -- 以后会调,用今天的表去算历史订单必然对不上。客户要能回答
+        -- 「这张图什么时候生成的、什么参数、扣了几分」(2026-08-17 客户实际质疑扣分)。
+        ALTER TABLE app_artworks ADD COLUMN IF NOT EXISTS cost integer;
+        ALTER TABLE app_artworks ADD COLUMN IF NOT EXISTS quality text;
+        ALTER TABLE app_artworks ADD COLUMN IF NOT EXISTS model text;
+        -- 这张图实际消耗的上游 output tokens。**成本核算的唯一可靠依据**:
+        -- 积分单价此前靠"实测一档 + 倍率外推"估算,4K 因此被高估一倍、险些据此涨价 22%。
+        -- 有了这一列,跑一两个月就能用真实用量算成本,不必再凭单次实测推断。
+        ALTER TABLE app_artworks ADD COLUMN IF NOT EXISTS tokens integer;
         -- 软删除/回收站:deleted_at 非空=已删(进回收站),空=正常。保留 N 天后才真删。
         ALTER TABLE app_artworks ADD COLUMN IF NOT EXISTS deleted_at timestamptz;
         CREATE INDEX IF NOT EXISTS app_artworks_deleted_idx
@@ -227,6 +245,11 @@ async function ensureSchema(): Promise<void> {
         -- expires_at 给「购买/获取」类流水显示到期时间。
         ALTER TABLE app_ledger ADD COLUMN IF NOT EXISTS kind text NOT NULL DEFAULT '';
         ALTER TABLE app_ledger ADD COLUMN IF NOT EXISTS expires_at timestamptz;
+        -- 这笔扣费对应哪次生成(= app_artworks.batch_id)。没有它,账户页的扣分明细
+        -- 就只是一行"生成 1 张图 -23",客户点不进去、也对不上是哪张图
+        -- (2026-08-17 客户原话:「查看扣分记录但是对应不到图片」)。
+        ALTER TABLE app_ledger ADD COLUMN IF NOT EXISTS ref_id text;
+        CREATE INDEX IF NOT EXISTS app_ledger_ref_idx ON app_ledger (email, ref_id);
         -- 兑换码:站长后台批量生成,用户在充值弹窗兑换成积分(走 addCreditBatch grant)。
         CREATE TABLE IF NOT EXISTS app_card_keys (
           code       text PRIMARY KEY,                 -- NOVA-XXXX-XXXX-XXXX
@@ -241,6 +264,24 @@ async function ensureSchema(): Promise<void> {
         );
         CREATE INDEX IF NOT EXISTS app_card_keys_status_idx
           ON app_card_keys (status, created_at DESC);
+
+        -- 云端托管「开通码」:淘宝等渠道拍下后自动发码,买家自助到 /cloud/redeem
+        -- 填子域名+管理员邮箱换实例。一码 = 一个套餐(月付/年付),核销后合成一张
+        -- 金额为 0 的已付 cloud 订单,复用与线上支付完全相同的开通/续费/生命周期链路。
+        CREATE TABLE IF NOT EXISTS app_cloud_codes (
+          code       text PRIMARY KEY,                 -- NVCL-XXXX-XXXX-XXXX
+          plan_id    text NOT NULL,                    -- monthly|yearly(见 CLOUD_PLANS)
+          status     text NOT NULL DEFAULT 'unused',   -- unused|used|disabled
+          batch      text NOT NULL DEFAULT '',
+          note       text NOT NULL DEFAULT '',
+          expires_at timestamptz,                      -- 核销截止;null = 永久
+          created_at timestamptz NOT NULL DEFAULT now(),
+          used_by    text,
+          used_at    timestamptz,
+          order_id   text                              -- 核销时合成的订单,失败可换名重试
+        );
+        CREATE INDEX IF NOT EXISTS app_cloud_codes_status_idx
+          ON app_cloud_codes (status, created_at DESC);
 
         -- Pro 自托管授权 License(爱发电售卖/发货的产品)。
         CREATE TABLE IF NOT EXISTS app_licenses (
@@ -268,6 +309,90 @@ async function ensureSchema(): Promise<void> {
         );
         CREATE INDEX IF NOT EXISTS app_license_act_key_idx
           ON app_license_activations (license_key);
+        -- 云端托管租户:一个已付「cloud」订单 → 一个专属实例(<subdomain>.starzeco.com)。
+        -- order_id 幂等键;付款后 ensureCloudTenantForOrder 认领 provisioning→调开通服务→active/failed。
+        CREATE TABLE IF NOT EXISTS app_cloud_tenants (
+          order_id       text PRIMARY KEY,               -- = 触发开通的订单(幂等键)
+          email          text NOT NULL,                  -- 买家 = 租户管理员邮箱
+          subdomain      text NOT NULL,                  -- 子域名(<sub>.starzeco.com)
+          region         text NOT NULL DEFAULT 'cn',
+          status         text NOT NULL DEFAULT 'pending',-- pending|provisioning|active|failed|suspended|purged
+          url            text,                           -- https://<sub>.starzeco.com
+          admin_password text,                           -- 初始管理员密码(一次性,买家应尽快修改)
+          error          text,                           -- 失败原因(展示/工单)
+          expires_at     timestamptz,
+          created_at     timestamptz NOT NULL DEFAULT now(),
+          provisioned_at timestamptz,
+          updated_at     timestamptz NOT NULL DEFAULT now()
+        );
+        -- 续费追踪(M4):last_order_id = 最近一次续费订单(供该订单的 provision/poll 解析到本租户)。
+        ALTER TABLE app_cloud_tenants ADD COLUMN IF NOT EXISTS last_order_id text;
+        ALTER TABLE app_cloud_tenants ADD COLUMN IF NOT EXISTS renewed_at timestamptz;
+        ALTER TABLE app_cloud_tenants ADD COLUMN IF NOT EXISTS renewals integer NOT NULL DEFAULT 0;
+        -- 自定义域名(逗号分隔,v1 单个);到期前提醒发送时间(续费后清空以便下轮再提醒)。
+        ALTER TABLE app_cloud_tenants ADD COLUMN IF NOT EXISTS custom_domains text NOT NULL DEFAULT '';
+        ALTER TABLE app_cloud_tenants ADD COLUMN IF NOT EXISTS remind_sent_at timestamptz;
+        -- 同一子域名同一时刻只允许一个「在途/活跃」占用;失败/销毁的不占名(可重开)。
+        CREATE UNIQUE INDEX IF NOT EXISTS app_cloud_tenants_sub_live_idx
+          ON app_cloud_tenants (subdomain)
+          WHERE status IN ('pending','provisioning','active','suspended');
+        CREATE INDEX IF NOT EXISTS app_cloud_tenants_email_idx
+          ON app_cloud_tenants (email, created_at DESC);
+        CREATE INDEX IF NOT EXISTS app_cloud_tenants_status_exp_idx
+          ON app_cloud_tenants (status, expires_at);
+        -- 云端算力充值台账:一个已付 compute 订单 → 给中转 token 加一次配额(幂等键=order_id)。
+        CREATE TABLE IF NOT EXISTS app_compute_topups (
+          order_id   text PRIMARY KEY,
+          token_id   text NOT NULL,
+          credits    integer NOT NULL,
+          status     text NOT NULL DEFAULT 'pending', -- pending|applied|failed
+          error      text,
+          created_at timestamptz NOT NULL DEFAULT now(),
+          applied_at timestamptz
+        );
+        -- 站点访问统计:一次页面浏览一行(自建轻量 analytics,见 lib/analytics.ts)。
+        -- 隐私:不存原始 IP / 完整 UA。visitor = sha256(站点密钥 + IP + UA) 取前 32 位,
+        -- 不可逆,只用于 UV 去重。day 在写入时按 ANALYTICS_TZ 算好,查询才能直接走索引。
+        CREATE TABLE IF NOT EXISTS app_page_views (
+          id       bigserial PRIMARY KEY,
+          ts       timestamptz NOT NULL DEFAULT now(),
+          day      date NOT NULL,
+          path     text NOT NULL,
+          visitor  text NOT NULL,
+          sid      text NOT NULL DEFAULT '',
+          country  text,
+          device   text NOT NULL DEFAULT 'desktop',
+          browser  text NOT NULL DEFAULT '',
+          ref_host text NOT NULL DEFAULT '',
+          locale   text NOT NULL DEFAULT ''
+        );
+        CREATE INDEX IF NOT EXISTS app_page_views_day_idx
+          ON app_page_views (day);
+        CREATE INDEX IF NOT EXISTS app_page_views_ts_idx
+          ON app_page_views (ts DESC);
+        -- 视频生成任务(火山引擎方舟 Seedance 异步):创建时预扣积分并记一行 pending,
+        -- 前端轮询 /api/video/status 时按 task_id 结算 —— 成功落作品、失败退积分。
+        -- status 只能 pending → succeeded|failed 单向转一次(见 settleVideoJob 的
+        -- WHERE status='pending' ... RETURNING),否则并发轮询会重复退款/重复落库。
+        CREATE TABLE IF NOT EXISTS app_video_jobs (
+          task_id    text PRIMARY KEY,
+          email      text NOT NULL,
+          cost       integer NOT NULL DEFAULT 0,
+          status     text NOT NULL DEFAULT 'pending', -- pending|succeeded|failed
+          title      text NOT NULL DEFAULT '',
+          prompt     text NOT NULL DEFAULT '',
+          resolution text NOT NULL DEFAULT '',
+          duration   integer NOT NULL DEFAULT 0,
+          source_url text,
+          parent_id  text,
+          artwork_id text,
+          video_url  text,
+          error      text,
+          created_at timestamptz NOT NULL DEFAULT now(),
+          settled_at timestamptz
+        );
+        CREATE INDEX IF NOT EXISTS app_video_jobs_email_idx
+          ON app_video_jobs (email, created_at DESC);
       `);
     })();
   }
@@ -558,6 +683,188 @@ export async function cardKeyStats(): Promise<{
     used: Number(r?.used ?? 0),
     creditsRedeemed: Number(r?.credits_redeemed ?? 0),
   };
+}
+
+// ===========================================================================
+// 云端托管开通码(app_cloud_codes):渠道(淘宝)拍下自动发码 → 买家自助核销开站
+// ---------------------------------------------------------------------------
+// 为什么绕一圈合成订单,而不直接调开通服务:开通/续费/到期挂起/恢复整条链路都是
+// 按 order_id 幂等的(ensureCloudTenantForOrder / M4 生命周期任务)。让开通码也产出
+// 一张订单,这些能力全部免费复用,后台「云端租户」面板也能原样看到这个租户。
+// 订单金额记 0 —— 钱是在渠道侧收的,站内账不重复计收入。
+// ===========================================================================
+
+export type CloudCodeRow = {
+  code: string;
+  plan_id: string;
+  status: "unused" | "used" | "disabled";
+  batch: string;
+  note: string;
+  expires_at: Date | null;
+  created_at: Date;
+  used_by: string | null;
+  used_at: Date | null;
+  order_id: string | null;
+};
+
+const CLOUD_CODE_COLS =
+  "code, plan_id, status, batch, note, expires_at, created_at, used_by, used_at, order_id";
+
+// 与卡密同字符集(去掉 0/O/1/I/L),但前缀 NVCL 便于人工一眼区分「开通码 ≠ 积分卡密」。
+function randCloudCode(): string {
+  const seg = () =>
+    Array.from(
+      { length: 4 },
+      () => CARD_CHARSET[Math.floor(Math.random() * CARD_CHARSET.length)]
+    ).join("");
+  return `NVCL-${seg()}-${seg()}-${seg()}`;
+}
+
+/** 批量生成开通码(站长后台)。expiryDays=null → 永久。 */
+export async function generateCloudCodes(opts: {
+  planId: string;
+  count: number;
+  expiryDays: number | null;
+  batch: string;
+  note: string;
+}): Promise<CloudCodeRow[]> {
+  await ensureSchema();
+  const expires =
+    opts.expiryDays && opts.expiryDays > 0
+      ? new Date(Date.now() + opts.expiryDays * 86400000).toISOString()
+      : null;
+  const out: CloudCodeRow[] = [];
+  for (let i = 0; i < opts.count; i++) {
+    let inserted: CloudCodeRow | null = null;
+    for (let attempt = 0; attempt < 5 && !inserted; attempt++) {
+      const { rows } = await getPool().query<CloudCodeRow>(
+        `INSERT INTO app_cloud_codes (code, plan_id, batch, note, expires_at)
+         VALUES ($1,$2,$3,$4,$5)
+         ON CONFLICT (code) DO NOTHING
+         RETURNING ${CLOUD_CODE_COLS}`,
+        [randCloudCode(), opts.planId, opts.batch, opts.note, expires]
+      );
+      if (rows[0]) inserted = rows[0];
+    }
+    if (inserted) out.push(inserted);
+  }
+  return out;
+}
+
+export async function listCloudCodes(): Promise<CloudCodeRow[]> {
+  await ensureSchema();
+  const { rows } = await getPool().query<CloudCodeRow>(
+    `SELECT ${CLOUD_CODE_COLS} FROM app_cloud_codes ORDER BY created_at DESC LIMIT 500`
+  );
+  return rows;
+}
+
+/** 停用 / 恢复(已核销的不可改)。 */
+export async function setCloudCodeStatus(
+  code: string,
+  status: "unused" | "disabled"
+): Promise<void> {
+  await ensureSchema();
+  await getPool().query(
+    `UPDATE app_cloud_codes SET status = $2 WHERE code = $1 AND status <> 'used'`,
+    [code, status]
+  );
+}
+
+export async function cloudCodeStats(): Promise<{ issued: number; used: number }> {
+  await ensureSchema();
+  const { rows } = await getPool().query<{ issued: string; used: string }>(
+    `SELECT COUNT(*) AS issued, COUNT(*) FILTER (WHERE status = 'used') AS used
+       FROM app_cloud_codes`
+  );
+  return { issued: Number(rows[0]?.issued ?? 0), used: Number(rows[0]?.used ?? 0) };
+}
+
+export type CloudCodeCheck =
+  | { ok: true; planId: string; orderId: string | null; retryable: boolean }
+  | { ok: false; error: string };
+
+/** 查码(核销前给买家看套餐)。已核销但开通失败的 → retryable,可换名重试。 */
+export async function inspectCloudCode(codeRaw: string): Promise<CloudCodeCheck> {
+  await ensureSchema();
+  const code = codeRaw.trim().toUpperCase();
+  const { rows } = await getPool().query<CloudCodeRow>(
+    `SELECT ${CLOUD_CODE_COLS} FROM app_cloud_codes WHERE code = $1`,
+    [code]
+  );
+  const r = rows[0];
+  if (!r) return { ok: false, error: "开通码不存在" };
+  if (r.status === "disabled") return { ok: false, error: "开通码已停用,请联系客服" };
+  if (r.expires_at && r.expires_at <= new Date() && r.status === "unused") {
+    return { ok: false, error: "开通码已过期" };
+  }
+  if (r.status === "used") {
+    // 已核销:开通失败才允许换名重试,成功/开通中一律拒绝(防重复开站)。
+    const t = r.order_id ? await getCloudTenantByOrder(r.order_id) : null;
+    if (t && t.status === "failed") {
+      return { ok: true, planId: r.plan_id, orderId: r.order_id, retryable: true };
+    }
+    return { ok: false, error: "开通码已使用" };
+  }
+  return { ok: true, planId: r.plan_id, orderId: null, retryable: false };
+}
+
+/** 核销开通码 → 合成一张已付 cloud 订单并触发开通。返回订单号供前端轮询。
+ *  先建订单再原子认领码:认领失败只会留下一张无害的 pending 订单,
+ *  绝不会出现「码被烧掉却没有对应订单」的黑洞。 */
+export async function claimCloudCode(
+  codeRaw: string,
+  emailRaw: string,
+  subRaw: string
+): Promise<{ orderId: string }> {
+  await ensureSchema();
+  const code = codeRaw.trim().toUpperCase();
+  const email = emailRaw.trim().toLowerCase();
+  const { findCloudPlan, normalizeSubdomain, subdomainError } = await import("@/lib/cloud");
+  const sub = normalizeSubdomain(subRaw);
+
+  const fmtErr = subdomainError(sub);
+  if (fmtErr) throw new Error(fmtErr);
+  if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email)) throw new Error("请填写正确的邮箱");
+
+  const pre = await inspectCloudCode(code);
+  if (!pre.ok) throw new Error(pre.error);
+  const plan = findCloudPlan(pre.planId);
+  if (!plan) throw new Error("开通码套餐异常,请联系客服");
+
+  // 抢在核销前查占用,避免买家因撞名白烧一张码(仍有并发窗口,由开通阶段兜底)。
+  if (await isCloudSubdomainTaken(sub)) throw new Error("该名称已被占用,请换一个");
+
+  const order = await createOrder({
+    email,
+    kind: "cloud",
+    itemId: `${sub}@${plan.id}`,
+    title: `云端托管 · ${plan.label}(开通码)`,
+    credits: plan.credits,
+    amount: 0, // 钱在渠道侧收,站内不重复计收入
+  });
+
+  // 原子认领:unused → used;或「已核销但开通失败」→ 换新订单重试。
+  const { rows } = await getPool().query<{ code: string }>(
+    `UPDATE app_cloud_codes
+        SET status = 'used', used_by = $2, used_at = now(), order_id = $3
+      WHERE code = $1
+        AND (
+          (status = 'unused' AND (expires_at IS NULL OR expires_at > now()))
+          OR (status = 'used' AND order_id = $4)
+        )
+      RETURNING code`,
+    [code, email, order.id, pre.retryable ? pre.orderId : null]
+  );
+  if (!rows[0]) {
+    // 没抢到 = 并发下已被别处核销。刚建的 pending 订单留作审计,不影响买家。
+    const again = await inspectCloudCode(code);
+    throw new Error(again.ok ? "开通码正在使用中,请稍后重试" : again.error);
+  }
+
+  // 标记已付 → 内部 fire-and-forget 触发 ensureCloudTenantForOrder;前端轮询 /api/cloud/tenant。
+  await fulfillOrder(order.id, "cloudcode", code);
+  return { orderId: order.id };
 }
 
 // ─────────────────────────────────────────────────────────────────────
@@ -897,7 +1204,11 @@ export async function getOrCreateUser(
   );
   if (rows[0]?.is_new) {
     const bonus = await getSignupBonus(); // 后台可配,默认 30;0=不赠送
-    if (bonus > 0) {
+    // 新人赠送同样是**从站点库存划拨**,库存不足就不送(而不是凭空产生)。
+    // 这是四个发放入口之一,少堵一个站长就能绕过站点配额。
+    const { reserveIssue } = await import("@/lib/credit-issue");
+    const stock = bonus > 0 ? await reserveIssue(bonus) : { ok: true as const };
+    if (bonus > 0 && stock.ok) {
       const d = new Date();
       d.setDate(d.getDate() + 30); // 新人赠送:30 天有效
       await addCreditBatch(email, bonus, {
@@ -1224,7 +1535,9 @@ export async function listLedger(limit = 20): Promise<LedgerRow[]> {
 export async function addLedgerEntry(
   emailRaw: string,
   delta: number,
-  reason: string
+  reason: string,
+  /** 关联的生成批次(app_artworks.batch_id),让账户页的明细能点回那几张图。 */
+  refId?: string
 ): Promise<void> {
   await ensureSchema();
   const email = emailRaw.toLowerCase();
@@ -1238,8 +1551,8 @@ export async function addLedgerEntry(
         [email, delta]
       );
       await client.query(
-        `INSERT INTO app_ledger (id, email, delta, reason, kind) VALUES ($1,$2,$3,$4,'consume')`,
-        [ledId(), email, delta, reason]
+        `INSERT INTO app_ledger (id, email, delta, reason, kind, ref_id) VALUES ($1,$2,$3,$4,'consume',$5)`,
+        [ledId(), email, delta, reason, refId ?? null]
       );
       await client.query("COMMIT");
     } catch (e) {
@@ -1252,8 +1565,8 @@ export async function addLedgerEntry(
     return;
   }
   await getPool().query(
-    `INSERT INTO app_ledger (id, email, delta, reason, kind) VALUES ($1,$2,$3,$4,$5)`,
-    [ledId(), email, delta, reason, delta > 0 ? "grant" : "consume"]
+    `INSERT INTO app_ledger (id, email, delta, reason, kind, ref_id) VALUES ($1,$2,$3,$4,$5,$6)`,
+    [ledId(), email, delta, reason, delta > 0 ? "grant" : "consume", refId ?? null]
   );
 }
 
@@ -1264,7 +1577,7 @@ export async function listUserLedger(
 ): Promise<LedgerRow[]> {
   await ensureSchema();
   const { rows } = await getPool().query(
-    `SELECT id, email, delta, reason, kind, expires_at, created_at
+    `SELECT id, email, delta, reason, kind, expires_at, created_at, ref_id
        FROM app_ledger WHERE email = $1
       ORDER BY created_at DESC LIMIT $2`,
     [emailRaw.toLowerCase(), limit]
@@ -1477,11 +1790,17 @@ export async function fulfillOrder(
       await client.query("COMMIT");
       return { ok: true, alreadyPaid: true, order: rowToOrder(o) };
     }
-    // Pro 授权直售订单:不发积分,标记已付后在事务外幂等生成 License Key
-    // (ensureProLicenseForOrder,按 batch=orderId 去重)。积分订单走原批次逻辑。
-    if (o.kind !== "pro") {
-      // 到账 = 建一个 2 年有效的积分批次(不再分 plan/pack,按订单存的 credits 入账;
-      // 遗留的会员订单后付款也能正常入账)。在同一事务里写批次 + 购买流水 + 同步余额。
+    // Pro 授权 / 云端托管 / 算力包订单:不发站内积分,标记已付后在事务外兑现
+    // (Pro→License;cloud→开实例;compute→给中转 token 充配额,均按 orderId 幂等)。
+    if (o.kind !== "pro" && o.kind !== "cloud" && o.kind !== "compute") {
+      // 用户买积分到账 —— 这也是**从站点库存划拨**,必须记进 issued_total。
+      //
+      // ⚠️ **但这里的处理跟其他三个入口不同**:钱已经收了(支付回调走到这一步说明
+      // 用户付款成功),**绝不能因为库存不足就不给积分** —— 那是收了钱不发货。
+      // 所以这里只"记账不拦截":照常入账,同时把 issued_total 顶上去(哪怕超过
+      // quota_total)。超发的部分会让站长后台的「可发放」变成 0,逼他去补充算力,
+      // 而不是让付了钱的终端用户受损。
+      // 站长该做的是**保证库存充足再开卖**,这属于经营责任,不该由用户承担。
       const reason = `购买${o.title || "积分"}`;
       const expISO = twoYearsFromNow().toISOString();
       await client.query(
@@ -1509,6 +1828,14 @@ export async function fulfillOrder(
       [orderId, provider, providerTxn ?? null]
     );
     await client.query("COMMIT");
+    // 事务外记账:用户买的积分计入「已发放」。**放事务外**是因为 relay 是外部 HTTP 服务,
+    // 把它放进事务里会让数据库连接被网络往返卡住,失败还会连累已经成功的入账。
+    // 记账失败不影响用户拿到积分(下次对账能发现差额)。
+    if (o.kind !== "pro" && o.kind !== "cloud" && o.kind !== "compute" && o.credits > 0) {
+      void import("@/lib/credit-issue")
+        .then((m) => m.reserveIssue(o.credits))
+        .catch(() => {});
+    }
   } catch (e) {
     await client.query("ROLLBACK");
     throw e;
@@ -1520,7 +1847,61 @@ export async function fulfillOrder(
   if (updated?.kind === "pro") {
     await ensureProLicenseForOrder(updated.id, updated.email).catch(() => null);
   }
+  // 云端托管:付款落定后开通实例。开通耗时数分钟,不阻塞支付回调 —— fire-and-forget
+  // 后台跑;前端 /api/cloud/provision(等待式)与 M4 定时任务是可靠兜底(均按 orderId 幂等)。
+  if (updated?.kind === "cloud") {
+    void ensureCloudTenantForOrder(updated.id, updated.email, updated.itemId).catch(() => null);
+  }
+  // 算力包:给对应中转 token 充积分(秒级,轮询接口也会懒补兜底)。
+  if (updated?.kind === "compute") {
+    await ensureComputeTopupForOrder(updated.id, updated.itemId).catch(() => null);
+  }
   return { ok: true, alreadyPaid: false, order: updated ?? undefined };
+}
+
+// 算力包兑现:已付 compute 订单 → 给中转 token addQuota(积分)。幂等:app_compute_topups
+// 按 order_id 原子认领(pending/failed 可重试,applied 直接返回),避免回调+轮询双触发重复充值。
+export async function ensureComputeTopupForOrder(
+  orderId: string,
+  itemId: string
+): Promise<{ ok: boolean; credits?: number; error?: string }> {
+  await ensureSchema();
+  const [packId, tokenId] = (itemId || "").split(":");
+  const { findComputePack } = await import("@/lib/cloud");
+  const pack = findComputePack(packId || "");
+  if (!pack || !/^[0-9a-f]{16}$/.test(tokenId || "")) return { ok: false, error: "订单商品信息异常" };
+
+  // 原子认领:无记录/failed/超时卡死的 pending(认领后进程崩溃)→ pending 占位并刷新
+  // created_at(=认领时间);已 applied → 幂等返回成功。
+  const claim = await getPool().query<{ status: string }>(
+    `INSERT INTO app_compute_topups (order_id, token_id, credits, status)
+       VALUES ($1,$2,$3,'pending')
+     ON CONFLICT (order_id) DO UPDATE SET status='pending', error=NULL, created_at=now()
+       WHERE app_compute_topups.status = 'failed'
+          OR (app_compute_topups.status = 'pending'
+              AND app_compute_topups.created_at < now() - interval '2 minutes')
+     RETURNING status`,
+    [orderId, tokenId, pack.credits]
+  );
+  if (!claim.rows[0]) {
+    const cur = await getPool().query<{ status: string }>(
+      `SELECT status FROM app_compute_topups WHERE order_id=$1`, [orderId]);
+    if (cur.rows[0]?.status === "applied") return { ok: true, credits: pack.credits };
+    return { ok: false, error: "充值正在处理中" }; // 别处已认领 pending
+  }
+
+  try {
+    const { patchToken } = await import("@/lib/relay");
+    await patchToken(tokenId, { addQuota: pack.credits });
+    await getPool().query(
+      `UPDATE app_compute_topups SET status='applied', applied_at=now() WHERE order_id=$1`, [orderId]);
+    return { ok: true, credits: pack.credits };
+  } catch (e) {
+    const msg = e instanceof Error ? e.message : "充值失败";
+    await getPool().query(
+      `UPDATE app_compute_topups SET status='failed', error=$2 WHERE order_id=$1`, [orderId, msg]);
+    return { ok: false, error: msg };
+  }
 }
 
 // Pro 直售订单 → License Key(幂等:batch=orderId 唯一)。付款回调与订单轮询
@@ -1549,6 +1930,365 @@ export async function ensureProLicenseForOrder(
     [lic.key, email]
   );
   return lic.key;
+}
+
+// ---------------------------------------------------------------------------
+// 云端托管租户开通(见 docs/cloud-provisioning.md M3)。
+// ---------------------------------------------------------------------------
+export type CloudTenantRow = {
+  orderId: string;
+  email: string;
+  subdomain: string;
+  region: string;
+  status: string; // pending|provisioning|active|failed|suspended|purged
+  url: string | null;
+  adminPassword: string | null;
+  error: string | null;
+  expiresAt: string | null;
+  createdAt: string;
+  provisionedAt: string | null;
+  renewals: number;
+  customDomains: string[];
+};
+
+type CloudTenantDbRow = {
+  order_id: string;
+  email: string;
+  subdomain: string;
+  region: string;
+  status: string;
+  url: string | null;
+  admin_password: string | null;
+  error: string | null;
+  expires_at: Date | null;
+  created_at: Date;
+  provisioned_at: Date | null;
+  renewals: number | null;
+  custom_domains: string | null;
+};
+
+function rowToCloudTenant(r: CloudTenantDbRow): CloudTenantRow {
+  return {
+    orderId: r.order_id,
+    email: r.email,
+    subdomain: r.subdomain,
+    region: r.region,
+    status: r.status,
+    url: r.url ?? null,
+    adminPassword: r.admin_password ?? null,
+    error: r.error ?? null,
+    expiresAt: r.expires_at ? new Date(r.expires_at).toISOString() : null,
+    createdAt: new Date(r.created_at).toISOString(),
+    provisionedAt: r.provisioned_at ? new Date(r.provisioned_at).toISOString() : null,
+    renewals: Number(r.renewals ?? 0),
+    customDomains: (r.custom_domains || "").split(",").map((s) => s.trim()).filter(Boolean),
+  };
+}
+
+export async function getCloudTenantByOrder(orderId: string): Promise<CloudTenantRow | null> {
+  await ensureSchema();
+  // 初次开通单命中 order_id;续费单命中 last_order_id —— 都解析到同一租户。
+  const { rows } = await getPool().query<CloudTenantDbRow>(
+    `SELECT * FROM app_cloud_tenants WHERE order_id = $1 OR last_order_id = $1 LIMIT 1`,
+    [orderId]
+  );
+  return rows[0] ? rowToCloudTenant(rows[0]) : null;
+}
+
+// 子域名是否被在途/活跃租户占用(check-name 用)。
+export async function isCloudSubdomainTaken(subRaw: string): Promise<boolean> {
+  await ensureSchema();
+  const sub = normalizeSubdomain(subRaw);
+  const { rows } = await getPool().query<{ order_id: string }>(
+    `SELECT order_id FROM app_cloud_tenants
+       WHERE subdomain = $1 AND status IN ('pending','provisioning','active','suspended') LIMIT 1`,
+    [sub]
+  );
+  return !!rows[0];
+}
+
+export async function listCloudTenantsByEmail(emailRaw: string): Promise<CloudTenantRow[]> {
+  await ensureSchema();
+  const { rows } = await getPool().query<CloudTenantDbRow>(
+    `SELECT * FROM app_cloud_tenants WHERE email = $1 ORDER BY created_at DESC`,
+    [emailRaw.toLowerCase()]
+  );
+  return rows.map(rowToCloudTenant);
+}
+
+async function markCloudFailed(orderId: string, email: string, sub: string, reason: string): Promise<CloudTenantRow | null> {
+  const { rows } = await getPool().query<CloudTenantDbRow>(
+    `INSERT INTO app_cloud_tenants (order_id, email, subdomain, region, status, error, updated_at)
+       VALUES ($1,$2,$3,'cn','failed',$4,now())
+     ON CONFLICT (order_id) DO UPDATE SET status='failed', error=$4, updated_at=now()
+     RETURNING *`,
+    [orderId, email, sub, reason]
+  );
+  return rows[0] ? rowToCloudTenant(rows[0]) : null;
+}
+
+// 幂等开通:一个已付 cloud 订单 → 一个租户实例。付款回调(fire-and-forget)、前端
+// /api/cloud/provision(等待式)、M4 定时兜底都会调它,靠 order_id 认领防重复开通。
+export async function ensureCloudTenantForOrder(
+  orderId: string,
+  emailRaw: string,
+  subdomainRaw: string
+): Promise<CloudTenantRow | null> {
+  await ensureSchema();
+  const email = emailRaw.toLowerCase();
+  // itemId 形如 "<子域名>@<套餐id>";套餐决定有效期与赠送算力(月付30天/1000积分,年付365天/12000积分)。
+  const { sub, plan } = parseCloudItemId(subdomainRaw);
+
+  // 已存在且非 failed(provisioning/active/suspended)→ 不重复开,直接返回现状。
+  const existing = await getCloudTenantByOrder(orderId);
+  if (existing && existing.status !== "failed") return existing;
+
+  // 续费:同一子域名 + 同一买家 已有 active/suspended 租户 → 本单是续费,延期(+1年)
+  // 并在挂起时恢复,不新开实例。挂 last_order_id 让本续费单也能解析到该租户。
+  const renew = await getPool().query<CloudTenantDbRow>(
+    `SELECT * FROM app_cloud_tenants
+       WHERE subdomain = $1 AND email = $2 AND order_id <> $3
+         AND status IN ('active','suspended') LIMIT 1`,
+    [sub, email, orderId]
+  );
+  if (renew.rows[0]) return renewCloudTenant(renew.rows[0], orderId, plan.days, plan.credits);
+
+  // 子域名被「别的买家」在途/活跃占用 → 本单失败(建议客户换名或退款)。
+  const taken = await getPool().query<{ order_id: string }>(
+    `SELECT order_id FROM app_cloud_tenants
+       WHERE subdomain = $1 AND order_id <> $2
+         AND status IN ('pending','provisioning','active','suspended') LIMIT 1`,
+    [sub, orderId]
+  );
+  if (taken.rows[0]) return markCloudFailed(orderId, email, sub, "子域名已被占用,请联系客服更换");
+
+  // 原子认领:none/pending/failed → provisioning。抢不到(别的进程已在开)→ 返回现状。
+  let claimed: CloudTenantRow | null = null;
+  try {
+    const { rows } = await getPool().query<CloudTenantDbRow>(
+      `INSERT INTO app_cloud_tenants (order_id, email, subdomain, region, status, error, updated_at)
+         VALUES ($1,$2,$3,'cn','provisioning',NULL,now())
+       ON CONFLICT (order_id) DO UPDATE SET
+         status='provisioning', email=EXCLUDED.email, subdomain=EXCLUDED.subdomain,
+         error=NULL, updated_at=now()
+         WHERE app_cloud_tenants.status IN ('pending','failed')
+       RETURNING *`,
+      [orderId, email, sub]
+    );
+    claimed = rows[0] ? rowToCloudTenant(rows[0]) : null;
+  } catch {
+    // 与 sub_live 唯一索引竞态(并发同名)→ 判为被占用。
+    return markCloudFailed(orderId, email, sub, "子域名已被占用,请联系客服更换");
+  }
+  if (!claimed) return await getCloudTenantByOrder(orderId); // 没抢到 = 别处正在开
+
+  if (!provisionerConfigured()) {
+    return markCloudFailed(orderId, email, sub, "云端开通服务未配置,请联系客服");
+  }
+
+  // 调开通服务(阻塞,数分钟)。
+  const res = await provisionTenant({ name: sub, email, site: sub, credits: plan.credits }).catch((e) => ({
+    ok: false as const,
+    error: e instanceof Error ? e.message : "开通异常",
+  }));
+
+  if (!res.ok) {
+    return markCloudFailed(orderId, email, sub, res.error || "开通失败");
+  }
+
+  // 有效期按套餐(月付 30 天 / 年付 365 天)。
+  const expISO = new Date(Date.now() + plan.days * 86_400_000).toISOString();
+  const { rows } = await getPool().query<CloudTenantDbRow>(
+    `UPDATE app_cloud_tenants
+        SET status='active', url=$2, admin_password=$3, error=NULL,
+            provisioned_at=now(), expires_at=$4, updated_at=now()
+      WHERE order_id=$1 RETURNING *`,
+    [orderId, res.url ?? `https://${cloudDomainFor(sub)}`, res.adminPassword ?? null, expISO]
+  );
+  const active = rows[0] ? rowToCloudTenant(rows[0]) : null;
+  // 凭证邮件(best-effort,不影响开通结果)。
+  void sendCloudCredentialsEmail(email, sub, active?.url ?? "", res.adminPassword ?? "").catch(() => {});
+  return active;
+}
+
+async function sendCloudCredentialsEmail(email: string, sub: string, url: string, password: string): Promise<void> {
+  if (!email || !url) return;
+  const { sendMail } = await import("@/lib/mailer");
+  const html = `
+    <div style="font-family:system-ui,-apple-system,Segoe UI,sans-serif;max-width:520px">
+      <h2 style="margin:0 0 12px">您的云端托管实例已开通</h2>
+      <p>专属实例已就绪,可立即登录使用:</p>
+      <table style="border-collapse:collapse;font-size:14px">
+        <tr><td style="padding:4px 12px 4px 0;color:#666">访问地址</td><td><a href="${url}">${url}</a></td></tr>
+        <tr><td style="padding:4px 12px 4px 0;color:#666">管理员账号</td><td>${email}</td></tr>
+        <tr><td style="padding:4px 12px 4px 0;color:#666">初始密码</td><td><code>${password}</code></td></tr>
+      </table>
+      <p style="color:#c00;font-size:13px">⚠️ 请首次登录后尽快修改初始密码。</p>
+      <p style="color:#999;font-size:12px">子域名 ${sub}.starzeco.com</p>
+    </div>`;
+  await sendMail({ to: email, subject: "【星泽商图】您的云端托管实例已开通", html });
+}
+
+// 续费:按本次续费订单的套餐叠加时长(在剩余期上叠加,不因过期而缩水),挂起态则恢复实例。
+async function renewCloudTenant(
+  row: CloudTenantDbRow,
+  renewalOrderId: string,
+  renewDays: number,
+  renewCredits: number
+): Promise<CloudTenantRow | null> {
+  const base = row.expires_at && new Date(row.expires_at).getTime() > Date.now()
+    ? new Date(row.expires_at).getTime() : Date.now();
+  const newExp = new Date(base + renewDays * 86_400_000).toISOString();
+  // 挂起中 → 恢复实例(best-effort;失败也先记账,后台可重试 resume)。
+  if (row.status === "suspended" && provisionerConfigured()) {
+    await resumeTenant(row.subdomain).catch(() => ({ ok: false }));
+  }
+  // 补发本期算力(月付每月 1000 / 年付 12000)。不补的话月付客户续了费没积分可用。
+  // 找该租户的 managed 中转 token 加配额;失败只记日志,不阻断续费(后台可手工充)。
+  if (renewCredits > 0) {
+    try {
+      const { listTenants } = await import("@/lib/provisioner");
+      const { patchToken } = await import("@/lib/relay");
+      const reg = await listTenants();
+      const rec = (reg.tenants as { name?: string; relayToken?: string }[] | undefined)?.find(
+        (t) => t?.name === row.subdomain
+      );
+      if (rec?.relayToken) await patchToken(rec.relayToken, { addQuota: renewCredits });
+    } catch (e) {
+      console.error("[cloud] 续费补算力失败", row.subdomain, e instanceof Error ? e.message : e);
+    }
+  }
+  const { rows } = await getPool().query<CloudTenantDbRow>(
+    `UPDATE app_cloud_tenants
+        SET status='active', expires_at=$2, last_order_id=$3, renewed_at=now(),
+            renewals=renewals+1, remind_sent_at=NULL, error=NULL, updated_at=now()
+      WHERE order_id=$1 RETURNING *`,
+    [row.order_id, newExp, renewalOrderId]
+  );
+  return rows[0] ? rowToCloudTenant(rows[0]) : null;
+}
+
+// ── M4 生命周期:到期扫描 + 后台管理动作 ──────────────────────────────────────
+
+// 到期扫描:active 且 expires_at 已过 → 挂起(停容器 + 停用算力)。由 /api/cloud/lifecycle
+// (CN ECS 每日 cron 调用)驱动。返回处理明细。
+export async function sweepExpiredCloudTenants(): Promise<{ suspended: string[]; errors: string[] }> {
+  await ensureSchema();
+  const suspended: string[] = [];
+  const errors: string[] = [];
+  const { rows } = await getPool().query<CloudTenantDbRow>(
+    `SELECT * FROM app_cloud_tenants
+       WHERE status='active' AND expires_at IS NOT NULL AND expires_at < now()`
+  );
+  if (!rows.length) return { suspended, errors };
+  const { deprovisionTenant } = await import("@/lib/provisioner");
+  for (const r of rows) {
+    const res = await deprovisionTenant(r.subdomain, false).catch(() => ({ ok: false, error: "调用异常" }));
+    if (res.ok) {
+      await getPool().query(
+        `UPDATE app_cloud_tenants SET status='suspended', updated_at=now() WHERE order_id=$1`,
+        [r.order_id]
+      );
+      suspended.push(r.subdomain);
+    } else {
+      errors.push(`${r.subdomain}: ${res.error || "挂起失败"}`);
+    }
+  }
+  return { suspended, errors };
+}
+
+// 到期前提醒:active 且 N 天内到期、尚未提醒过 → 发续费提醒邮件 + 标记 remind_sent_at。
+// 续费后 renewCloudTenant 会清空 remind_sent_at,下一周期可再次提醒。默认提前 7 天。
+export async function sweepCloudExpiryReminders(days = 7): Promise<{ reminded: string[] }> {
+  await ensureSchema();
+  const reminded: string[] = [];
+  const { rows } = await getPool().query<CloudTenantDbRow>(
+    `SELECT * FROM app_cloud_tenants
+       WHERE status='active' AND remind_sent_at IS NULL
+         AND expires_at IS NOT NULL
+         AND expires_at > now() AND expires_at < now() + ($1 || ' days')::interval`,
+    [String(days)]
+  );
+  for (const r of rows) {
+    const daysLeft = Math.ceil((new Date(r.expires_at as Date).getTime() - Date.now()) / 86_400_000);
+    await sendCloudRenewalReminderEmail(r.email, r.subdomain, daysLeft, r.expires_at as Date).catch(() => {});
+    await getPool().query(`UPDATE app_cloud_tenants SET remind_sent_at=now(), updated_at=now() WHERE order_id=$1`, [r.order_id]);
+    reminded.push(r.subdomain);
+  }
+  return { reminded };
+}
+
+async function sendCloudRenewalReminderEmail(email: string, sub: string, daysLeft: number, expiresAt: Date): Promise<void> {
+  if (!email) return;
+  const { sendMail } = await import("@/lib/mailer");
+  const dateStr = new Date(expiresAt).toLocaleDateString("zh-CN");
+  const html = `
+    <div style="font-family:system-ui,-apple-system,Segoe UI,sans-serif;max-width:520px">
+      <h2 style="margin:0 0 12px">您的云端托管实例即将到期</h2>
+      <p>实例 <b>${sub}.starzeco.com</b> 将于 <b>${dateStr}</b>(约 ${daysLeft} 天后)到期。</p>
+      <p>到期后实例会自动暂停(数据保留);续费后立即恢复。请及时前往购买站续费以免影响使用。</p>
+      <p style="margin-top:16px"><a href="https://ai.starzeco.com/deploy" style="display:inline-block;background:#4F46E5;color:#fff;text-decoration:none;padding:9px 18px;border-radius:8px;font-size:14px">前往续费</a></p>
+      <p style="color:#999;font-size:12px;margin-top:16px">如已续费请忽略本邮件。</p>
+    </div>`;
+  await sendMail({ to: email, subject: `【星泽商图】云端实例 ${sub}.starzeco.com 将于 ${daysLeft} 天后到期`, html });
+}
+
+export async function listAllCloudTenants(): Promise<CloudTenantRow[]> {
+  await ensureSchema();
+  const { rows } = await getPool().query<CloudTenantDbRow>(
+    `SELECT * FROM app_cloud_tenants ORDER BY created_at DESC`
+  );
+  return rows.map(rowToCloudTenant);
+}
+
+// 后台动作:suspend | resume | purge | retry(重试失败开通)| set-domain(绑/解自定义域)。按 subdomain 定位。
+export async function cloudTenantAdminAction(
+  subdomainRaw: string,
+  action: "suspend" | "resume" | "purge" | "retry" | "set-domain",
+  opts?: { domain?: string }
+): Promise<{ ok: boolean; error?: string; warnings?: string[]; tenant?: CloudTenantRow | null }> {
+  await ensureSchema();
+  const sub = normalizeSubdomain(subdomainRaw);
+  const { rows } = await getPool().query<CloudTenantDbRow>(
+    `SELECT * FROM app_cloud_tenants WHERE subdomain=$1 ORDER BY created_at DESC LIMIT 1`,
+    [sub]
+  );
+  const row = rows[0];
+  if (!row) return { ok: false, error: "租户不存在" };
+  if (!provisionerConfigured()) return { ok: false, error: "开通服务未配置" };
+  const { deprovisionTenant, resumeTenant, setTenantDomains } = await import("@/lib/provisioner");
+
+  if (action === "set-domain") {
+    if (row.status !== "active") return { ok: false, error: "仅运行中的租户可绑定域名" };
+    const domain = (opts?.domain || "").trim().toLowerCase();
+    const domains = domain ? [domain] : []; // v1 单个域名;空 = 解绑
+    const r = await setTenantDomains(sub, domains);
+    if (r.ok) {
+      await getPool().query(`UPDATE app_cloud_tenants SET custom_domains=$2, updated_at=now() WHERE order_id=$1`, [row.order_id, domains.join(",")]);
+    }
+    return { ok: r.ok, error: r.error, warnings: r.warnings, tenant: await getCloudTenantByOrder(row.order_id) };
+  }
+
+  if (action === "suspend") {
+    const r = await deprovisionTenant(sub, false);
+    if (r.ok) await getPool().query(`UPDATE app_cloud_tenants SET status='suspended', updated_at=now() WHERE order_id=$1`, [row.order_id]);
+    return { ok: r.ok, error: r.error, tenant: await getCloudTenantByOrder(row.order_id) };
+  }
+  if (action === "resume") {
+    const r = await resumeTenant(sub);
+    if (r.ok) await getPool().query(`UPDATE app_cloud_tenants SET status='active', updated_at=now() WHERE order_id=$1`, [row.order_id]);
+    return { ok: r.ok, error: r.error, tenant: await getCloudTenantByOrder(row.order_id) };
+  }
+  if (action === "purge") {
+    const r = await deprovisionTenant(sub, true);
+    if (r.ok) await getPool().query(`UPDATE app_cloud_tenants SET status='purged', updated_at=now() WHERE order_id=$1`, [row.order_id]);
+    return { ok: r.ok, error: r.error, tenant: await getCloudTenantByOrder(row.order_id) };
+  }
+  // retry:仅对 failed 单重新开通(复位 status → ensureCloudTenantForOrder 重新认领)。
+  if (row.status !== "failed") return { ok: false, error: "仅失败的租户可重试" };
+  await getPool().query(`UPDATE app_cloud_tenants SET status='pending', error=NULL, updated_at=now() WHERE order_id=$1`, [row.order_id]);
+  const t = await ensureCloudTenantForOrder(row.order_id, row.email, sub);
+  return { ok: t?.status === "active", error: t?.error ?? undefined, tenant: t };
 }
 
 /** Best-effort: records the user's most recent login IP. Never throws. */
@@ -1766,6 +2506,14 @@ export type ArtworkRecord = {
   canvasY?: number | null;
   groupId?: string | null; // 稳定项目分组:同项目所有节点共享,删节点也不变
   origin?: string | null; // 来源场景:"canvas"=在画布里产出(永远留画布);空=生图页/工具等普通产出
+  // 出图当时的**计费与参数快照**(定价以后会调,不能事后按新表推算历史)。
+  cost?: number | null; // 这张图实扣多少积分
+  tokens?: number | null; // 实际消耗的上游 output tokens(真实成本核算用)
+  quality?: string | null; // 质量档 low/medium/high(无质量档的模型为空)
+  model?: string | null; // 用的哪个模型 id
+  // 软删时间。**只有回收站列表会带**(正常列表这一列必然为 null,不查也不返回)。
+  // 前台据此算"还剩几天被清理" —— 用户担心的是删了找不回来,给出确切天数才安心。
+  deletedAt?: string | null;
 };
 
 export async function addArtworks(
@@ -1792,8 +2540,9 @@ export async function addArtworks(
       await client.query(
         `INSERT INTO app_artworks
            (id, email, title, category, prompt, status, image_url, gradient,
-            style, ratio, resolution, source_url, batch_id, parent_id, template_id, parent_ids, group_id, origin)
-         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16::jsonb,$17,$18)
+            style, ratio, resolution, source_url, batch_id, parent_id, template_id, parent_ids, group_id, origin,
+            cost, quality, model, tokens)
+         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16::jsonb,$17,$18,$19,$20,$21,$22)
          ON CONFLICT (id) DO UPDATE SET deleted_at = NULL`,
         [
           a.id,
@@ -1814,10 +2563,24 @@ export async function addArtworks(
           JSON.stringify(a.parentIds ?? []),
           groupId,
           a.origin ?? null,
+          a.cost ?? null,
+          a.quality ?? null,
+          a.model ?? null,
+          a.tokens ?? null,
         ]
       );
     }
     await client.query("COMMIT");
+    // 落库成功后**立刻**让国内 OSS 把这几张图回源落盘(fire-and-forget,配了
+    // OSS_WARM_BASE 才生效)。否则新图要等有人第一次浏览、或等当晚 04:30 的
+    // 预热脚本才进 OSS —— 这段窗口里如果 Cloudflare 又被墙,这批图就取不到。
+    // 见 lib/oss-warm。
+    try {
+      const { warmOss } = await import("@/lib/oss-warm");
+      warmOss(items.flatMap((a) => [a.image, a.source ?? null]));
+    } catch {
+      /* 预热是锦上添花,永远不能影响落库 */
+    }
   } catch (e) {
     await client.query("ROLLBACK");
     throw e;
@@ -1833,7 +2596,8 @@ export async function listArtworks(
   const { rows } = await getPool().query(
     `SELECT id, title, category, prompt, status, image_url, gradient,
             style, ratio, resolution, source_url, batch_id, parent_id, template_id,
-            parent_ids, canvas_x, canvas_y, group_id, origin, created_at
+            parent_ids, canvas_x, canvas_y, group_id, origin, created_at,
+            cost, quality, model, tokens
        FROM app_artworks
       WHERE email = $1 AND deleted_at IS NULL
       ORDER BY created_at DESC LIMIT 1000`,
@@ -1859,6 +2623,10 @@ export async function listArtworks(
     canvasY: r.canvas_y ?? null,
     groupId: r.group_id ?? null,
     origin: r.origin ?? null,
+    cost: r.cost ?? null,
+    quality: r.quality ?? null,
+    model: r.model ?? null,
+    tokens: r.tokens ?? null,
     createdAt: new Date(r.created_at).toISOString(),
   }));
 }
@@ -1875,7 +2643,8 @@ export async function listArtworksByIds(
   const { rows } = await getPool().query(
     `SELECT id, title, category, prompt, status, image_url, gradient,
             style, ratio, resolution, source_url, batch_id, parent_id, template_id,
-            parent_ids, canvas_x, canvas_y, group_id, origin, created_at
+            parent_ids, canvas_x, canvas_y, group_id, origin, created_at,
+            cost, quality, model, tokens
        FROM app_artworks
       WHERE email = $1 AND id = ANY($2::text[]) AND deleted_at IS NULL`,
     [emailRaw.toLowerCase(), clean]
@@ -1900,6 +2669,10 @@ export async function listArtworksByIds(
     canvasY: r.canvas_y ?? null,
     groupId: r.group_id ?? null,
     origin: r.origin ?? null,
+    cost: r.cost ?? null,
+    quality: r.quality ?? null,
+    model: r.model ?? null,
+    tokens: r.tokens ?? null,
     createdAt: new Date(r.created_at).toISOString(),
   }));
 }
@@ -2200,9 +2973,17 @@ export async function purgeArtworksByIds(
 }
 
 // 回收站列表(已软删除的),顺手把超过保留期(默认 180 天)的真删掉。
+/** 回收站保留天数。与 /api/admin/storage 的 cron 清理**必须同源**,
+ *  否则会出现"页面说还剩 N 天、cron 早就删了"的鬼故事。
+ *  (原来这里写死 180 而 cron 用 30 —— 只因 cron 每天跑才没暴露,
+ *   cron 一停行为就静默变成 180 天。) */
+export const TRASH_RETENTION_DAYS = Number(
+  process.env.ARTWORK_TRASH_DAYS || 30
+);
+
 export async function listDeletedArtworks(
   emailRaw: string,
-  retentionDays = 180
+  retentionDays = TRASH_RETENTION_DAYS
 ): Promise<ArtworkRecord[]> {
   await ensureSchema();
   const email = emailRaw.toLowerCase();
@@ -2218,7 +2999,8 @@ export async function listDeletedArtworks(
   const { rows } = await getPool().query(
     `SELECT id, title, category, prompt, status, image_url, gradient,
             style, ratio, resolution, source_url, batch_id, parent_id, template_id,
-            parent_ids, canvas_x, canvas_y, group_id, origin, created_at, deleted_at
+            parent_ids, canvas_x, canvas_y, group_id, origin, created_at, deleted_at,
+            cost, quality, model, tokens
        FROM app_artworks
       WHERE email = $1 AND deleted_at IS NOT NULL
       ORDER BY deleted_at DESC LIMIT 200`,
@@ -2244,7 +3026,12 @@ export async function listDeletedArtworks(
     canvasY: r.canvas_y ?? null,
     groupId: r.group_id ?? null,
     origin: r.origin ?? null,
+    cost: r.cost ?? null,
+    quality: r.quality ?? null,
+    model: r.model ?? null,
+    tokens: r.tokens ?? null,
     createdAt: new Date(r.created_at).toISOString(),
+    deletedAt: r.deleted_at ? new Date(r.deleted_at).toISOString() : null,
   }));
 }
 
@@ -2860,4 +3647,380 @@ export async function deleteGenchatSession(
     `DELETE FROM app_genchat_sessions WHERE email = $1 AND id = $2`,
     [email.toLowerCase(), id]
   );
+}
+
+// ===========================================================================
+// 存储治理:保留期清理 + 用量统计
+// ---------------------------------------------------------------------------
+// 产品里一直写着「保留 180 天」,但**从来没有清理任务**(空承诺,存储只增不减)。
+// 这里补上:①回收站里超期的软删作品真删 ②正常作品超保留期也清。
+// 图片对象一并删除 —— 只删库不删对象的话,存储照样涨。
+// ===========================================================================
+
+export type PurgeResult = { rows: number; objects: number };
+
+/**
+ * 清理超期作品。返回删了多少行/多少个对象。
+ * @param keepDays  正常作品保留天数(0 = 不清正常作品,只清回收站)
+ * @param trashDays 回收站里的软删作品保留天数
+ * @param onDelete  删除图片对象的回调(传 deleteImageByUrl;db.ts 不能 import storage)
+ */
+export async function purgeOldArtworks(
+  keepDays: number,
+  trashDays: number,
+  onDelete: (url: string) => Promise<boolean>
+): Promise<PurgeResult> {
+  if (!dbEnabled) return { rows: 0, objects: 0 };
+  await ensureSchema();
+  const pool = getPool();
+  // 一次取一批,避免一口气删太多把库锁住;调用方可重复调直到 rows=0。
+  const { rows } = await pool.query<{ id: string; image_url: string }>(
+    `SELECT id, image_url FROM app_artworks
+      WHERE (deleted_at IS NOT NULL AND deleted_at < now() - make_interval(days => $1))
+         OR ($2::int > 0 AND deleted_at IS NULL AND created_at < now() - make_interval(days => $2))
+      LIMIT 500`,
+    [Math.max(1, trashDays), Math.max(0, keepDays)]
+  );
+  if (!rows.length) return { rows: 0, objects: 0 };
+
+  // ⚠️ **删对象前必须排除还被别处引用的图**(2026-08-16 实测抓到 7 例):
+  //   · 作品转模板后,模板的 image 与原作品 image_url 是**同一个对象** —— 删作品会让
+  //     模板库裂图(库里 1.6 万个模板,坏一个就是线上事故);
+  //   · 子图的 source_url 指向父图(前后对比栏用),删父图会让对比栏裂。
+  // 库里的行照删(用户的作品该消失),但**对象只在没人再引用时才删**。
+  const urls = rows.map((r) => r.image_url).filter(Boolean);
+  const referenced = new Set<string>();
+  if (urls.length) {
+    const [tpl, child] = await Promise.all([
+      pool.query<{ u: string }>(
+        `SELECT image AS u FROM app_templates WHERE image = ANY($1::text[])
+          UNION SELECT source_image AS u FROM app_templates WHERE source_image = ANY($1::text[])`,
+        [urls]
+      ),
+      pool.query<{ u: string }>(
+        `SELECT DISTINCT source_url AS u FROM app_artworks
+          WHERE source_url = ANY($1::text[]) AND id <> ALL($2::text[])`,
+        [urls, rows.map((r) => r.id)]
+      ),
+    ]);
+    for (const r of tpl.rows) if (r.u) referenced.add(r.u);
+    for (const r of child.rows) if (r.u) referenced.add(r.u);
+  }
+
+  let objects = 0;
+  let kept = 0;
+  for (const r of rows) {
+    if (!r.image_url) continue;
+    if (referenced.has(r.image_url)) {
+      kept++; // 还被模板/子图引用 → 只删库行,保留对象
+      continue;
+    }
+    if (await onDelete(r.image_url).catch(() => false)) objects++;
+  }
+  if (kept) console.log(`[purge] ${kept} 个对象因仍被模板/子图引用而保留`);
+  const del = await pool.query(`DELETE FROM app_artworks WHERE id = ANY($1::text[])`, [
+    rows.map((r) => r.id),
+  ]);
+  return { rows: del.rowCount ?? 0, objects };
+}
+
+/** 全站存储用量(字节数按图片条数估算 —— 我们不存文件大小,用均值折算)。 */
+export type StorageUsage = {
+  totalArtworks: number;
+  trashArtworks: number;
+  byUser: { email: string; count: number }[];
+};
+
+export async function storageUsage(topN = 20): Promise<StorageUsage> {
+  if (!dbEnabled) return { totalArtworks: 0, trashArtworks: 0, byUser: [] };
+  await ensureSchema();
+  const pool = getPool();
+  const [tot, byUser] = await Promise.all([
+    pool.query<{ total: number; trash: number }>(
+      `SELECT COUNT(*)::int AS total,
+              COUNT(*) FILTER (WHERE deleted_at IS NOT NULL)::int AS trash
+         FROM app_artworks`
+    ),
+    pool.query<{ email: string; count: number }>(
+      `SELECT email, COUNT(*)::int AS count FROM app_artworks
+        WHERE deleted_at IS NULL
+        GROUP BY email ORDER BY count DESC LIMIT $1`,
+      [topN]
+    ),
+  ]);
+  return {
+    totalArtworks: tot.rows[0]?.total ?? 0,
+    trashArtworks: tot.rows[0]?.trash ?? 0,
+    byUser: byUser.rows,
+  };
+}
+
+// ===========================================================================
+// 站点访问统计(app_page_views)
+// ---------------------------------------------------------------------------
+// 采集端点写、后台面板读。所有「一天」的边界都按 ANALYTICS_TZ(默认东八区)切,
+// 否则服务器跑 UTC 时国内看到的「今天」会从早上 8 点才开始。
+// ===========================================================================
+
+/** 一次页面浏览。失败静默 —— 统计永远不能影响正常访问。 */
+export async function recordPageView(v: {
+  path: string;
+  visitor: string;
+  sid: string;
+  country: string | null;
+  device: string;
+  browser: string;
+  refHost: string;
+  locale: string;
+}): Promise<void> {
+  if (!dbEnabled) return;
+  await ensureSchema();
+  await getPool().query(
+    `INSERT INTO app_page_views
+       (day, path, visitor, sid, country, device, browser, ref_host, locale)
+     VALUES ((now() AT TIME ZONE $9)::date, $1, $2, $3, $4, $5, $6, $7, $8)`,
+    [
+      v.path.slice(0, 180),
+      v.visitor.slice(0, 64),
+      v.sid.slice(0, 40),
+      v.country ? v.country.slice(0, 2).toUpperCase() : null,
+      v.device.slice(0, 16),
+      v.browser.slice(0, 32),
+      v.refHost.slice(0, 120),
+      v.locale.slice(0, 12),
+      ANALYTICS_TZ,
+    ]
+  );
+}
+
+/** 删掉超过保留期的明细。采集端点低概率触发,不另起定时任务。 */
+export async function purgeOldPageViews(keepDays: number): Promise<number> {
+  if (!dbEnabled) return 0;
+  await ensureSchema();
+  const { rowCount } = await getPool().query(
+    `DELETE FROM app_page_views
+      WHERE day < (now() AT TIME ZONE $2)::date - ($1::int - 1)`,
+    [Math.max(1, keepDays), ANALYTICS_TZ]
+  );
+  return rowCount ?? 0;
+}
+
+// 维度聚合的公共写法:按 key 分组数 PV 和去重 UV,空值归一到 fallback 桶。
+function dimQuery(expr: string, fallback: string): string {
+  return `SELECT COALESCE(NULLIF(${expr}, ''), '${fallback}') AS key,
+                 COUNT(*)::int AS pv,
+                 COUNT(DISTINCT visitor)::int AS uv
+            FROM app_page_views
+           WHERE day > (now() AT TIME ZONE $2)::date - $1::int
+           GROUP BY 1
+           ORDER BY pv DESC
+           LIMIT 12`;
+}
+
+/**
+ * 后台「访问统计」面板的一次性数据包。
+ * days=1 表示「今天」(day > 今天-1,即只剩今天这一天)。
+ */
+export async function analyticsOverview(
+  days: number
+): Promise<Omit<AnalyticsOverview, "geoReady">> {
+  const d = Math.max(1, Math.min(365, Math.floor(days)));
+  const empty = {
+    days: d,
+    totals: { pv: 0, uv: 0, sessions: 0 },
+    prev: { pv: 0, uv: 0 },
+    online: 0,
+    daily: [] as DailyRow[],
+    countries: [] as CountRow[],
+    paths: [] as CountRow[],
+    referrers: [] as CountRow[],
+    devices: [] as CountRow[],
+    browsers: [] as CountRow[],
+  };
+  if (!dbEnabled) return empty;
+  await ensureSchema();
+  const pool = getPool();
+  const p = [d, ANALYTICS_TZ] as const;
+
+  type Agg = { key: string; pv: number; uv: number };
+  const [totals, prev, online, daily, countries, paths, referrers, devices, browsers] =
+    await Promise.all([
+      pool.query<{ pv: number; uv: number; sessions: number }>(
+        `SELECT COUNT(*)::int AS pv,
+                COUNT(DISTINCT visitor)::int AS uv,
+                COUNT(DISTINCT NULLIF(sid, ''))::int AS sessions
+           FROM app_page_views
+          WHERE day > (now() AT TIME ZONE $2)::date - $1::int`,
+        [...p]
+      ),
+      // 上一个等长周期(用于同比):[今天-2d, 今天-d]
+      pool.query<{ pv: number; uv: number }>(
+        `SELECT COUNT(*)::int AS pv, COUNT(DISTINCT visitor)::int AS uv
+           FROM app_page_views
+          WHERE day > (now() AT TIME ZONE $2)::date - ($1::int * 2)
+            AND day <= (now() AT TIME ZONE $2)::date - $1::int`,
+        [...p]
+      ),
+      pool.query<{ n: number }>(
+        `SELECT COUNT(DISTINCT visitor)::int AS n
+           FROM app_page_views
+          WHERE ts > now() - interval '30 minutes'`
+      ),
+      pool.query<{ day: string; pv: number; uv: number }>(
+        `SELECT to_char(day, 'YYYY-MM-DD') AS day,
+                COUNT(*)::int AS pv,
+                COUNT(DISTINCT visitor)::int AS uv
+           FROM app_page_views
+          WHERE day > (now() AT TIME ZONE $2)::date - $1::int
+          GROUP BY day
+          ORDER BY day`,
+        [...p]
+      ),
+      pool.query<Agg>(dimQuery("country", "未知"), [...p]),
+      pool.query<Agg>(dimQuery("path", "/"), [...p]),
+      pool.query<Agg>(dimQuery("ref_host", "直接访问"), [...p]),
+      pool.query<Agg>(dimQuery("device", "desktop"), [...p]),
+      pool.query<Agg>(dimQuery("browser", "其他"), [...p]),
+    ]);
+
+  return {
+    days: d,
+    totals: {
+      pv: totals.rows[0]?.pv ?? 0,
+      uv: totals.rows[0]?.uv ?? 0,
+      sessions: totals.rows[0]?.sessions ?? 0,
+    },
+    prev: { pv: prev.rows[0]?.pv ?? 0, uv: prev.rows[0]?.uv ?? 0 },
+    online: online.rows[0]?.n ?? 0,
+    daily: daily.rows,
+    countries: countries.rows,
+    paths: paths.rows,
+    referrers: referrers.rows,
+    devices: devices.rows,
+    browsers: browsers.rows,
+  };
+}
+
+// ===========================================================================
+// 视频生成任务(火山引擎方舟 Seedance 异步)
+// ---------------------------------------------------------------------------
+// 生成一条视频要几十秒到数分钟,不能在路由里同步等。流程:
+//   POST /api/video        → 预扣积分 → 建方舟任务 → createVideoJob(pending)
+//   GET  /api/video/status → 查方舟 → settleVideoJob 原子转成 succeeded|failed
+// 结算是**一次性**的:WHERE status='pending' ... RETURNING 保证并发轮询里只有一
+// 个请求拿到 job,所以不会重复退积分、也不会重复落作品。
+// ===========================================================================
+
+export type VideoJob = {
+  taskId: string;
+  email: string;
+  cost: number;
+  status: string;
+  title: string;
+  prompt: string;
+  resolution: string;
+  duration: number;
+  sourceUrl: string | null;
+  parentId: string | null;
+  artworkId: string | null;
+  videoUrl: string | null;
+  error: string | null;
+};
+
+function rowToVideoJob(r: Record<string, unknown>): VideoJob {
+  return {
+    taskId: r.task_id as string,
+    email: r.email as string,
+    cost: Number(r.cost ?? 0),
+    status: r.status as string,
+    title: (r.title as string) ?? "",
+    prompt: (r.prompt as string) ?? "",
+    resolution: (r.resolution as string) ?? "",
+    duration: Number(r.duration ?? 0),
+    sourceUrl: (r.source_url as string) ?? null,
+    parentId: (r.parent_id as string) ?? null,
+    artworkId: (r.artwork_id as string) ?? null,
+    videoUrl: (r.video_url as string) ?? null,
+    error: (r.error as string) ?? null,
+  };
+}
+
+/** 登记一个已预扣积分的待办任务。 */
+export async function createVideoJob(job: {
+  taskId: string;
+  email: string;
+  cost: number;
+  title: string;
+  prompt: string;
+  resolution: string;
+  duration: number;
+  sourceUrl?: string | null;
+  parentId?: string | null;
+}): Promise<void> {
+  await ensureSchema();
+  await getPool().query(
+    `INSERT INTO app_video_jobs
+       (task_id, email, cost, title, prompt, resolution, duration, source_url, parent_id)
+     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)
+     ON CONFLICT (task_id) DO NOTHING`,
+    [
+      job.taskId,
+      job.email.toLowerCase(),
+      job.cost,
+      job.title,
+      job.prompt,
+      job.resolution,
+      job.duration,
+      job.sourceUrl ?? null,
+      job.parentId ?? null,
+    ]
+  );
+}
+
+/** 读任务(校验归属用:email 不匹配返回 null,防越权查别人的任务)。 */
+export async function getVideoJob(
+  taskId: string,
+  emailRaw?: string
+): Promise<VideoJob | null> {
+  await ensureSchema();
+  const r = await getPool().query(
+    `SELECT * FROM app_video_jobs WHERE task_id = $1`,
+    [taskId]
+  );
+  const row = r.rows[0];
+  if (!row) return null;
+  if (emailRaw && row.email !== emailRaw.toLowerCase()) return null;
+  return rowToVideoJob(row);
+}
+
+/**
+ * 结算任务。只有把 pending 转成终态的那一次调用会返回 job(即"结算权"),
+ * 其余并发调用返回 null —— 调用方据此决定要不要退积分 / 落作品。
+ */
+export async function settleVideoJob(
+  taskId: string,
+  outcome:
+    | { status: "succeeded"; videoUrl: string; artworkId: string }
+    | { status: "failed"; error: string }
+): Promise<VideoJob | null> {
+  await ensureSchema();
+  const r = await getPool().query(
+    `UPDATE app_video_jobs
+        SET status = $2,
+            video_url = $3,
+            artwork_id = $4,
+            error = $5,
+            settled_at = now()
+      WHERE task_id = $1 AND status = 'pending'
+      RETURNING *`,
+    [
+      taskId,
+      outcome.status,
+      outcome.status === "succeeded" ? outcome.videoUrl : null,
+      outcome.status === "succeeded" ? outcome.artworkId : null,
+      outcome.status === "failed" ? outcome.error.slice(0, 500) : null,
+    ]
+  );
+  const row = r.rows[0];
+  return row ? rowToVideoJob(row) : null;
 }

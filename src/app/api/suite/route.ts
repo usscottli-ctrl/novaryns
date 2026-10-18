@@ -19,6 +19,7 @@ import { clientIp } from "@/lib/ip";
 import { rateLimit } from "@/lib/rate-limit";
 import { resolveUserEmail } from "@/lib/admin-auth";
 import { storageEnabled, uploadImage } from "@/lib/storage";
+import { generateToR2 } from "@/lib/image-gen";
 import { getOpenAISettings } from "@/lib/settings";
 import { getOpenAIBaseUrl } from "@/lib/openai-base";
 import { getSuiteSystem, getSuitePlatformHint } from "@/lib/prompt-config";
@@ -266,8 +267,22 @@ async function runSuite(
         let ok = false;
         for (let attempt = 0; attempt <= SHOT_RETRIES && !ok; attempt++) {
           try {
-            const buf = await genOneShot(client, model, shot, productFiles);
-            const url = await persistOne(buf, shot.id);
+            // 走统一层:国内站自动切「境外代跑」(美国机出图+直传 R2,只回 URL),
+            // 海外站/自部署仍是本地直调。**图片字节不再跨境**(套图 13 张,这里省最多)。
+            const url = await generateToR2(
+              {
+                prompt: shot.prompt,
+                images: productImages.map((im) => ({ buf: im.buf, type: im.type })),
+                model,
+                size: sizeFor(shot.ratio),
+                quality: (process.env.OPENAI_IMAGE_QUALITY || "medium") as
+                  | "low"
+                  | "medium"
+                  | "high"
+                  | "auto",
+              },
+              `suite/${shot.id}.png`
+            );
             shots[idx] = { ...shot, status: "done", url };
             ok = true;
           } catch {

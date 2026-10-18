@@ -272,16 +272,15 @@ export function DeployCenter({ embedded = false }: { embedded?: boolean }) {
           <PlanCard
             title="云端托管"
             price="¥3,999"
-            priceSuffix="/年起"
+            priceSuffix="/年"
             badge={
               <span className="inline-flex items-center rounded-[6px] bg-c-tint-b px-2 py-[3px] text-[10.5px] font-bold text-c-blue">
                 免运维
               </span>
             }
             features={[
-              "免部署 · 自动更新",
-              "大陆可用 · 无需自备中转",
-              "弹性算力 · 优先队列",
+              "含 12,000 算力积分(每月 1,000),用完可充",
+              "免部署 · 自动更新 · 大陆可用",
               "绑定域名 · 白标",
             ]}
             checkClass="text-c-blue"

@@ -1,6 +1,7 @@
 "use client";
 
 import { cdnUrl } from "@/lib/cdn";
+import { useStickyState } from "@/lib/use-sticky-state";
 import { useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import {
@@ -55,9 +56,9 @@ export function FuseClient() {
   const fileRef = useRef<HTMLInputElement>(null);
   const [slots, setSlots] = useState<Slot[]>([]);
   const [prompt, setPrompt] = useState("");
-  const [ratio, setRatio] = useState<Ratio>("1:1");
-  const [quality, setQuality] = useState<Quality>("medium");
-  const [count, setCount] = useState(1);
+  const [ratio, setRatio] = useStickyState<Ratio>("fuse.ratio", "1:1");
+  const [quality, setQuality] = useStickyState<Quality>("fuse.quality", "medium");
+  const [count, setCount] = useStickyState("fuse.count", 1, (v) => [1, 2, 4].includes(v));
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [results, setResults] = useState<GeneratedImage[]>([]);

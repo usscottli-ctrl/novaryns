@@ -13,9 +13,9 @@ export function SessionBridge() {
   useEffect(() => {
     const sb = browserSupabase();
 
-    bindSignOut(() => {
-      void sb.auth.signOut();
-    });
+    // 返回 Promise:auth-context 会 await 它再跳转,确保 Supabase 本地会话
+    // 真正清干净(否则跳转打断请求 → 下次进来又是假登录态)。
+    bindSignOut(() => sb.auth.signOut().then(() => undefined));
 
     const apply = (session: Session | null) => {
       const u = session?.user;

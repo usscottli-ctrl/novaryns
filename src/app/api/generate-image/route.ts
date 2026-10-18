@@ -4,7 +4,13 @@ import { CATEGORY_IMAGES, img } from "@/lib/images";
 import {
   resolutionCost,
   resolutionLongSide,
+  modelProvider,
+  modelResolutions,
+  modelHasQuality,
+  IMAGE_MODELS,
 } from "@/lib/mock-data";
+import { geminiConfigured, geminiGenerateSmart } from "@/lib/gemini-image";
+import { fluxConfigured, fluxGenerateSmart } from "@/lib/flux-image";
 import {
   dbEnabled,
   reserveCredits,
@@ -29,6 +35,8 @@ import {
 } from "@/lib/storage";
 import { getOpenAISettings } from "@/lib/settings";
 import { getOpenAIBaseUrl } from "@/lib/openai-base";
+import { sizeFor } from "@/lib/image-size";
+import { proxyHeaders } from "@/lib/proxy-identity";
 import { getStyleGuide } from "@/lib/prompt-config";
 
 // ---------------------------------------------------------------------------
@@ -53,6 +61,10 @@ export type GeneratedImage = {
   prompt: string;
   ratio: string;
   createdAt: string;
+  /** 这张图实际消耗的上游 output tokens(本批总量 ÷ 张数)。
+   *  **成本核算的唯一可靠依据** —— 积分单价靠估算已经出过大错(把外推值当实测,
+   *  4K 高估一倍),以后调价必须拿这个字段跑真实账,别再凭单次实测外推。 */
+  tokens?: number;
 };
 
 type GenImage = { buf: Buffer; type: string };
@@ -66,7 +78,15 @@ type GenParams = {
   resolution: string;
   style: string;
   quality: string; // 出图模式:low(基础)/medium(标准)/high(高阶);空=用 env 默认
+  // 用户在前台选的生图模型(必须在 IMAGE_MODELS 白名单内);空=用后台配置的默认模型。
+  // 专业客户按项目挑模型(不同调性用不同平台优势),所以这是每次请求可变的。
+  model: string;
   count: number;
+  // 客户端是否**显式带了** userPrompt 字段(哪怕是空串)。图裂变/融图/生图页会把系统词
+  // 拼进 prompt 再单独传 userPrompt,所以「传了但为空」= 用户没写描述 → 对外一律不展示,
+  // 绝不能退回完整 prompt(那会把系统提示词泄漏给用户/同行)。canvas、genchat 不传该字段,
+  // 它们的 prompt 本身就是用户自己写的,照常展示。
+  userPromptProvided: boolean;
   transparent: boolean; // 透明底(抠图):gpt-image background:transparent PNG
   ratiogen: boolean; // 改比例(ChatGPT 式重生成):用节点自身提示词+原图参考,按目标比例重画再裁切,无需额外提示词
   email: string;
@@ -80,7 +100,13 @@ type GenParams = {
   origin: string; // "canvas"=在画布里产出(永远留画布);空=生图页/工具等普通产出
 };
 
-const MAX_IMAGES = 6;
+// 参考图张数上限。上游硬约束:gpt-image 编辑接口 16 张、香蕉(Gemini 3 Pro Image)
+// 官方「最多 14 张效果最佳」。取 10 给两家都留缓冲,再多主体一致性会被稀释。
+const MAX_IMAGES = 10;
+// 合计体积上限,与前端 generate-client.tsx 的 MAX_TOTAL 保持一致。
+// **不做压缩是产品决定**(保参考图细节),所以这里是唯一的兜底 ——
+// 前端那道只是提示,绕过前端直接 POST 必须在这里拦住。
+const MAX_TOTAL_BYTES = 80 * 1024 * 1024;
 
 // gpt-image 出图质量:不设=默认 auto≈最高=最慢(实测 1K 要 50~150 秒)。
 // 默认 medium:速度快很多、质量仍够电商商用。可用 env OPENAI_IMAGE_QUALITY 调(low/medium/high/auto)。
@@ -99,25 +125,7 @@ const GRADIENTS = [
   "from-stone-100 to-amber-100",
 ];
 
-// Concrete descriptors so the picked style visibly changes the result.
-function sizeFor(ratio: string, model: string): string {
-  // OpenAI gpt-image-1 接受 size: "auto",让模型自选最合适的输出尺寸。
-  // DALL·E 3 不支持 auto,退化成方图。
-  if (ratio === "auto") return model === "dall-e-3" ? "1024x1024" : "auto";
-  // 通用方向判断:任意 "w:h" 比例都能映射到 gpt-image 支持的三种尺寸(横/竖/方)。
-  const [rw, rh] = ratio.split(":").map(Number);
-  const k = rw > 0 && rh > 0 ? rw / rh : 1;
-  const portrait = k < 0.95;
-  const landscape = k > 1.05;
-  if (model === "dall-e-3") {
-    if (landscape) return "1792x1024";
-    if (portrait) return "1024x1792";
-    return "1024x1024";
-  }
-  if (landscape) return "1536x1024";
-  if (portrait) return "1024x1536";
-  return "1024x1024";
-}
+// 输出尺寸的算法(原生直出 / 尺寸约束)已抽到 lib/image-size.ts,与三个工具页共用。
 
 function buildPrompt(p: GenParams, styleGuide: Record<string, string>): string {
   // 默认风格:完全透传用户提示词,不附加任何内容——输出由用户提示词完全决定。
@@ -128,13 +136,21 @@ function buildPrompt(p: GenParams, styleGuide: Record<string, string>): string {
   return `${p.prompt}，${styleDesc}`;
 }
 
+// 对外可展示的提示词(落库、返回前端、标题、血缘节点一律用它,别直接用 p.prompt)。
+// 规则:客户端显式带了 userPrompt(图裂变/融图/生图页)→ 只认它,空就是空;
+// 未带该字段(canvas/genchat)→ prompt 本身即用户所写,照常展示。
+// 目的:程序拼进 prompt 的系统提示词永不外泄(见 project_novaryns_prompt_admin 铁律)。
+function publicPrompt(p: GenParams): string {
+  return p.userPromptProvided ? p.userPrompt : p.prompt;
+}
+
 function mockImages(p: GenParams): GeneratedImage[] {
   const pool = CATEGORY_IMAGES[p.category] ?? CATEGORY_IMAGES.main;
   return Array.from({ length: p.count }).map((_, i) => ({
     id: `gen-${Date.now()}-${i}`,
     url: img(pool[i % pool.length], 1000),
     gradient: GRADIENTS[(Date.now() + i) % GRADIENTS.length],
-    prompt: p.prompt,
+    prompt: publicPrompt(p),
     ratio: p.ratio,
     createdAt: new Date().toISOString(),
   }));
@@ -205,17 +221,134 @@ async function openaiImages(
   // 透明底只 gpt-image-1 支持(gpt-image-2 实测不支持 background:transparent),走抠图模型;
   // 其余生图走默认模型(gpt-image-2)。普通生图的兜底已统一 v2,不再落 v1。
   const model = p.transparent ? cutoutModel || "gpt-image-1" : modelIn;
+
+  // ── 境外代跑分支(国内站专用)────────────────────────────────────────────
+  // 配了 OPENAI_PROXY_URL 就把整次生图交给美国机:它调 OpenAI + 直接传 R2,
+  // 只回 URL。**图片字节不走 Hetzner 那条 25% 丢包的链路**(实测 4K 从传不回来
+  // 变成正常)。ratiogen(改比例要本地裁切)与透明底(抠图链路)不走代跑。
+  const proxyUrl = (process.env.OPENAI_PROXY_URL || "").trim();
+  const proxySecret = (process.env.INTERNAL_API_SECRET || "").trim();
+  if (proxyUrl && proxySecret && !p.transparent && !p.ratiogen && modelProvider(model) === "openai") {
+    const prompt = buildPrompt(p, await getStyleGuide());
+    const nativeLong = model.startsWith("gpt-image-2")
+      ? resolutionLongSide(p.resolution) || 0
+      : 0;
+    const r = await fetch(proxyUrl, {
+      method: "POST",
+      headers: proxyHeaders(), // 含 x-relay-token(云端租户的配额身份)
+      body: JSON.stringify({
+        prompt,
+        model,
+        size: sizeFor(p.ratio, model, nativeLong),
+        quality: ["low", "medium", "high", "auto"].includes(p.quality) ? p.quality : IMG_QUALITY,
+        n: p.count,
+        images: p.images.map((im) => ({
+          b64: Buffer.from(im.buf).toString("base64"),
+          type: im.type,
+        })),
+      }),
+      cache: "no-store",
+    });
+    const j = (await r.json().catch(() => ({}))) as {
+      images?: { url?: string; b64?: string }[];
+      tokens?: number; // 美国机回传的整批 output tokens(见 internal/openai-image)
+      error?: string;
+    };
+    if (!r.ok) throw new Error(j.error || `境外生图服务 ${r.status}`);
+    const list = j.images || [];
+    if (!list.length) throw new Error("境外生图服务未返回图片");
+    // 整批 token 摊到每张(与直连分支的 perImageTokens 口径一致)
+    const proxyPerImage = j.tokens ? Math.round(j.tokens / list.length) : 0;
+    return list.map((im, i) => ({
+      id: `gen-${Date.now()}-${i}`,
+      url: im.url ? im.url : `data:image/png;base64,${im.b64}`,
+      gradient: GRADIENTS[i % GRADIENTS.length],
+      prompt: publicPrompt(p),
+      ratio: p.ratio,
+      createdAt: new Date().toISOString(),
+      tokens: proxyPerImage,
+    }));
+  }
+
+  // ── Nano Banana(Google Gemini)分支 ──────────────────────────────────────
+  // 用户在前台选了 gemini 系模型 → 走完全另一套接口(不是 OpenAI 兼容的)。
+  // 透明底仍走 OpenAI(Gemini 不支持 background:transparent)。
+  if (!p.transparent && modelProvider(model) === "gemini") {
+    const prompt = p.ratiogen
+      ? ratioPrompt(p)
+      : buildPrompt(p, await getStyleGuide());
+    const imgs = await Promise.all(
+      Array.from({ length: p.count }).map(async (_, i) => {
+        // Smart:国内站会把这一步整个交给美国机跑(只回 R2 URL,图片不跨境);
+        // 海外站/自部署直接本地调 Google 拿字节。两种回值都要能接。
+        const g = await geminiGenerateSmart({
+          prompt,
+          ratio: p.ratio,
+          resolution: p.resolution,
+          model,
+          images: p.images.map((im) => ({ buf: Buffer.from(im.buf), type: im.type })),
+        });
+        return {
+          id: `gen-${Date.now()}-${i}`,
+          url: g.url ? g.url : `data:image/png;base64,${g.b64}`,
+          gradient: GRADIENTS[i % GRADIENTS.length],
+          prompt: publicPrompt(p),
+          ratio: p.ratio,
+          createdAt: new Date().toISOString(),
+          // 每张单独请求,g.tokens 就是这一张的真实 output tokens
+          tokens: g.tokens ?? 0,
+        };
+      })
+    );
+    return imgs;
+  }
+  // FLUX(Replicate)。**必须放在 OpenAI 客户端之前** —— 它不走 OpenAI SDK。
+  // 国内站连不上 api.replicate.com(实测 20s 超时),由 fluxGenerateSmart 内部
+  // 判断走境外代跑还是直连,这里不用关心。
+  if (!p.transparent && !p.ratiogen && modelProvider(model) === "replicate") {
+    const prompt = buildPrompt(p, await getStyleGuide());
+    const imgs = await Promise.all(
+      Array.from({ length: p.count }).map(async (_, i) => {
+        const f = await fluxGenerateSmart({
+          prompt,
+          ratio: p.ratio,
+          resolution: p.resolution,
+          images: p.images.map((im) => ({
+            buf: Buffer.from(im.buf),
+            type: im.type,
+          })),
+        });
+        return {
+          id: `gen-${Date.now()}-${i}`,
+          url: f.url,
+          gradient: GRADIENTS[i % GRADIENTS.length],
+          prompt: publicPrompt(p),
+          ratio: p.ratio,
+          createdAt: new Date().toISOString(),
+        };
+      })
+    );
+    return imgs;
+  }
+
   const client = new OpenAI({
     apiKey,
     baseURL: (await getOpenAIBaseUrl()) || undefined,
-    // Generation runs as a background job (no CDN constraint), so allow a
-    // long single attempt. No retry — a retry after timeout would double the
-    // wait and blow past the client's poll deadline.
-    timeout: 280_000,
+    // 后台 job,不受 CDN 超时约束,允许一次很长的尝试。不重试 —— 超时后重试
+    // 会让等待翻倍、冲爆前端轮询期限。
+    // ⚠️ 900 秒不是拍的:实测 1K 标准 77s、1K 高阶 161s、2K 标准 157s,
+    // 4K(3840)高阶按长边×档位外推约 600 秒 —— 原来的 280 秒会让 4K 高阶必然超时。
+    timeout: 900_000,
     maxRetries: 0,
   });
   const prompt = p.ratiogen ? ratioPrompt(p) : buildPrompt(p, await getStyleGuide());
-  const size = sizeFor(p.ratio, model);
+  // v2 直出真实尺寸:把分辨率档的长边传进去(1K 档 longSide=0 → 走模型默认)
+  const nativeLong = model.startsWith("gpt-image-2")
+    ? resolutionLongSide(p.resolution) || 0
+    : 0;
+  const size = sizeFor(p.ratio, model, nativeLong);
+  // v2 已经直出目标尺寸,就不该再做 sharp 插值放大(会白白重编码一次)。
+  const alreadyNative = nativeLong > 0;
   const canEdit = p.images.length > 0 && model.startsWith("gpt-image");
   // 出图模式:优先用本次请求选的(基础/标准/高阶 = low/medium/high),否则回退 env 默认。
   const q = (["low", "medium", "high", "auto"].includes(p.quality)
@@ -223,6 +356,8 @@ async function openaiImages(
     : IMG_QUALITY) as "low" | "medium" | "high" | "auto";
 
   let data: { b64_json?: string; url?: string }[] = [];
+  // 本批实际消耗的 output tokens。各分支都要累加 —— 漏一个分支就会把成本记成 0。
+  let usedTokens = 0;
 
   // 改比例(ChatGPT 式重生成):拿节点自身提示词 + 原图当参考,按目标比例重画一张,
   // 出图后裁切到精确比例。同主体/风格/配色,自然重构图 —— 无接缝、无羽化、不限于 3 种形状。
@@ -234,8 +369,9 @@ async function openaiImages(
       image: await toFile(ref, "ref.png", { type: "image/png" }),
       prompt,
       n: 1,
-      size: size as "1024x1024" | "1536x1024" | "1024x1536",
+      size: size as never,
     });
+    usedTokens += r.usage?.output_tokens ?? 0;
     const b64 = r.data?.[0]?.b64_json;
     if (!b64) throw new Error("OpenAI 未返回图片");
     const cropped = await cropToRatio(Buffer.from(b64, "base64"), p.ratio);
@@ -244,7 +380,7 @@ async function openaiImages(
         id: `gen-${Date.now()}-0`,
         url: `data:image/png;base64,${cropped.toString("base64")}`,
         gradient: GRADIENTS[0],
-        prompt: p.prompt,
+        prompt: publicPrompt(p),
         ratio: p.ratio,
         createdAt: new Date().toISOString(),
       },
@@ -265,7 +401,7 @@ async function openaiImages(
       image: files,
       prompt,
       n: p.count,
-      size: size as "1024x1024" | "1536x1024" | "1024x1536",
+      size: size as never,
       quality: q,
     };
     let r;
@@ -279,6 +415,7 @@ async function openaiImages(
         r = await client.images.edit(editParams); // 退回不透明底重试
       } else throw e;
     }
+    usedTokens += r.usage?.output_tokens ?? 0;
     data = r.data ?? [];
   } else if (model === "dall-e-3") {
     // dall-e-3: n=1 only, no edit -> fan out parallel text-to-image.
@@ -287,9 +424,10 @@ async function openaiImages(
         client.images.generate({ model, prompt, n: 1, size })
       )
     );
+    usedTokens += batches.reduce((n, b) => n + (b.usage?.output_tokens ?? 0), 0);
     data = batches.flatMap((b) => b.data ?? []);
   } else {
-    const genParams = { model, prompt, n: p.count, size, quality: q };
+    const genParams = { model, prompt, n: p.count, size: size as never, quality: q };
     let r;
     try {
       r = await client.images.generate({
@@ -301,18 +439,21 @@ async function openaiImages(
         r = await client.images.generate(genParams); // 退回不透明底重试
       } else throw e;
     }
+    usedTokens += r.usage?.output_tokens ?? 0;
     data = r.data ?? [];
   }
 
+  const perImageTokens = data.length ? Math.round(usedTokens / data.length) : 0;
   const images = data.map((d, i) => ({
     id: `gen-${Date.now()}-${i}`,
     url: d.b64_json
       ? `data:image/png;base64,${d.b64_json}`
       : (d.url ?? ""),
     gradient: GRADIENTS[i % GRADIENTS.length],
-    prompt: p.prompt,
+    prompt: publicPrompt(p),
     ratio: p.ratio,
     createdAt: new Date().toISOString(),
+    tokens: perImageTokens,
   }));
   if (images.length === 0) throw new Error("OpenAI 未返回图片");
   return images;
@@ -396,6 +537,22 @@ async function persistToStorage(
   if (!storageEnabled) return images;
   return Promise.all(
     images.map(async (image) => {
+      // Replicate 直连回来的是 **replicate.delivery 临时地址,会过期** ——
+      // 不转存的话作品几天后就打不开(国内站走代跑已在那侧转存好,这里只处理直连)。
+      if (/^https?:\/\//.test(image.url) && image.url.includes("replicate.delivery")) {
+        try {
+          const r = await fetch(image.url, { cache: "no-store" });
+          if (r.ok) {
+            const bytes = new Uint8Array(await r.arrayBuffer());
+            const ct = r.headers.get("content-type") || "image/png";
+            const url = await uploadImage(bytes, ct, `generations/${image.id}.png`);
+            return { ...image, url };
+          }
+        } catch {
+          /* 取不回就保留原地址,至少当下能看 */
+        }
+        return image;
+      }
       const decoded = dataUrlToBytes(image.url);
       if (!decoded) return image;
       try {
@@ -446,11 +603,15 @@ async function parseParams(request: Request): Promise<GenParams | null> {
     return {
       prompt: s("prompt").trim(),
       userPrompt: s("userPrompt").trim(),
+      userPromptProvided: f.get("userPrompt") !== null,
       category: s("category") || "main",
       ratio: s("ratio") || "1:1",
       resolution: s("resolution") || "1K",
       style: s("style"),
       quality: s("quality").trim(),
+      model: IMAGE_MODELS.some((m) => m.id === s("model").trim())
+        ? s("model").trim()
+        : "",
       count: Math.min(Math.max(Number(s("count")) || 4, 1), 8),
       transparent: s("transparent") === "1",
       ratiogen: s("ratiogen") === "1",
@@ -468,6 +629,8 @@ async function parseParams(request: Request): Promise<GenParams | null> {
   return {
     prompt: (j.prompt ?? "").trim(),
     userPrompt: (j.userPrompt ?? "").trim(),
+    userPromptProvided: j.userPrompt !== undefined,
+    model: IMAGE_MODELS.some((m) => m.id === j.model) ? (j.model as string) : "",
     category: j.category || "main",
     ratio: j.ratio || "1:1",
     resolution: j.resolution || "1K",
@@ -545,11 +708,15 @@ async function runJob(
     // —— 临时埋点:量出每段耗时,定位生图慢在哪(OpenAI出图 / 放大 / 传R2 / 图大小)——
     const _t0 = Date.now();
     let images = apiKey
-      ? await openaiImages(p, apiKey, model, cutoutModel)
+      ? await openaiImages(p, apiKey, p.model || model, cutoutModel)
       : mockImages(p);
     const _tOpenai = Date.now() - _t0;
     const _t1 = Date.now();
-    images = await upscaleImages(images, p.resolution);
+    // gpt-image-2 已按分辨率档**直出真实尺寸**,不能再插值放大(那只会重编码一次、
+    // 且把真细节重采样掉)。只有 v1/dall-e 这类固定尺寸模型才需要后期放大兜底。
+    if (!model.startsWith("gpt-image-2")) {
+      images = await upscaleImages(images, p.resolution);
+    }
     const _tUpscale = Date.now() - _t1;
     const _u0 = images[0]?.url || "";
     const _approxBytes = _u0.startsWith("data:")
@@ -584,8 +751,8 @@ async function runJob(
 
     let user: Awaited<ReturnType<typeof getUser>> = null;
     if (useDb) {
-      const title =
-        p.prompt.length > 16 ? `${p.prompt.slice(0, 16)}…` : p.prompt;
+      const disp = publicPrompt(p);
+      const title = disp.length > 16 ? `${disp.slice(0, 16)}…` : disp;
       const batchId = `b-${Date.now()}-${Math.floor(Math.random() * 1e4)}`;
       // 血缘父节点:优先用显式 parentId;否则若来自模板「做同款」,在用户名下
       // 找/建该模板的"模板原图"根节点,本次生成挂它下面。
@@ -594,8 +761,8 @@ async function runJob(
         parent = await ensureTemplateRoot(p.email, {
           templateId: p.templateId,
           image: p.templateImage,
-          prompt: p.templatePrompt || p.prompt,
-          title: p.templatePrompt || p.prompt,
+          prompt: p.templatePrompt || publicPrompt(p),
+          title: p.templatePrompt || publicPrompt(p),
         }).catch(() => null);
       }
       try {
@@ -605,8 +772,8 @@ async function runJob(
             id: im.id,
             title,
             category: p.category,
-            // 落库只存用户原始提示词(有就用,空则退回完整 prompt),保护系统提示词不外泄。
-            prompt: p.userPrompt || p.prompt,
+            // 落库只存对外可展示的提示词(见 publicPrompt),系统提示词永不落库。
+            prompt: publicPrompt(p),
             status: "completed",
             image: im.url,
             gradient: im.gradient,
@@ -617,15 +784,26 @@ async function runJob(
             parentId: parent,
             parentIds: p.parentIds.filter((x) => x && x !== parent),
             origin: p.origin || null,
+            // 计费与参数快照:定价以后会调,不能事后按新表反推历史订单。
+            // cost 是**单张**单价(总扣费 ÷ 张数),客户在记录里看到的就是这张图花了多少。
+            cost: Math.round(cost / Math.max(1, p.count)),
+            quality: modelHasQuality(p.model || model) ? p.quality : null,
+            model: p.model || model,
+            // 真实 token 消耗:成本核算的依据。**别用它算钱给用户看** ——
+            // 它是给我们自己做长期成本核算用的(积分单价靠估算已经错过一次)。
+            tokens: im.tokens ?? null,
           })),
           batchId
         );
       } catch {
         /* non-fatal */
       }
-      await addLedgerEntry(p.email, -cost, `生成 ${p.count} 张图`).catch(
-        () => {}
-      );
+      await addLedgerEntry(
+        p.email,
+        -cost,
+        `生成 ${p.count} 张图`,
+        batchId // 关联本批作品,账户明细能点回图片
+      ).catch(() => {});
       user = await getUser(p.email).catch(() => null);
     }
 
@@ -681,6 +859,18 @@ export async function POST(request: Request) {
       { status: 400 }
     );
   }
+  const totalBytes = p.images.reduce((s, im) => s + im.buf.length, 0);
+  if (totalBytes > MAX_TOTAL_BYTES) {
+    const mb = (n: number) => (n / 1024 / 1024).toFixed(1);
+    return NextResponse.json(
+      {
+        error: `参考图合计过大（${mb(totalBytes)}MB，上限 ${mb(
+          MAX_TOTAL_BYTES
+        )}MB），请减少张数或改用更小的图`,
+      },
+      { status: 400 }
+    );
+  }
 
   try {
   const { apiKey, model, cutoutModel } = await getOpenAISettings();
@@ -710,7 +900,29 @@ export async function POST(request: Request) {
   // 改比例只出 1 张,固定按 1 张计费(防止 count 被改大而超扣)。
   if (p.ratiogen) p.count = 1;
   // 全站固定标准档 medium(前端已无质量选择器),计费纯按分辨率(1K/2K=9、4K=18)。
-  const cost = p.count * resolutionCost(p.resolution);
+  // 服务端同样门控(前端灰选只是提示,直接打接口不能绕过):
+  //   · 模型不支持的分辨率 → 落到它支持的最高档,而不是报错(体验优先);
+  //   · 没有质量档的模型(Gemini 系)→ 一律按标准档计价,否则用户白付 4 倍钱。
+  // 本实例没配香蕉就别让它进队列。前端已按 /api/config 隐藏,这里是绕过前端的兜底:
+  // 不拦的话要等排队 + 跑完才抛「未配置」,用户白等一场(2026-08-17 客户实际踩到)。
+  if (modelProvider(p.model || model) === "replicate" && !fluxConfigured()) {
+    return NextResponse.json(
+      { error: "本站未开通该模型，请改用其他模型" },
+      { status: 400 }
+    );
+  }
+  if (modelProvider(p.model || model) === "gemini" && !geminiConfigured()) {
+    return NextResponse.json(
+      { error: "本站未开通该模型，请改用其他模型" },
+      { status: 400 }
+    );
+  }
+  const allowed = modelResolutions(p.model || model);
+  if (!allowed.includes(p.resolution)) {
+    p.resolution = allowed[allowed.length - 1];
+  }
+  const billQuality = modelHasQuality(p.model || model) ? p.quality : "medium";
+  const cost = p.count * resolutionCost(p.resolution, billQuality, p.model || model);
 
   if (dbEnabled && (await isBanned(p.email, ip))) {
     return NextResponse.json(

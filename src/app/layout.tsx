@@ -6,6 +6,7 @@ import "./globals.css";
 import { AuthProvider } from "@/lib/auth-context";
 import { authMode } from "@/lib/auth-mode";
 import { SessionBridge } from "@/components/session-bridge";
+import { SignedOutNotice } from "@/components/signed-out-notice";
 import { AppShell } from "@/components/app-shell";
 import { LocaleProvider } from "@/lib/i18n/locale-context";
 import { getServerLocale } from "@/lib/i18n/server-locale";
@@ -13,6 +14,7 @@ import { PaymentProvider } from "@/lib/payment-context";
 import { BrandProvider } from "@/lib/brand-context";
 import { getRuntimeBrand } from "@/lib/brand-runtime";
 import { getPaymentStatus } from "@/lib/settings";
+import { relayTokenIdFromBaseUrl } from "@/lib/cloud";
 import { proEnabled, editionName } from "@/lib/edition";
 import { isConfigured } from "@/lib/setup";
 import { BRAND, BRAND_FAVICON } from "@/lib/brand";
@@ -22,6 +24,7 @@ import { AuthModal } from "@/components/auth-modal";
 import { ToastProvider } from "@/components/ui/toast";
 import { RechargeModalProvider } from "@/lib/recharge-modal-context";
 import { RechargeModal } from "@/components/credits/recharge-modal";
+import { Tracker } from "@/components/analytics/tracker";
 
 // 站点字体:Geist(拉丁/数字,Vercel)+ 系统中文栈(见 tailwind sans),数字 tabular-nums。
 // 中文不走网页字体(CJK 字体包数 MB,拖慢加载),用系统 PingFang/YaHei。
@@ -67,6 +70,9 @@ export default async function RootLayout({
   const rechargeEnabled = pro && (await getPaymentStatus()).enabled;
   // 运行时品牌(白标):DB site_name/brand_logo 覆盖 → env 默认兜底;DB 无覆盖时与现状一致。
   const brand = await getRuntimeBrand();
+  // 本实例是否为云端托管租户(OPENAI_BASE_URL 指向 relay 的 nvr- 通道)。
+  const isCloudTenant =
+    relayTokenIdFromBaseUrl(process.env.OPENAI_BASE_URL || "") !== null;
   return (
     <html lang={locale === "en" ? "en" : "zh-CN"} className={GeistSans.variable}>
       <head>
@@ -77,7 +83,12 @@ export default async function RootLayout({
           <PaymentProvider
             rechargeEnabled={rechargeEnabled}
             pro={pro}
-            official={editionName === "cloud"}
+            // official = **是不是 Novaryns 自己的站**。云端托管租户的 edition 也是 cloud,
+            // 但它是买家的白标站,不是我们的站 —— 之前只判 edition 会让租户站上出现
+            // 「开源自部署 ¥0 + GitHub + 一键安装」和我们的标准价,既教付费客户免费自建,
+            // 也让按项目谈的报价穿帮。在源头修正,所有消费方(落地页/页脚/后台)一起生效。
+            official={editionName === "cloud" && !isCloudTenant}
+            cloudTenant={isCloudTenant}
           >
           <BrandProvider
             name={brand.name}
@@ -89,6 +100,8 @@ export default async function RootLayout({
               <RechargeModalProvider>
                 <ToastProvider>
                   {authMode === "supabase" && <SessionBridge />}
+                  <Tracker />
+                  <SignedOutNotice />
                   <AppShell>{children}</AppShell>
                   <Suspense fallback={null}>
                     <AuthModal />

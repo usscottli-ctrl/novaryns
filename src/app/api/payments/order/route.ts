@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { dbEnabled, getOrder, ensureProLicenseForOrder } from "@/lib/db";
+import { dbEnabled, getOrder, ensureProLicenseForOrder, ensureComputeTopupForOrder } from "@/lib/db";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -23,6 +23,12 @@ export async function GET(req: Request) {
   if (o.kind === "pro" && o.status === "paid") {
     licenseKey = await ensureProLicenseForOrder(o.id, o.email).catch(() => null);
   }
+  // 算力包已付 → 幂等懒补充值(回调侧失败/丢失时这里兜底)。
+  let computeApplied: boolean | undefined;
+  if (o.kind === "compute" && o.status === "paid") {
+    const r = await ensureComputeTopupForOrder(o.id, o.itemId).catch(() => ({ ok: false }));
+    computeApplied = r.ok;
+  }
   return NextResponse.json({
     id: o.id,
     status: o.status,
@@ -32,5 +38,6 @@ export async function GET(req: Request) {
     amount: o.amount,
     email: o.email,
     ...(licenseKey ? { licenseKey } : {}),
+    ...(computeApplied !== undefined ? { computeApplied } : {}),
   });
 }

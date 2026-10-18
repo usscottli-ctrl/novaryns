@@ -3,6 +3,7 @@
 import * as React from "react";
 import { Stamp, Wand2, Sparkles } from "lucide-react";
 import { PromptAssistPopup } from "@/components/tools/prompt-assist-popup";
+import { useStickyState } from "@/lib/use-sticky-state";
 import { ToolWorkspace, ToolChips } from "@/components/tools/tool-workspace";
 import { SelectMenu } from "@/components/ui/select-menu";
 import { useAuth } from "@/lib/auth-context";
@@ -51,9 +52,9 @@ export function ExtractClient() {
   const L = (z: string, e: string) => (locale === "en" ? e : z);
   const [mode, setMode] = React.useState("basic");
   const [category, setCategory] = React.useState("通用");
-  const [ratio, setRatio] = React.useState("自动");
+  const [ratio, setRatio] = useStickyState("extract.ratio", "自动");
   const [complete, setComplete] = React.useState("0");
-  const [resolution, setResolution] = React.useState("1K");
+  const [resolution, setResolution] = useStickyState("extract.resolution", "1K");
   const [output, setOutput] = React.useState("透明底");
   // 补充描述(选填,拼进提取提示词)+ AI帮写/智能优化(必传图)
   const [extra, setExtra] = React.useState("");
@@ -165,6 +166,10 @@ export function ExtractClient() {
         onChange={setResolution}
         accent={ACCENT}
       />
+      {/* ⚠️ 透明底必须走 gpt-image-1(v2 不支持 background:transparent),而 v1 只能出
+          1024 系固定尺寸 → **透明底的 2K/4K 仍是生成后放大**,必须如实标注。
+          白底/黑底 2026-08-26 起走 gpt-image-2 原生直出。 */}
+      <p className="-mt-1 mb-1 text-[11px] leading-4 text-c-text3">{L("透明底的 2K/4K 为生成后放大(尺寸变大、细节不增加);白底/黑底为原生直出", "Transparent 2K/4K is upscaled after generation; white/black backgrounds are native.")}</p>
 
       {/* 输出底色 */}
       <ToolChips

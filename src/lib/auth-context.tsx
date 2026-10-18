@@ -11,7 +11,7 @@ import {
 import { getPlan, type PlanKey } from "@/lib/mock-data";
 import { BRAND } from "@/lib/brand";
 import { supabaseEnabled } from "@/lib/auth-mode";
-import { authHeader } from "@/lib/supabase";
+import { authHeader, browserSupabase } from "@/lib/supabase";
 
 // ---------------------------------------------------------------------------
 // Session + membership state.
@@ -56,13 +56,13 @@ type AuthContextValue = {
   multiUser: boolean;
   signUp: (name: string, email: string) => void;
   signIn: (email: string) => void;
-  signOut: () => void;
+  signOut: () => Promise<void>;
   changePlan: (plan: PlanKey) => Promise<Invoice | null>;
   consumeCredits: (n: number) => boolean;
   /** Replace the session with an authoritative server copy. */
   applyServerUser: (user: SessionUser | null) => void;
   syncIdentity: (identity: Identity | null) => void;
-  bindSignOut: (fn: (() => void) | null) => void;
+  bindSignOut: (fn: (() => void | Promise<void>) | null) => void;
 };
 
 const STORAGE_PREFIX = "novaryns:user:";
@@ -215,12 +215,22 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
             /* session unreachable — leave as-is */
           }
         } else if (!cancelled && cfg?.db && lastEmail) {
-          const res = await fetch(
-            `/api/account?email=${encodeURIComponent(lastEmail)}`,
-            { headers: await authHeader() }
-          ).then((r) => r.json());
-          if (!cancelled && res?.persisted && res.user) {
-            persist(res.user as SessionUser);
+          // 官方云(Supabase):**Supabase 会话才是登录态的唯一权威**。
+          // 2026-07-20 线上 bug:会话失效后,UI 仍显示已登录(账户菜单有邮箱+积分),
+          // 但生图/AI帮写等受保护接口要 Bearer token → 一律「请先登录」。
+          // 根因:上面的 localStorage 暖缓存已把 user 置上,而这里只在成功时覆盖、
+          // 失败时**不清除**,于是假登录态一直留着。所以拿不到 token 就必须清掉。
+          const hdr = await authHeader();
+          if (cfg?.authMode === "supabase" && !hdr.Authorization) {
+            if (!cancelled) persist(null);
+          } else {
+            const res = await fetch(
+              `/api/account?email=${encodeURIComponent(lastEmail)}`,
+              { headers: hdr }
+            ).then((r) => r.json());
+            if (!cancelled && res?.persisted && res.user) {
+              persist(res.user as SessionUser);
+            }
           }
         }
       } catch {
@@ -232,6 +242,22 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     return () => {
       cancelled = true;
     };
+  }, [persist]);
+
+  // 会话中途失效(access_token 刷新失败 / 别处登出 / 手机端存储被清)时,把 UI 登录态
+  // 同步清掉 —— 否则又会出现「看着已登录、点生图说没登录」。仅 Supabase 模式需要。
+  useEffect(() => {
+    if (!supabaseEnabled) return;
+    let sub: { unsubscribe: () => void } | null = null;
+    try {
+      const r = browserSupabase().auth.onAuthStateChange((event, session) => {
+        if (event === "SIGNED_OUT" || !session) persist(null);
+      });
+      sub = r?.data?.subscription ?? null;
+    } catch {
+      /* supabase 未配置 → 无需订阅 */
+    }
+    return () => sub?.unsubscribe();
   }, [persist]);
 
   const startSession = useCallback(
@@ -279,22 +305,40 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     [startSession]
   );
 
-  const signOut = useCallback(() => {
-    if (externalSignOut.current) externalSignOut.current();
+  // 退出:**先等所有会话清理完成,再整页跳回首页**。
+  // 为什么跳转:退出后停在原页(尤其 /account、/generate 这类要登录的页)会看到
+  // 半坏的空页面,用户根本分不清到底退没退(2026-07-20 用户反馈)。统一回首页(登出态)
+  // 是淘宝/B站/YouTube 这类"有营销首页"站点的通行做法;本站登录是弹窗、没有独立登录页。
+  // 为什么整页跳(而非路由跳):顺带把内存里的组件状态/缓存全部清空,杜绝上个用户的数据残留。
+  // 为什么要 await:三处清理都是网络请求,不等完就跳会被浏览器打断 → 会话没清干净。
+  const signOut = useCallback(async () => {
+    const jobs: Promise<unknown>[] = [];
+    if (externalSignOut.current) {
+      const r: unknown = externalSignOut.current();
+      if (r && typeof (r as Promise<void>).then === "function") jobs.push(r as Promise<void>);
+    }
     // 原生多用户:清服务端会话 cookie。
     if (multiUserRef.current) {
-      fetch("/api/auth/logout", { method: "POST" }).catch(() => {});
+      jobs.push(fetch("/api/auth/logout", { method: "POST" }).catch(() => {}));
     }
     // 单用户/本地管理员(无 Supabase):同时清后台会话(nv_admin)——
     // 否则「退出」后仍是隐形管理员,/deploy 更新卡等站长内容照样可见。
     if (!supabaseEnabled) {
-      fetch("/api/admin/login", { method: "DELETE" }).catch(() => {});
+      jobs.push(fetch("/api/admin/login", { method: "DELETE" }).catch(() => {}));
     }
     setUser(null);
     try {
       localStorage.removeItem(LAST_KEY);
     } catch {
       /* ignore */
+    }
+    // 最多等 2.5s,网络异常也不能把用户卡在原地
+    await Promise.race([
+      Promise.allSettled(jobs),
+      new Promise((r) => setTimeout(r, 2500)),
+    ]);
+    if (typeof window !== "undefined") {
+      window.location.assign("/?signedout=1"); // 首页据此弹「已退出登录」
     }
   }, []);
 

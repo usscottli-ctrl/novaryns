@@ -3,7 +3,12 @@
 import * as React from "react";
 import { cn } from "@/lib/utils";
 
-export type SegOption<T extends string> = { value: T; label: React.ReactNode };
+export type SegOption<T extends string> = {
+  value: T;
+  label: React.ReactNode;
+  /** 不可选(如某模型不支持的分辨率档)。灰掉且点不动,比"帮用户偷偷改"更可控。 */
+  disabled?: boolean;
+};
 
 /** 分段控件(spec B.3)。variant: light=白片激活 / dark=近黑片激活(兑换码/作品筛选)。 */
 export function Segmented<T extends string>({
@@ -32,9 +37,11 @@ export function Segmented<T extends string>({
             type="button"
             role="tab"
             aria-selected={active}
-            onClick={() => onChange(o.value)}
+            disabled={o.disabled}
+            onClick={() => !o.disabled && onChange(o.value)}
             className={cn(
               "flex-1 rounded-[7px] px-3 py-1.5 text-[12.5px] font-semibold leading-none transition-all",
+              o.disabled && "cursor-not-allowed opacity-40",
               active
                 ? variant === "dark"
                   ? "bg-c-text text-c-card"

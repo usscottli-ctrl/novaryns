@@ -14,10 +14,15 @@ import { cdnUrl } from "@/lib/cdn";
  */
 
 // 每个工具的演示配置:title=功能标题。
-// 两种演示形式(配其一即可):
+// 几种演示形式(配其一即可):
 //   combo  = 一张「前后合成图」(左原/右效果,或左效果/右原),单图就能说清效果;
-//   before/after = 分开的两张图,组件自动拼成「原图 → 效果」。
+//   before/after = 分开的两张图,组件自动拼成「原图 → 效果」;
+//   steps  = 三步及以上的流程图,每张自带图注(局部改图这种「原图→涂抹→生成」
+//            两张说不清的工具用它,否则用户看不懂中间那张蓝色的是什么);
+//   gallery = 若干张平铺,不带图注和箭头。
 // 都没配则只显示标题 + 干净提示(不放假图)。
+export type DemoStep = { src: string; zh: string; en: string };
+
 export const TOOL_DEMOS: Record<
   string,
   {
@@ -26,6 +31,7 @@ export const TOOL_DEMOS: Record<
     before?: string;
     after?: string;
     gallery?: string[];
+    steps?: DemoStep[];
   }
 > = {
   upscale: {
@@ -70,10 +76,14 @@ export const TOOL_DEMOS: Record<
     before: "/demos/fusion-before.webp",
     after: "/demos/fusion-after.webp",
   },
+  // 局部改图必须三步:只给「原图→效果」的话,用户不知道中间要自己涂抹选区。
   inpaint: {
     title: "圈出要改的地方,描述一下就重绘",
-    before: "/demos/inpaint-before.webp",
-    after: "/demos/inpaint-after.webp",
+    steps: [
+      { src: "/demos/inpaint-step1.webp", zh: "原图", en: "Original" },
+      { src: "/demos/inpaint-step2.webp", zh: "涂抹要改的区域", en: "Brush the area" },
+      { src: "/demos/inpaint-step3.webp", zh: "生成结果", en: "Result" },
+    ],
   },
   printfile: {
     title: "上传图,一键生成印刷级文件",
@@ -126,7 +136,26 @@ export function getDemo(key?: string) {
     before: d.before,
     after: d.after,
     gallery: d.gallery,
+    steps: d.steps,
   };
+}
+
+/** 步骤之间的箭头。size 跟着容器走,三步比两步窄,所以小一号。 */
+function StepArrow({ className = "" }: { className?: string }) {
+  return (
+    <svg
+      className={className}
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="2.2"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      aria-hidden
+    >
+      <path d="M5 12h14M13 6l6 6-6 6" />
+    </svg>
+  );
 }
 
 export function ToolDemo({
@@ -135,12 +164,14 @@ export function ToolDemo({
   before,
   after,
   gallery,
+  steps,
 }: {
   title: string;
   combo?: string;
   before?: string;
   after?: string;
   gallery?: string[];
+  steps?: DemoStep[];
 }) {
   const { locale } = useI18n();
   const L = (z: string, e: string) => (locale === "en" ? e : z);
@@ -150,7 +181,53 @@ export function ToolDemo({
       <h3 className="max-w-[90%] text-[18px] font-bold leading-snug text-acc sm:text-[21px]">
         {title}
       </h3>
-      {gallery?.length ? (
+      {steps?.length ? (
+        // 三图并排:中间栏可用宽约 480px,所以单图上限 128 —— 3×128 + 2 个箭头 + 间距
+        // ≈ 470,刚好不溢出(两图版用的是 220,那是两张图的预算,不能照搬)。
+        // 行用 items-center,箭头就自然竖直居中,不要手写 margin 去凑。
+        <div className="flex w-full items-center justify-center gap-1.5 sm:gap-2.5">
+          {steps.map((s, i) => (
+            <div key={s.src} className="flex items-center gap-1.5 sm:gap-2.5">
+              {i > 0 && (
+                // 箭头要对准**图片**的竖直中心,而不是 figure 的中心 —— 图注预留了两行,
+                // 按 figure 居中会让箭头偏低十几像素。图高恒为宽的 1.5 倍,所以半高 =
+                // 0.75×宽,再减去箭头自身半高;跟着 clamp 自动缩放。
+                <StepArrow
+                  className="h-5 w-5 flex-none self-start text-acc sm:h-6 sm:w-6
+                    mt-[calc(0.75*clamp(72px,18vw,128px)-10px)]
+                    sm:mt-[calc(0.75*clamp(72px,18vw,128px)-12px)]"
+                />
+              )}
+              <figure className="flex shrink-0 flex-col items-center gap-1.5">
+                {/* eslint-disable-next-line @next/next/no-img-element */}
+                <img
+                  src={cdnUrl(s.src)}
+                  alt={L(s.zh, s.en)}
+                  className={
+                    // 最后一步 = 结果,用强调色描边跟前面的过程图区分开
+                    "aspect-[2/3] w-[clamp(72px,18vw,128px)] rounded-2xl bg-c-subtle2 object-contain shadow-card " +
+                    (i === steps.length - 1
+                      ? "border-2 border-acc"
+                      : "border border-c-border")
+                  }
+                />
+                <figcaption
+                  className={
+                    // 预留两行高度:窄屏下「涂抹要改的区域」会折行,不预留的话那一列更高,
+                    // 行的 items-center 就会把这张图顶得比旁边高几像素。
+                    "min-h-[2.5em] max-w-[clamp(72px,18vw,128px)] text-[11px] leading-tight sm:text-[11.5px] " +
+                    (i === steps.length - 1
+                      ? "font-medium text-acc"
+                      : "text-c-text3")
+                  }
+                >
+                  {L(s.zh, s.en)}
+                </figcaption>
+              </figure>
+            </div>
+          ))}
+        </div>
+      ) : gallery?.length ? (
         <div className="flex w-full items-stretch justify-center gap-2 sm:gap-3">
           {gallery.map((g, i) => (
             // eslint-disable-next-line @next/next/no-img-element

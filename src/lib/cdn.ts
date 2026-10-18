@@ -17,12 +17,21 @@ const IMG_BASE = (process.env.NEXT_PUBLIC_IMAGE_BASE_URL ?? "").replace(
   ""
 );
 
+// R2 的两个公共入口:老的 *.r2.dev,和 2026-09-03 新绑的自定义域名。
+// **两个都要改写**:r2.dev 当天被墙导致全站图裂,自定义域名是它的替身,
+// 将来海外站改用自定义域名时,国内站仍要把它换成国内 CDN 才不会绕出境。
+const R2_HOSTS = ["img.novaryns.com"];
+
+function isR2Host(h: string): boolean {
+  return h.endsWith(".r2.dev") || R2_HOSTS.includes(h);
+}
+
 export function cdnUrl(src: string | null | undefined): string {
   const s = src ?? "";
   if (!IMG_BASE || !s) return s;
   try {
     const u = new URL(s);
-    if (u.hostname.endsWith(".r2.dev")) {
+    if (isR2Host(u.hostname)) {
       return IMG_BASE + u.pathname + u.search;
     }
   } catch {

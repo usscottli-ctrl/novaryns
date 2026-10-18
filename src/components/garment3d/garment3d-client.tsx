@@ -53,6 +53,14 @@ export function Garment3dClient() {
         onChange={setResolution}
         accent={ACCENT}
       />
+      {/* 2026-08-26 起 2K/4K 是**原生直出**(路由按比例请求真实尺寸),不再插值放大。
+          ⚠️ 4K 竖版受总像素上限约束,长边约 3300 而非 3840(与生图页同一条约束)。 */}
+      <p className="-mt-1 text-[11px] leading-4 text-c-text3">
+        {L(
+          "4K ≈ 800 万像素;竖版/方图长边约 3300",
+          "4K ≈ 8 MP; portrait/square long edge is about 3300 px."
+        )}
+      </p>
     </>
   );
 

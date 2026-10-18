@@ -25,6 +25,8 @@ import { useAuthModal } from "@/lib/auth-modal-context";
 import { useI18n } from "@/lib/i18n/locale-context";
 import { downloadImage } from "@/lib/download";
 import { cn } from "@/lib/utils";
+import { isUserOutput } from "@/lib/artwork-filter";
+import { PromptPanel } from "@/components/ui/prompt-panel";
 
 export type ToolProcessResult = {
   url: string;
@@ -180,7 +182,7 @@ export function ToolWorkspace({
         setRecords(
           arts
             .filter(
-              (a) => a.image && a.status !== "failed" && a.category === category
+              (a) => isUserOutput(a) && a.category === category
             )
             .slice(0, 60)
             .map((a) => ({
@@ -514,9 +516,7 @@ export function ToolWorkspace({
                 </div>
               </div>
               {dispPrompt && (
-                <div className="mt-3 rounded-field bg-c-subtle2 px-3 py-2 text-[12px] leading-relaxed text-c-text2">
-                  <span className="font-medium text-c-text3">{L("提示词:", "Prompt:")}</span> {dispPrompt}
-                </div>
+                <PromptPanel className="mt-3" prompt={dispPrompt} title={L("提示词", "Prompt")} />
               )}
             </>
           )}

@@ -1,7 +1,7 @@
 "use client";
 
 import { cdnUrl } from "@/lib/cdn";
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import {
@@ -24,8 +24,14 @@ import {
   CATEGORY_LABELS,
   GENERATION_RATIOS,
   GENERATION_RESOLUTIONS,
+  GENERATION_QUALITIES,
+  IMAGE_MODELS,
   GENERATION_STYLES,
   resolutionCost,
+  modelResolutions,
+  modelHasQuality,
+  estimateGenSeconds,
+  humanSeconds,
   type Category,
   type PromptTemplate,
 } from "@/lib/mock-data";
@@ -42,9 +48,14 @@ import { GenLoader } from "@/components/gen-loader";
 import { ImageLightbox } from "@/components/image-lightbox";
 import { RecordPager, RECORDS_PER_PAGE } from "@/components/tools/record-pager";
 import { ToolDemo, getDemo } from "@/components/tools/tool-demo";
+import { useToast } from "@/components/ui/toast";
+import { useAwayAlert } from "@/lib/notify";
+import { useStickyState } from "@/lib/use-sticky-state";
 import { downloadImage } from "@/lib/download";
 import { useI18n } from "@/lib/i18n/locale-context";
 import { cn } from "@/lib/utils";
+import { isUserOutput } from "@/lib/artwork-filter";
+import { PromptPanel } from "@/components/ui/prompt-panel";
 
 function fmt(s: string, vars: Record<string, string | number>): string {
   return Object.entries(vars).reduce(
@@ -64,7 +75,14 @@ const RATIO_ASPECT: Record<string, string> = {
 };
 
 const MAX_UPLOAD = 12 * 1024 * 1024;
-const MAX_IMAGES = 6;
+// 参考图张数。**别再往上加**:gpt-image 编辑接口硬上限 16 张,香蕉(Gemini 3 Pro Image)
+// 官方写「最多 14 张效果最佳」——10 是两家都留足缓冲的公约数,再往上主体一致性反而会被稀释。
+// 客户(视觉生产公司)日常传 8 张起,10 张覆盖需求还有余量。
+const MAX_IMAGES = 10;
+// 合计体积上限。**不压缩是用户明确要求**(保参考图原始细节),所以只能靠总量兜底:
+// 国内站要把图跨境传到境外代跑,体积直接等于等待时间,不设上限会传到超时。
+const MAX_TOTAL = 80 * 1024 * 1024;
+const mb = (n: number) => (n / 1024 / 1024).toFixed(1);
 
 export function GenerateClient({
   seedTemplateId,
@@ -89,12 +107,56 @@ export function GenerateClient({
     nonce: number;
   } | null>(null);
   const [category, setCategory] = useState<Category>("main");
-  const [ratio, setRatio] = useState("auto");
-  const [resolution, setResolution] = useState("1K");
-  // 出图统一用标准档 medium(省钱稳赚、画质够用);不再暴露低/高阶选择器。
-  const quality = "medium";
+  // ── 以下参数「记住上次的选择」(存本机 localStorage,见 use-sticky-state)──
+  // 专业用户每天固定用同一套参数,每次进来重选很烦。**都带校验**:
+  // 存的值若已失效(模型下架、该模型不再支持某分辨率)自动回落默认,不会卡死。
+  const [ratio, setRatio] = useStickyState("gen.ratio", "auto", (v) =>
+    GENERATION_RATIOS.some((r) => r.id === v)
+  );
+  const [resolution, setResolution] = useStickyState("gen.resolution", "1K", (v) =>
+    GENERATION_RESOLUTIONS.some((r) => r.id === v)
+  );
+  // 出图质量档(基础/标准/高阶)。**2026-08-15 恢复可选** —— 之前锁死 medium 省成本,
+  // 专业视觉客户一眼看出质感差距(见客户反馈)。高阶更贵,价格按 qualityMult 走。
+  const [quality, setQuality] = useStickyState("gen.quality", "medium", (v) =>
+    GENERATION_QUALITIES.some((q) => q.id === v)
+  );
+  // 生图模型:用户自选(GPT Image 2 / Nano Banana),不同调性各有强项。
+  const [model, setModel] = useStickyState<string>("gen.model", IMAGE_MODELS[0].id, (v) =>
+    IMAGE_MODELS.some((m) => m.id === v)
+  );
+  // 本实例是否配了香蕉(Gemini)。云端租户只有 relay 注入的 OpenAI 通道、没有 GEMINI_*,
+  // 全列出来的话客户选了香蕉、传完图、等完进度条,最后才拿到「Nano Banana 未配置」。
+  // 默认 true:接口没答上来之前先按"全都有"渲染,避免主站闪一下少两个按钮。
+  const [geminiOk, setGeminiOk] = useState(true);
+  const [fluxOk, setFluxOk] = useState(true);
+  useEffect(() => {
+    fetch("/api/config", { cache: "no-store" })
+      .then((r) => r.json())
+      .then((d) => {
+        setGeminiOk(!!d.geminiEnabled);
+        setFluxOk(!!d.fluxEnabled);
+      })
+      .catch(() => {});
+  }, []);
+  const availableModels = useMemo(
+    () =>
+      IMAGE_MODELS.filter((m) => {
+        if (m.provider === "gemini") return geminiOk;
+        if (m.provider === "replicate") return fluxOk;
+        return true;
+      }),
+    [geminiOk, fluxOk]
+  );
+  // 记住的模型若在本实例不可用(换实例/配置变了),回落到第一个可用的,
+  // 否则会停在一个点了必失败的选项上。
+  useEffect(() => {
+    if (!availableModels.some((m) => m.id === model)) {
+      setModel(availableModels[0]?.id ?? IMAGE_MODELS[0].id);
+    }
+  }, [availableModels, model, setModel]);
   const [style, setStyle] = useState(GENERATION_STYLES[0]);
-  const [count, setCount] = useState(1);
+  const [count, setCount] = useStickyState("gen.count", 1, (v) => [1, 2, 4].includes(v));
   const [files, setFiles] = useState<File[]>([]);
   const [filePreviews, setFilePreviews] = useState<string[]>([]);
   const [loading, setLoading] = useState(false);
@@ -108,6 +170,12 @@ export function GenerateClient({
   const [resultFilter, setResultFilter] = useState<"all" | "done">("all");
   // 移动端单列:参数/结果 分段切换(桌面忽略,始终三栏)。
   const [mobileTab, setMobileTab] = useState<"params" | "result">("params");
+  // 生成用时(秒),给「不知道跑到哪了」的用户一个在动的读数。
+  const [elapsed, setElapsed] = useState(0);
+  // 参考图拖拽高亮
+  const [dragOver, setDragOver] = useState(false);
+  const { toast } = useToast();
+  const away = useAwayAlert();
   // 右栏「本工具记录」:登录后拉最近作品(生成产物),点击载入中间对比区。纯展示,不碰生成逻辑。
   type RecItem = {
     id: string;
@@ -115,6 +183,13 @@ export function GenerateClient({
     prompt?: string;
     gradient?: string;
     source?: string;
+    // 客户要能回答「这张什么时候生成的、什么参数、扣了几分」(2026-08-17 客户质疑扣分)。
+    createdAt?: string;
+    cost?: number | null;
+    resolution?: string | null;
+    quality?: string | null;
+    model?: string | null;
+    ratio?: string | null;
   };
   const [records, setRecords] = useState<RecItem[] | null>(null);
   // 记录列多选(批量打包下载) + 点记录在中间载入的「原图/成品对比」(null=显示当前结果)。
@@ -247,11 +322,57 @@ export function GenerateClient({
     void loadBaseImage(params.get("src") || gen || "");
   }, [params, loadBaseImage]);
 
+  // 组件卸载时释放所有 blob 预览地址。
+  // ⚠️ **依赖数组必须是空的**(2026-08-18 修):原来写的是 [filePreviews],
+  // 于是每次数组一变(加第二张图),React 会先跑上一次的清理 —— 把**上一批地址全部
+  // revoke 掉**,包括第一张还在用的那个。缩略图因为浏览器已缓存看着正常,
+  // 但点开灯箱要重新加载时就是裂图,表现为"只有第一张图放大打不开"。
+  // 用 ref 持有最新数组,这样空依赖也能在卸载时拿到全部地址。
+  const previewsRef = useRef<string[]>([]);
+  useEffect(() => {
+    previewsRef.current = filePreviews;
+  }, [filePreviews]);
   useEffect(() => {
     return () => {
-      filePreviews.forEach((u) => URL.revokeObjectURL(u));
+      previewsRef.current.forEach((u) => URL.revokeObjectURL(u));
     };
-  }, [filePreviews]);
+  }, []);
+
+  // Ctrl+V 直接粘贴图片上传(专业用户常截图后直接粘)。
+  // 只在没聚焦在输入框时接管,免得粘提示词文本时被误吞。
+  useEffect(() => {
+    const onPaste = (e: ClipboardEvent) => {
+      const el = document.activeElement as HTMLElement | null;
+      if (el && /^(INPUT|TEXTAREA)$/.test(el.tagName)) return;
+      const items = e.clipboardData?.items;
+      if (!items) return;
+      const imgs: File[] = [];
+      for (const it of Array.from(items)) {
+        if (it.kind === "file" && it.type.startsWith("image/")) {
+          const f = it.getAsFile();
+          if (f) imgs.push(f);
+        }
+      }
+      if (!imgs.length) return;
+      e.preventDefault();
+      const dt = new DataTransfer();
+      imgs.forEach((f) => dt.items.add(f));
+      pickFiles(dt.files);
+    };
+    window.addEventListener("paste", onPaste);
+    return () => window.removeEventListener("paste", onPaste);
+  });
+
+  // 生成用时秒表:loading 期间每秒 +1,结束归零。
+  useEffect(() => {
+    if (!loading) {
+      setElapsed(0);
+      return;
+    }
+    const t0 = Date.now();
+    const id = setInterval(() => setElapsed(Math.floor((Date.now() - t0) / 1000)), 1000);
+    return () => clearInterval(id);
+  }, [loading]);
 
   // 拉「本工具记录」:登录后取最近作品;每次生成完(images 变)刷新一次。
   useEffect(() => {
@@ -275,11 +396,22 @@ export function GenerateClient({
           gradient?: string;
           status?: string;
           source?: string;
+          templateId?: string | null;
+          createdAt?: string;
+          cost?: number | null;
+          resolution?: string | null;
+          quality?: string | null;
+          model?: string | null;
+          ratio?: string | null;
         }[];
         if (cancelled) return;
         setRecords(
           arts
-            .filter((a) => a.image && a.status !== "failed")
+            // 只留**本工具真正生成出来的结果**。账户下还混着两类"素材",它们也是
+            // app_artworks 行,但不是用户产出,列在「本工具记录」里会让人以为是自己生成的:
+            //   · 模板原图(templateId 非空)—— 模板自带的参考图,「做同款」时建的血缘根节点;
+            //   · 上传图(无提示词)—— 用户自己拖进来的底图/参考图。
+            .filter(isUserOutput)
             .slice(0, 60)
             .map((a) => ({
               id: a.id,
@@ -287,6 +419,12 @@ export function GenerateClient({
               prompt: a.prompt,
               gradient: a.gradient,
               source: a.source,
+              createdAt: a.createdAt,
+              cost: a.cost,
+              resolution: a.resolution,
+              quality: a.quality,
+              model: a.model,
+              ratio: a.ratio,
             }))
         );
         setRecPage(0);
@@ -300,6 +438,8 @@ export function GenerateClient({
   }, [user?.email, images.length]);
 
 
+  const totalBytes = files.reduce((s, f) => s + f.size, 0);
+
   function pickFiles(list: FileList | null) {
     if (!list || list.length === 0) return;
     const slotsLeft = MAX_IMAGES - files.length;
@@ -308,6 +448,10 @@ export function GenerateClient({
       return;
     }
     const accepted: File[] = [];
+    // 已选体积,新加的要累加着算 —— 不压缩时**容量往往先于张数触顶**,
+    // 所以拦下来时必须按容量说话,否则用户会以为"说好 10 张却只让传 8 张"。
+    let total = files.reduce((s, f) => s + f.size, 0);
+    let hitCap = false;
     for (const f of Array.from(list)) {
       if (!/^image\/(png|jpe?g|webp)$/.test(f.type)) {
         setError("仅支持 PNG / JPG / WebP 图片");
@@ -317,11 +461,22 @@ export function GenerateClient({
         setError("单张图片过大，请小于 12MB");
         continue;
       }
+      if (total + f.size > MAX_TOTAL) {
+        hitCap = true;
+        break;
+      }
+      total += f.size;
       accepted.push(f);
       if (accepted.length >= slotsLeft) break;
     }
+    if (hitCap) {
+      setError(
+        `参考图合计不能超过 ${mb(MAX_TOTAL)}MB（当前 ${mb(total)}MB）。` +
+          `已加入 ${accepted.length} 张，其余请分批生成或改用更小的图。`
+      );
+    }
     if (accepted.length === 0) return;
-    setError(null);
+    if (!hitCap) setError(null); // 触顶提示要留着,别被这行清掉
     setParentId(""); // 手动上传的底图是新根,没有血缘父节点
     setTpl(null); // 也不再算模板「做同款」
     setFiles((prev) => [...prev, ...accepted]);
@@ -433,7 +588,23 @@ export function GenerateClient({
     setAssistOpen(true);
   }
 
-  const costPerImage = resolutionCost(resolution);
+  // 当前模型支持哪些分辨率 / 有没有质量档(Lite 只有 1K;Gemini 系无质量档)
+  const allowedRes = modelResolutions(model);
+  const hasQuality = modelHasQuality(model);
+  // 切到能力更窄的模型时,把非法选择拉回合法值,避免带着 4K 去点 Lite 直接报错。
+  useEffect(() => {
+    if (!allowedRes.includes(resolution)) setResolution(allowedRes[0]);
+    if (!hasQuality && quality !== "medium") setQuality("medium");
+  }, [allowedRes, hasQuality, resolution, quality]);
+  // 计价:没有质量档的模型一律按标准档算 —— 否则用户选了高阶白付 4 倍钱。
+  // 单价随模型变(各模型上游成本差好几倍),不能只看分辨率。
+  const costPerImage = resolutionCost(
+    resolution,
+    hasQuality ? quality : "medium",
+    model
+  );
+  // 预计耗时:4K/高阶是分钟级,必须提前告诉用户,否则会以为卡死。
+  const etaSec = estimateGenSeconds(resolution, hasQuality ? quality : "medium", count);
   const cost = count * costPerImage;
   const insufficient = !!user && remaining < cost;
 
@@ -461,6 +632,10 @@ export function GenerateClient({
     }
     setError(null);
     setLoading(true);
+    // 手机上默认停在「参数」tab,不切过去用户看不到结果区的生成动画/结果。
+    setMobileTab("result");
+    // 在这次点击(用户手势)里礼貌请求一次通知权限,供后台完成时提醒;拒绝也有标题兜底。
+    away.askPermission();
     try {
       const fd = new FormData();
       fd.append("prompt", prompt);
@@ -470,6 +645,7 @@ export function GenerateClient({
       fd.append("ratio", ratio);
       fd.append("resolution", resolution);
       fd.append("quality", quality);
+      fd.append("model", model);
       fd.append("style", style);
       fd.append("count", String(count));
       fd.append("email", user.email);
@@ -520,8 +696,14 @@ export function GenerateClient({
       // so the user can compare iterations side by side.
       setImages((prev) => [...prev, ...data!.images]);
       setShownRec(null); // 新结果出来 → 回到当前结果视图
+      // 完成提醒:前台弹 toast;若此刻页面在后台(用户切走了),改标题+系统通知带回来。
+      const doneMsg = fmt(t("gen.doneToast"), { n: data.images.length });
+      toast(doneMsg, "success");
+      away.fire(doneMsg);
     } catch (e) {
-      setError(e instanceof Error ? e.message : t("gen.errFailRetry"));
+      const msg = e instanceof Error ? e.message : t("gen.errFailRetry");
+      setError(msg);
+      toast(msg, "error");
     } finally {
       setLoading(false);
     }
@@ -556,7 +738,9 @@ export function GenerateClient({
           </div>
         </div>
 
-        {/* 视频生成(VideoStudio)暂时下线,组件/i18n/路线都保留,以后接 Seedance 再放出。 */}
+        {/* 视频生成**不在这一页** —— 用户 2026-08-15 拍板:只在画布里做
+            (画布里已有现成的图片节点当首帧,图生视频更顺;生图页保持纯图片工作台)。
+            VideoStudio 组件保留未挂载,以后若要独立视频页可直接复用。 */}
         {/* 移动端「参数 / 结果」分段切换(桌面隐藏,始终三栏) */}
         <div className="mb-3 lg:hidden">
           <Segmented<"params" | "result">
@@ -579,7 +763,9 @@ export function GenerateClient({
           {/* Control panel — Rodin 紧凑式(下拉参数) */}
           <div
             className={cn(
-              "h-fit space-y-5 rounded-card border border-c-border bg-c-card p-5 shadow-card nv-panel-scroll lg:h-full lg:min-h-0 lg:overflow-y-auto",
+              // flex-col + 底部块 mt-auto:左栏是固定 890px 高,内容不足时
+              // 让生成按钮贴底,而不是把空白堆在参数区与按钮之间。
+              "flex h-fit flex-col gap-4 rounded-card border border-c-border bg-c-card p-5 shadow-card nv-panel-scroll lg:h-full lg:min-h-0 lg:overflow-y-auto",
               mobileTab === "result" && "hidden lg:block"
             )}
           >
@@ -606,12 +792,51 @@ export function GenerateClient({
                 </p>
               </div>
             </div>
-            {/* 参考图 */}
-            <div className="space-y-2">
-              <label className="text-sm font-medium">
-                {fmt(t("gen.uploadLabel"), { n: MAX_IMAGES })}
+            {/* 参考图。**整块可拖拽** —— 不只是那个小加号按钮:专业用户习惯从
+                资源管理器直接拖一批图进来,只在 64px 小方块上接 drop 等于没有。 */}
+            <div
+              className="space-y-2"
+              onDragOver={(e) => {
+                if (!e.dataTransfer.types.includes("Files")) return;
+                e.preventDefault();
+                setDragOver(true);
+              }}
+              onDragLeave={(e) => {
+                // 只有真正离开这块区域才取消高亮(移到子元素上会误触发 leave)
+                if (!e.currentTarget.contains(e.relatedTarget as Node))
+                  setDragOver(false);
+              }}
+              onDrop={(e) => {
+                if (!e.dataTransfer.types.includes("Files")) return;
+                e.preventDefault();
+                setDragOver(false);
+                pickFiles(e.dataTransfer.files);
+              }}
+            >
+              <label className="flex items-baseline justify-between gap-2 text-sm font-medium">
+                <span>{fmt(t("gen.uploadLabel"), { n: MAX_IMAGES })}</span>
+                {/* 不压缩 → 容量常常比张数先触顶,得让用户**边传边看到**剩多少,
+                    否则只有被拦下的那一刻才知道。 */}
+                {files.length > 0 && (
+                  <span
+                    className={cn(
+                      "text-xs font-normal tabular-nums",
+                      totalBytes > MAX_TOTAL * 0.8 ? "text-amber-600" : "text-ink3"
+                    )}
+                  >
+                    {files.length}/{MAX_IMAGES} 张 · {mb(totalBytes)}/
+                    {mb(MAX_TOTAL)}MB
+                  </span>
+                )}
               </label>
-              <div className="flex flex-wrap gap-2">
+              <div
+                className={cn(
+                  "flex flex-wrap gap-2 rounded-xl border-[1.5px] border-dashed p-2 transition-colors",
+                  dragOver
+                    ? "border-acc bg-acc-tint"
+                    : "border-transparent"
+                )}
+              >
                 {filePreviews.map((src, i) => (
                   <div
                     key={src}
@@ -643,6 +868,11 @@ export function GenerateClient({
                     </button>
                   </div>
                 ))}
+                {files.length === 0 && (
+                  <span className="pointer-events-none flex h-16 flex-1 items-center px-1 text-[11.5px] leading-snug text-c-text3">
+                    点击 + 选择，或把图片拖到这里 / 直接 Ctrl+V 粘贴
+                  </span>
+                )}
                 {files.length < MAX_IMAGES && (
                   <button
                     onClick={() => fileRef.current?.click()}
@@ -718,26 +948,15 @@ export function GenerateClient({
             </div>
 
             {/* 控制参数 */}
-            <div className="space-y-4 border-t border-c-line pt-4">
-              {/* 风格 */}
-              <div className="grid grid-cols-[1fr_154px] items-center gap-2.5">
-                <span className="text-[13px] text-c-text2">{t("gen.styleLabel")}</span>
-                <SelectMenu
-                  className="w-full"
-                  value={style}
-                  onChange={setStyle}
-                  options={GENERATION_STYLES.map((s, i) => ({
-                    value: s,
-                    label: te(`gen.styles.${i}`, s),
-                  }))}
-                />
-              </div>
+            <div className="space-y-2.5 border-t border-c-line pt-3">
+              {/* 风格选择器已移除(2026-08-17 用户要求):默认档本就是纯透传,
+                  多一个下拉框反而干扰。style 仍固定发"默认",后端行为不变。 */}
 
               {/* 比例:可视化方块 */}
               <div className="space-y-2">
                 <span className="text-[13px] text-c-text2">{t("gen.ratioLabel")}</span>
                 <RatioTileGroup
-                  columns={3}
+                  columns={4}
                   value={ratio}
                   onChange={setRatio}
                   tiles={GENERATION_RATIOS.map((r) => {
@@ -747,6 +966,67 @@ export function GenerateClient({
                     return { id: r.id, label: r.id === "auto" ? "默认" : r.id, w, h };
                   })}
                 />
+              </div>
+
+              {/* 生图模型:专业客户按项目挑(不同模型调性/强项不同) */}
+              <div className="space-y-1.5">
+                <div className="flex items-baseline justify-between">
+                  <span className="text-[13px] text-c-text2">生图模型</span>
+                  <span className="text-[11.5px] text-c-text3">
+                    {IMAGE_MODELS.find((m) => m.id === model)?.hint}
+                  </span>
+                </div>
+                {/* 用按钮组不用下拉(用户要求)。**2x2 网格而不是一行4个** ——
+                    左栏 320px 下一行4个只有 64px/个,"GPT生图"四个字必换行。 */}
+                <div className="flex flex-wrap gap-1.5">
+                  {availableModels.map((m) => (
+                    <button
+                      key={m.id}
+                      type="button"
+                      onClick={() => setModel(m.id)}
+                      className={cn(
+                        // px-2 而不是 px-2.5:四个 chip 总宽刚好卡在 320px 左栏的可用宽度上,
+                        // 多 4px 就换行。改动前实测 287px vs 可用 280px。
+                        "whitespace-nowrap rounded-[9px] border px-2 py-1.5 text-[12px] font-semibold leading-none transition-colors",
+                        model === m.id
+                          ? "border-acc bg-acc-tint text-acc"
+                          : "border-c-border2 text-c-text3 hover:border-c-border hover:text-c-text2"
+                      )}
+                    >
+                      {m.label}
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              {/* 出图质量。**只有 OpenAI 系有这个参数** —— Gemini 接口里根本没有
+                  quality 字段(实测三种写法全 400),显示出来会让用户选了高阶白付 4 倍钱。
+                  ⚠️ 但**不能直接隐藏**:那会让下面的生成按钮上下跳。改成"始终占位",
+                  没有质量档时用等高的一行灰字说明,布局纹丝不动。 */}
+              <div className="space-y-1.5">
+                <div className="flex items-baseline justify-between">
+                  <span className="text-[13px] text-c-text2">出图质量</span>
+                  <span className="text-[11.5px] text-c-text3">
+                    {hasQuality
+                      ? GENERATION_QUALITIES.find((q) => q.id === quality)?.hint
+                      : ""}
+                  </span>
+                </div>
+                {hasQuality ? (
+                  <Segmented
+                    value={quality}
+                    onChange={setQuality}
+                    options={GENERATION_QUALITIES.map((q) => ({
+                      value: q.id,
+                      label: q.label,
+                    }))}
+                  />
+                ) : (
+                  // 高度与 Segmented 一致(p-[3px] + py-1.5 + 12.5px 行高 ≈ 30px)
+                  <div className="flex h-[30px] items-center rounded-[10px] bg-c-track px-3 text-[12px] text-c-text3">
+                    该模型无质量档，按标准出图
+                  </div>
+                )}
               </div>
 
               {/* 分辨率 / 数量:分段 */}
@@ -759,8 +1039,24 @@ export function GenerateClient({
                     options={GENERATION_RESOLUTIONS.map((r) => ({
                       value: r.id,
                       label: r.id,
+                      // 该模型不支持的档灰掉(如 Lite 只有 1K),点不了 —— 明确告知
+                      // 比"帮你偷偷降级"可控,专业客户要的是可预期。
+                      disabled: !allowedRes.includes(r.id),
                     }))}
                   />
+                  {/* 同样固定占位:这行提示只在部分模型出现,不占位会把生成按钮顶下去。
+                      min-h 与一行 11.5px 文字等高。 */}
+                  {/* 提示行复用同一处固定占位。**4K 的说明必须给** ——
+                      模型有总像素上限(约 800 万),竖版比例下长边到不了 3840:
+                      3:4 的 4K 实际是 2480×3296。不说明客户会以为长边有 3840,
+                      下载后一量就来质疑(2026-08-25 客户已问过一次)。 */}
+                  <p className="min-h-[16px] text-[11.5px] leading-4 text-c-text3">
+                    {allowedRes.length < GENERATION_RESOLUTIONS.length
+                      ? `该模型仅支持 ${allowedRes.join(" / ")}`
+                      : resolution === "4K"
+                        ? "4K ≈ 800 万像素;竖版/方图长边约 3300(受模型像素上限)"
+                        : ""}
+                  </p>
                 </div>
                 <div className="space-y-1.5">
                   <span className="text-[13px] text-c-text2">{t("gen.count2")}</span>
@@ -775,7 +1071,7 @@ export function GenerateClient({
 
             {/* 剩余积分不在此重复(顶栏右上已显示);未登录时保留登录提示 */}
             {ready && !user && (
-              <div className="flex items-center rounded-lg border border-border bg-secondary/60 px-3 py-2 text-xs">
+              <div className="flex items-center rounded-lg border border-border bg-secondary/60 px-3 py-1.5 text-[11.5px]">
                 <span className="text-muted-foreground">
                   {t("gen.loginToSave")}
                 </span>
@@ -784,10 +1080,22 @@ export function GenerateClient({
 
             {/* 生成按钮:与其它功能页(ToolWorkspace)一致的普通分隔区,
                 顶部细分隔线 + 按钮,不再是浮动白底卡片。 */}
-            <div className="space-y-3 border-t border-c-line pt-4">
+            <div className="space-y-2 border-t border-c-line pt-2.5">
               {error && (
                 <p className="rounded-lg border border-red-500/30 bg-red-500/10 px-3 py-2 text-xs text-red-600 dark:text-red-400">
                   {error}
+                </p>
+              )}
+
+              {/* 预计耗时:4K/高阶是分钟级,不提前说用户会以为卡死。
+                  超过 3 分钟额外提醒可以切走等通知(完成会改标题+发通知)。 */}
+              {!loading && (
+                <p className="flex items-center gap-1.5 text-[12px] text-c-text3">
+                  <Clock className="h-3.5 w-3.5 flex-none" />
+                  <span>
+                    {humanSeconds(etaSec)}
+                    {etaSec > 180 && "，可先去忙别的，好了会通知你"}
+                  </span>
                 </p>
               )}
 
@@ -814,7 +1122,7 @@ export function GenerateClient({
                     <Sparkles className="h-4 w-4" />
                   )}
                   {loading
-                    ? t("gen.generating")
+                    ? `${t("gen.generating")} ${elapsed}s / ${etaSec}s`
                     : !user
                       ? fmt(t("gen.loginAndGen"), { n: count })
                       : files.length > 0
@@ -846,6 +1154,46 @@ export function GenerateClient({
                   >
                     {locale === "en" ? "← Back to current" : "← 返回当前"}
                   </button>
+                </div>
+                {/* 生成时间 / 当时的参数 / 实扣积分 —— 客户要能自己核对账单
+                    (2026-08-17 客户质疑扣分,而界面上当时什么都查不到)。
+                    本次改动前生成的老记录没有这些字段,缺哪项就不显示哪项。 */}
+                <div className="mb-3 flex flex-wrap items-center gap-x-2 gap-y-1.5 text-[11.5px]">
+                  {shownRec.createdAt && (
+                    <span className="text-c-text3">
+                      {new Date(shownRec.createdAt).toLocaleString("zh-CN", {
+                        month: "2-digit",
+                        day: "2-digit",
+                        hour: "2-digit",
+                        minute: "2-digit",
+                      })}
+                    </span>
+                  )}
+                  {[
+                    IMAGE_MODELS.find((m) => m.id === shownRec.model)?.label,
+                    shownRec.resolution,
+                    shownRec.ratio && shownRec.ratio !== "auto"
+                      ? shownRec.ratio
+                      : null,
+                    GENERATION_QUALITIES.find((q) => q.id === shownRec.quality)
+                      ?.label,
+                  ]
+                    .filter(Boolean)
+                    .map((tag) => (
+                      <span
+                        key={String(tag)}
+                        className="rounded-[6px] bg-c-subtle px-1.5 py-0.5 font-medium text-c-text2"
+                      >
+                        {tag}
+                      </span>
+                    ))}
+                  {typeof shownRec.cost === "number" && shownRec.cost > 0 && (
+                    <span className="rounded-[6px] bg-amber-50 px-1.5 py-0.5 font-semibold text-amber-700">
+                      {locale === "en"
+                        ? `${shownRec.cost} credits`
+                        : `扣 ${shownRec.cost} 积分`}
+                    </span>
+                  )}
                 </div>
                 <div className="grid flex-1 grid-cols-2 gap-4">
                   <div className="flex flex-col gap-2">
@@ -936,12 +1284,16 @@ export function GenerateClient({
                   </div>
                 </div>
                 {shownRec.prompt && (
-                  <div className="mt-3 rounded-field bg-c-subtle2 px-3 py-2 text-[12px] leading-relaxed text-c-text2">
-                    <span className="font-medium text-c-text3">
-                      {locale === "en" ? "Prompt: " : "提示词:"}
-                    </span>{" "}
-                    {shownRec.prompt}
-                  </div>
+                  <PromptPanel
+                    className="mt-3"
+                    prompt={shownRec.prompt}
+                    title={locale === "en" ? "Prompt" : "提示词"}
+                    reuseLabel={locale === "en" ? "Reuse prompt" : "以此提示词再创作"}
+                    onReuse={() => {
+                      setPrompt(shownRec.prompt || "");
+                      window.scrollTo({ top: 0, behavior: "smooth" });
+                    }}
+                  />
                 )}
               </div>
             ) : (

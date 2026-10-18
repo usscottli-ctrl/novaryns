@@ -13,7 +13,8 @@ import { clientIp } from "@/lib/ip";
 import { rateLimit } from "@/lib/rate-limit";
 import { resolveUserEmail } from "@/lib/admin-auth";
 import { storageEnabled, uploadImage } from "@/lib/storage";
-import { getOpenAISettings, getCutoutSettings } from "@/lib/settings";
+import { generateBuffer } from "@/lib/image-gen";
+import { transparentModel, getOpenAISettings, getCutoutSettings } from "@/lib/settings";
 import { getOpenAIBaseUrl } from "@/lib/openai-base";
 import { TOOL_COST } from "@/lib/mock-data";
 import { safeError } from "@/lib/api-error";
@@ -144,7 +145,6 @@ export async function POST(request: Request) {
     let out: Buffer;
     try {
       const { apiKey } = await getOpenAISettings();
-      const { openaiModel } = await getCutoutSettings();
       if (!apiKey) throw new Error("未配置 OpenAI key");
       const client = new OpenAI({
         apiKey,
@@ -157,18 +157,13 @@ export async function POST(request: Request) {
         ? ` Specifically extract: ${input.prompt}.`
         : "";
       const prompt = BASE_PROMPT + userHint;
-      const r = await client.images.edit({
-        // 透明底只 gpt-image-1 支持(gpt-image-2 实测报错),服装平铺透明底必须用它。
-        model: openaiModel || "gpt-image-1",
-        image: await toFile(png, "image.png", { type: "image/png" }),
-        prompt,
-        n: 1,
-        size: "auto" as "1024x1024",
-        background: "transparent" as const,
+      out = await generateBuffer({
+          prompt: prompt,
+          images: [{ buf: png }],
+          model: transparentModel(),
+          size: "auto" as "1024x1024",
+          transparent: true,
       });
-      const b64 = r.data?.[0]?.b64_json;
-      if (!b64) throw new Error("未返回平铺图");
-      out = Buffer.from(b64, "base64");
     } catch (e) {
       if (useDb && cost > 0)
         await refundCredits(input.email, cost).catch(() => {});

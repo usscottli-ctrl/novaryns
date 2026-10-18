@@ -32,13 +32,15 @@ export function RatioTileGroup({
             onClick={() => onChange(t.id)}
             aria-pressed={active}
             className={cn(
-              "group flex aspect-square flex-col items-center justify-center gap-1 rounded-[10px] border transition-colors",
+              // 不用 aspect-square —— 那会让方块随栏宽变得很高(6 个就占掉大半屏)。
+              // 固定 52px 矮高度,一行放得下更多档。
+              "group flex h-[44px] flex-col items-center justify-center gap-1.5 rounded-[10px] border transition-colors",
               active
                 ? "border-acc-border bg-acc-tint"
                 : "border-transparent bg-c-subtle2 hover:border-c-border2 hover:bg-c-subtle"
             )}
           >
-            <span className="flex items-center justify-center" style={{ width: 30, height: 26 }}>
+            <span className="flex items-center justify-center" style={{ width: 24, height: 17 }}>
               <span
                 className={cn("block", !active && "border-[#B6BAC4] group-hover:border-[#9AA0AE]")}
                 style={{

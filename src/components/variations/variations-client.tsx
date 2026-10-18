@@ -1,6 +1,7 @@
 "use client";
 
 import { cdnUrl } from "@/lib/cdn";
+import { useStickyState } from "@/lib/use-sticky-state";
 import { useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { Copy, Plus, X, Download, ArrowRight, RefreshCw, Wand2, Sparkles } from "lucide-react";
@@ -88,7 +89,7 @@ export function VariationsClient() {
   const [splitMode, setSplitMode] = useState("print");
   const [similarity, setSimilarity] = useState(80);
   const [prompt, setPrompt] = useState("");
-  const [count, setCount] = useState(1);
+  const [count, setCount] = useStickyState("variations.count", 1, (v) => [1, 2, 4].includes(v));
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [results, setResults] = useState<GeneratedImage[]>([]);

@@ -3,6 +3,7 @@
 import * as React from "react";
 import { X, Wand2, Sparkles, Loader2, Check, ArrowUp } from "lucide-react";
 import { useI18n } from "@/lib/i18n/locale-context";
+import { FASHION_EDIT_TEMPLATES } from "@/lib/fashion-templates";
 import { authHeader } from "@/lib/supabase";
 import { useAuth } from "@/lib/auth-context";
 import { useAuthModal } from "@/lib/auth-modal-context";
@@ -350,7 +351,7 @@ export function PromptAssistPopup({
         {/* 历史 */}
         <div ref={scrollRef} className="min-h-[160px] flex-1 space-y-3 overflow-y-auto px-4 pb-3">
           {history.length === 0 && !busy && (
-            <div className="flex flex-col items-center gap-2 py-10 text-center">
+            <div className="flex flex-col items-center gap-2 py-8 text-center">
               <Sparkles className="h-7 w-7 text-c-text4" />
               <p className="max-w-[260px] text-[12.5px] leading-relaxed text-c-text3">
                 {L(
@@ -358,6 +359,29 @@ export function PromptAssistPopup({
                   "Type an idea and send — results stay here, pick one to use."
                 )}
               </p>
+              {/* 服装电商常用写法(依模型厂商官方用例整理)。
+                  **只在有参考图时出现** —— 这几条都是「改已有图」的范式,
+                  纯文生图场景给出来会误导。点一下填进下方输入框,用户替换 {} 再发送。 */}
+              {imageThumb && locale !== "en" && (
+                <div className="mt-3 w-full space-y-1.5 text-left">
+                  <span className="text-[11px] text-c-text4">
+                    服装电商常用写法(点击填入,替换花括号内容后发送)
+                  </span>
+                  <div className="flex flex-wrap gap-1.5">
+                    {FASHION_EDIT_TEMPLATES.map((tp) => (
+                      <button
+                        key={tp.id}
+                        type="button"
+                        title={`${tp.hint} · ${tp.template}`}
+                        onClick={() => setInput(tp.template)}
+                        className="rounded-[8px] border border-c-border2 px-2 py-1 text-[11.5px] text-c-text2 transition-colors hover:border-acc hover:text-acc"
+                      >
+                        {tp.label}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              )}
             </div>
           )}
           {history.map((r) => (

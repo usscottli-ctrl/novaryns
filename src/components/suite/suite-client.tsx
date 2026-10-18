@@ -19,6 +19,7 @@ import {
   Wand2,
 } from "lucide-react";
 import { PromptAssistPopup } from "@/components/tools/prompt-assist-popup";
+import { useStickyState } from "@/lib/use-sticky-state";
 import { authHeader } from "@/lib/supabase";
 import { useAuth } from "@/lib/auth-context";
 import { useAuthModal } from "@/lib/auth-modal-context";
@@ -70,7 +71,7 @@ export function SuiteClient() {
   const [previews, setPreviews] = useState<string[]>([]);
   const [title2, setTitle2] = useState("");
   // 目标平台:决定套图风格与文案语言(淘宝/天猫=默认)。
-  const [platform, setPlatform] = useState("taobao");
+  const [platform, setPlatform] = useStickyState("suite.platform", "taobao", (v) => SUITE_PLATFORMS.some((p) => p.id === v));
   const [points, setPoints] = useState("");
   // 产品图上限 4 张(设计稿权威:最多 4 张)
   const maxProduct = 4;

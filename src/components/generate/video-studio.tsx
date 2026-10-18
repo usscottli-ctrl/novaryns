@@ -6,7 +6,6 @@ import {
   Upload,
   X,
   Film,
-  Play,
   Download,
   RefreshCw,
   Sparkles,
@@ -17,6 +16,8 @@ import { useI18n } from "@/lib/i18n/locale-context";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { cn } from "@/lib/utils";
+import { videoCost } from "@/lib/mock-data";
+import { downloadImage } from "@/lib/download";
 
 function fmt(s: string, vars: Record<string, string | number>): string {
   return Object.entries(vars).reduce(
@@ -26,9 +27,13 @@ function fmt(s: string, vars: Record<string, string | number>): string {
 }
 
 const MAX_REF = 12 * 1024 * 1024;
-const DURATIONS = [5, 10] as const;
+// 实测(2026-08-15,Seedance 2.5):3 秒**不支持**,4/5/8/10/12 可用。别加回 3。
+const DURATIONS = [5, 8, 10, 12] as const;
 const RATIOS = ["16:9", "9:16", "1:1"] as const;
-const RESOLUTIONS = ["720p", "1080p"] as const;
+// 实测可用档位。1080p 要账号权益(本账号报 "not supported for this account and model"),
+// 4k 提交时返回 200 但异步跑完 failed —— **提交成功 ≠ 参数有效**,所以只放这两档。
+// 账号开通 1080p 后把它加回来即可,价格表 VIDEO_COST_PER_SEC 里已留好。
+const RESOLUTIONS = ["480p", "720p"] as const;
 const CAMERAS = ["static", "push", "pull", "pan", "orbit"] as const;
 
 const RATIO_ASPECT: Record<string, string> = {
@@ -37,20 +42,27 @@ const RATIO_ASPECT: Record<string, string> = {
   "1:1": "aspect-square",
 };
 
-// Mock 计费:基础 = 时长(秒) × 6 积分,1080p ×1.5。真接 Seedance 后按官方价换算。
-function videoCost(duration: number, resolution: string): number {
-  const base = duration * 6;
-  return Math.round(base * (resolution === "1080p" ? 1.5 : 1));
-}
+// 运镜没有独立的接口参数,只能作为提示词的一部分送进去。
+const CAMERA_PROMPT: Record<string, string> = {
+  static: "固定机位，镜头不动",
+  push: "镜头缓慢推近",
+  pull: "镜头缓慢拉远",
+  pan: "镜头平稳横移",
+  orbit: "镜头环绕主体缓慢运动",
+};
+
+// 轮询节奏:5 秒一次,最多 6 分钟(12 秒 1080p 偶尔会跑到 3 分钟以上)。
+const POLL_MS = 5000;
+const POLL_TIMEOUT_MS = 6 * 60 * 1000;
 
 type Job =
   | { status: "idle" }
-  | { status: "queued" | "processing"; progress: number }
-  | { status: "done"; posterUrl: string | null; ratio: string; duration: number }
+  | { status: "queued" | "processing"; startedAt: number; elapsed: number }
+  | { status: "done"; url: string; posterUrl: string | null; ratio: string; duration: number }
   | { status: "error" };
 
 export function VideoStudio() {
-  const { user, ready, remaining } = useAuth();
+  const { user, ready, remaining, applyServerUser } = useAuth();
   const { openAuth } = useAuthModal();
   const { t } = useI18n();
   const fileRef = useRef<HTMLInputElement>(null);
@@ -103,8 +115,11 @@ export function VideoStudio() {
               : "vid.cameraOrbit"
     );
 
-  // ===== Mock 异步生成流程:queued → processing(进度 0→100) → done =====
-  function generate() {
+  // ===== 真实生成流程 =====
+  // POST /api/video 拿 taskId(此时积分已预扣)→ 每 5 秒轮询 /api/video/status。
+  // 上游出片要 30 秒~数分钟,所以创建与查询是两个接口,中间不占连接。
+  // 失败由后端退积分,前端只负责把提示显示出来。
+  async function generate() {
     setError(null);
     if (!prompt.trim()) {
       setError(t("vid.errPrompt"));
@@ -116,32 +131,79 @@ export function VideoStudio() {
     }
     if (timerRef.current) clearInterval(timerRef.current);
 
-    setJob({ status: "queued", progress: 0 });
-    // 排队 ~800ms 后进入 processing
-    setTimeout(() => {
-      setJob({ status: "processing", progress: 3 });
-      timerRef.current = setInterval(() => {
-        setJob((j) => {
-          if (j.status !== "processing") return j;
-          const next = j.progress + Math.random() * 9 + 4;
-          if (next >= 100) {
+    const startedAt = Date.now();
+    setJob({ status: "queued", startedAt, elapsed: 0 });
+
+    try {
+      const fd = new FormData();
+      // 运镜没有独立参数,追加到提示词末尾。
+      const cam = CAMERA_PROMPT[camera];
+      fd.append("prompt", cam ? `${prompt.trim()}，${cam}` : prompt.trim());
+      fd.append("duration", String(duration));
+      fd.append("resolution", resolution);
+      fd.append("ratio", ratio);
+      fd.append("title", prompt.trim().slice(0, 24) || "AI 视频");
+      if (refFile) fd.append("image", refFile);
+
+      const res = await fetch("/api/video", { method: "POST", body: fd });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok || !data?.taskId) {
+        setJob({ status: "error" });
+        setError(data?.error || t("vid.failed"));
+        return;
+      }
+
+      const taskId: string = data.taskId;
+      timerRef.current = setInterval(async () => {
+        const elapsed = Date.now() - startedAt;
+        if (elapsed > POLL_TIMEOUT_MS) {
+          if (timerRef.current) clearInterval(timerRef.current);
+          setJob({ status: "error" });
+          setError(t("vid.failed"));
+          return;
+        }
+        try {
+          const r = await fetch(
+            `/api/video/status?taskId=${encodeURIComponent(taskId)}`
+          );
+          const s = await r.json().catch(() => ({}));
+          if (!r.ok) return; // 单次查询失败不打断,等下一轮
+
+          if (s.status === "done" && s.url) {
             if (timerRef.current) clearInterval(timerRef.current);
-            return {
+            if (s.user) applyServerUser(s.user);
+            setJob({
               status: "done",
-              posterUrl: refPreview, // 有参考图就用它当封面(图生视频既视感)
+              url: s.url,
+              posterUrl: refPreview,
               ratio,
               duration,
-            };
+            });
+          } else if (s.status === "failed") {
+            if (timerRef.current) clearInterval(timerRef.current);
+            setJob({ status: "error" });
+            setError(s.error || t("vid.failed"));
+          } else {
+            setJob({
+              status: s.status === "queued" ? "queued" : "processing",
+              startedAt,
+              elapsed,
+            });
           }
-          return { status: "processing", progress: next };
-        });
-      }, 450);
-    }, 800);
+        } catch {
+          // 网络抖动,下一轮再试
+        }
+      }, POLL_MS);
+    } catch {
+      setJob({ status: "error" });
+      setError(t("vid.failed"));
+    }
   }
 
   function reset() {
     if (timerRef.current) clearInterval(timerRef.current);
     setJob({ status: "idle" });
+    setError(null);
   }
 
   return (
@@ -207,13 +269,20 @@ export function VideoStudio() {
           onChange={(v) => setDuration(Number(v))}
         />
 
-        {/* 比例 */}
-        <PillGroup
-          label={t("vid.ratioLabel")}
-          options={RATIOS.map((r) => ({ key: r, label: r }))}
-          value={ratio}
-          onChange={setRatio}
-        />
+        {/* 比例(图生视频时由参考图决定,上游会忽略这里的选择) */}
+        <div className="space-y-1.5">
+          <PillGroup
+            label={t("vid.ratioLabel")}
+            options={RATIOS.map((r) => ({ key: r, label: r }))}
+            value={ratio}
+            onChange={setRatio}
+          />
+          {refFile && (
+            <p className="text-xs text-muted-foreground">
+              {t("vid.ratioLockedHint")}
+            </p>
+          )}
+        </div>
 
         {/* 分辨率 */}
         <PillGroup
@@ -303,19 +372,14 @@ export function VideoStudio() {
                   {job.status === "queued"
                     ? t("vid.queued")
                     : `${t("vid.processing")} ${Math.round(
-                        job.progress
-                      )}%`}
+                        job.elapsed / 1000
+                      )}s`}
                 </span>
               </div>
             </div>
-            {/* 进度条 */}
+            {/* 上游不返回百分比,别编一个假进度 —— 用不定进度条表示"在跑"。 */}
             <div className="h-1.5 w-full max-w-md overflow-hidden rounded-full bg-secondary">
-              <div
-                className="h-full rounded-full bg-primary transition-all duration-300"
-                style={{
-                  width: `${job.status === "processing" ? job.progress : 2}%`,
-                }}
-              />
+              <div className="h-full w-1/3 animate-[nv-indeterminate_1.4s_ease-in-out_infinite] rounded-full bg-primary" />
             </div>
             <p className="max-w-md text-xs text-muted-foreground">
               {t("vid.processingHint")}
@@ -327,45 +391,30 @@ export function VideoStudio() {
           <div className="space-y-4">
             <div className="flex items-center justify-between">
               <h3 className="text-sm font-semibold">{t("vid.resultTitle")}</h3>
-              <span className="rounded-md bg-amber-500/10 px-2 py-0.5 text-[11px] font-medium text-amber-700 dark:text-amber-300">
-                {t("vid.mockBadge")}
+              <span className="rounded-md bg-secondary px-2 py-0.5 text-[11px] font-medium text-muted-foreground">
+                {job.duration}s · {job.ratio} · {resolution}
               </span>
             </div>
-            {/* 视频结果卡(占位:封面 + 播放按钮 + 时长徽标)。真接后换 <video src> */}
+            {/* 成片:上游带原生音轨,所以给 controls 而不是静音自动播。 */}
             <div
               className={cn(
-                "group relative mx-auto w-full max-w-lg overflow-hidden rounded-2xl border border-border bg-gradient-to-br from-slate-800 to-slate-900",
+                "relative mx-auto w-full max-w-lg overflow-hidden rounded-2xl border border-border bg-slate-900",
                 RATIO_ASPECT[job.ratio]
               )}
             >
-              {job.posterUrl ? (
-                /* eslint-disable-next-line @next/next/no-img-element */
-                <img
-                  src={job.posterUrl}
-                  alt="result"
-                  className="absolute inset-0 h-full w-full object-cover"
-                />
-              ) : (
-                <div className="absolute inset-0 flex items-center justify-center">
-                  <Film className="h-12 w-12 text-white/30" />
-                </div>
-              )}
-              <div className="absolute inset-0 bg-slate-900/25 transition-colors group-hover:bg-slate-900/35" />
-              <div className="absolute inset-0 flex items-center justify-center">
-                <span className="flex h-14 w-14 items-center justify-center rounded-full bg-card/90 shadow-lg">
-                  <Play className="ml-0.5 h-6 w-6 fill-foreground text-foreground" />
-                </span>
-              </div>
-              <span className="absolute bottom-3 right-3 rounded-md bg-slate-900/70 px-2 py-1 text-xs font-medium text-white">
-                {job.duration}s · {job.ratio}
-              </span>
+              <video
+                src={job.url}
+                poster={job.posterUrl ?? undefined}
+                controls
+                playsInline
+                className="absolute inset-0 h-full w-full object-contain"
+              />
             </div>
             <div className="mx-auto flex max-w-lg gap-2">
               <Button
                 variant="gradient"
                 className="flex-1"
-                disabled
-                title={t("vid.mockBadge")}
+                onClick={() => downloadImage(job.url, undefined, "mp4")}
               >
                 <Download className="h-4 w-4" />
                 {t("vid.download")}

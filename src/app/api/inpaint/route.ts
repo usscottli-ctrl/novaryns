@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { generateBuffer } from "@/lib/image-gen";
 import OpenAI, { toFile } from "openai";
 import {
   dbEnabled,
@@ -16,6 +17,7 @@ import { storageEnabled, uploadImage } from "@/lib/storage";
 import { getOpenAISettings } from "@/lib/settings";
 import { getOpenAIBaseUrl } from "@/lib/openai-base";
 import { resolutionCost, resolutionLongSide } from "@/lib/mock-data";
+import { nativeEditSize } from "@/lib/image-size";
 import { safeError } from "@/lib/api-error";
 
 // ---------------------------------------------------------------------------
@@ -172,8 +174,9 @@ export async function POST(request: Request) {
       const imgPng = await toPng(input.image);
       // OpenAI edit 要求 mask 与原图尺寸完全一致,否则报错;并按原图宽高比选输出尺寸
       // (gpt-image edit 不稳定接受 "auto",改用具体支持值,与图生图一致)。
+      const model = genModel || "gpt-image-2";
       let maskPng: Buffer;
-      let editSize: "1024x1024" | "1536x1024" | "1024x1536" = "1024x1024";
+      let editSize = "1024x1024";
       try {
         const sharp = (await import("sharp")).default;
         const meta = await sharp(imgPng).metadata();
@@ -186,21 +189,24 @@ export async function POST(request: Request) {
         const ratio = w / h;
         editSize =
           ratio > 1.2 ? "1536x1024" : ratio < 0.83 ? "1024x1536" : "1024x1024";
+        // **2K 原生直出**(2026-08-26):gpt-image-2 能按任意 16 倍数尺寸出图,
+        // 按原图真实宽高比请求 2048 长边,不再出 1024 再插值放大 —— 放大只是把像素
+        // 拉大、细节一个不增,客户量完尺寸就知道高分辨率档卖的是插值。
+        editSize = nativeEditSize(`${w}:${h}`, input.resolution, model) ?? editSize;
       } catch {
         maskPng = await toPng(input.mask);
+        editSize = nativeEditSize("1:1", input.resolution, model) ?? editSize;
       }
       // 带 mask 的局部重绘(透明区 = 编辑区),用后台配置的主力模型(gpt-image-2)。
-      const r = await client.images.edit({
-        model: genModel || "gpt-image-2",
-        image: await toFile(imgPng, "image.png", { type: "image/png" }),
-        mask: await toFile(maskPng, "mask.png", { type: "image/png" }),
+      const edited = await generateBuffer({
         prompt: input.prompt,
-        n: 1,
+        images: [{ buf: imgPng }],
+        mask: maskPng,
+        model,
         size: editSize,
       });
-      const b64 = r.data?.[0]?.b64_json;
-      if (!b64) throw new Error("未返回图片");
-      out = await upscaleTo(Buffer.from(b64, "base64"), input.resolution);
+      // 兜底:模型不是 v2(自部署改过配置)时仍按老办法放大,不然高档位白收钱。
+      out = await upscaleTo(edited, input.resolution);
     } catch (e) {
       if (useDb && cost > 0)
         await refundCredits(input.email, cost).catch(() => {});

@@ -90,7 +90,9 @@ if [ -z "$DIR" ]; then
   fi
 fi
 
+EXISTING=0
 if [ -n "$DIR" ] && [ -d "$DIR" ]; then
+  EXISTING=1
   echo "→ 检测到已安装于:$DIR —— 执行更新(数据保留)/ found existing install, updating"
   git -C "$DIR" pull --ff-only 2>/dev/null || echo "  (本地有改动,跳过代码更新,仅更新镜像)"
 else
@@ -135,6 +137,23 @@ if grep -qE '^HTTP_PORT=' .env 2>/dev/null; then
   sed -i "s/^HTTP_PORT=.*/HTTP_PORT=$PORT_TO_SAVE/" .env
 else
   echo "HTTP_PORT=$PORT_TO_SAVE" >> .env
+fi
+
+# 站点密钥 SETTINGS_SECRET:签登录会话 + 加密落库的 API Key。
+# 以前 compose 里写死同一个默认值 → 所有站点密钥相同、公开可见,任何人都能伪造管理员登录。
+#   · 全新安装:生成随机值写进 .env(只生成一次,以后更新沿用)。
+#   · 老站升级且 .env 里没有:**沿用旧默认值**,不能换 —— 换了已保存的 API Key 会解不开。
+if ! grep -qE '^SETTINGS_SECRET=.+' .env 2>/dev/null; then
+  if [ "$EXISTING" = 1 ] || docker volume ls -q 2>/dev/null | grep -qE '(^|_)pgdata$'; then
+    echo "SETTINGS_SECRET=change-me-to-a-long-random-string" >> .env
+    echo "  ⚠ 老站点沿用默认密钥(为保住已保存的 API Key)。建议联系作者微信 xingze063 协助更换。"
+  else
+    SECRET="$(openssl rand -hex 32 2>/dev/null || head -c 32 /dev/urandom | od -An -tx1 | tr -d ' 
+')"
+    echo "SETTINGS_SECRET=$SECRET" >> .env
+    chmod 600 .env 2>/dev/null || true
+    echo "→ 已生成本站专属密钥(写入 .env,勿外传、勿修改)/ generated site secret"
+  fi
 fi
 
 # 应用镜像:优先拉【预构建镜像】(免本地编译,快得多)。直连 ghcr.io 慢/不通时,

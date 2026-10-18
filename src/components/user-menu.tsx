@@ -162,8 +162,7 @@ export function UserMenu() {
             <button
               onClick={() => {
                 setOpen(false);
-                signOut();
-                router.push("/");
+                void signOut(); // signOut 内部会跳首页,这里不要再 router.push(会先软跳再硬跳闪一下)
               }}
               className="flex w-full items-center gap-2.5 rounded-lg px-3 py-2 text-sm text-muted-foreground transition-colors hover:bg-secondary hover:text-foreground"
             >

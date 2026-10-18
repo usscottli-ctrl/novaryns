@@ -3,10 +3,11 @@
 // data: URLs download directly. Credits are NOT touched — this only retrieves
 // an already-generated, already-stored image.
 //
-// 文件名统一为 `<域名>_<年>_<月日>_<随机后缀>.png`(如 ai.starzeco.com_2026_0707_a1b2c3.png)。
+// 文件名统一为 `<域名>_<年>_<月日>_<随机后缀>.<ext>`(如 ai.starzeco.com_2026_0707_a1b2c3.png)。
+// ext 默认 png;视频等其他类型由调用方传(如 "mp4")。
 // 域名取当前站点 hostname —— 各实例(国内/海外/自托管)自动带自己的品牌域名,不写死。
 // baseName 保留形参兼容各调用方,不再参与命名。
-export function downloadImage(url: string, _baseName?: string) {
+export function downloadImage(url: string, _baseName?: string, ext = "png") {
   const now = new Date();
   const y = now.getFullYear();
   const md =
@@ -18,7 +19,7 @@ export function downloadImage(url: string, _baseName?: string) {
       ? window.location.hostname
       : "novaryns"
   ).replace(/[^\w.\-]+/g, "_");
-  const name = `${host}_${y}_${md}_${rand}.png`;
+  const name = `${host}_${y}_${md}_${rand}.${ext}`;
   const a = document.createElement("a");
   if (url.startsWith("data:")) {
     a.href = url;

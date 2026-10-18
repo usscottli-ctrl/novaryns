@@ -21,6 +21,7 @@ import { useAuthModal } from "@/lib/auth-modal-context";
 import { useI18n } from "@/lib/i18n/locale-context";
 import { downloadImage } from "@/lib/download";
 import { cn } from "@/lib/utils";
+import { isUserOutput } from "@/lib/artwork-filter";
 
 /**
  * 通用工具页外壳(spec C.4 三列):
@@ -139,7 +140,7 @@ export function ToolShell({
         setRecords(
           arts
             .filter(
-              (a) => a.image && a.status !== "failed" && a.category === category
+              (a) => isUserOutput(a) && a.category === category
             )
             .slice(0, 60)
             .map((a) => ({

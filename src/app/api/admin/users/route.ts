@@ -17,6 +17,7 @@ import {
   listUserLedger,
 } from "@/lib/db";
 import { requireAdmin } from "@/lib/admin-auth";
+import { reserveIssue, releaseIssue } from "@/lib/credit-issue";
 import { proEnabled } from "@/lib/edition";
 
 export const runtime = "nodejs";
@@ -123,7 +124,18 @@ export async function POST(req: Request) {
         body.months === undefined || body.months === null
           ? undefined
           : Math.trunc(Number(body.months));
-      await adjustUserCredits(email, d, "管理员调整积分", { months });
+      // 给用户加分 = 从**站点库存划拨**到用户钱包,必须先校验库存够不够。
+      // 扣分(d<0)则是反向划拨,把额度还回库存,永远放行。
+      const guard = await reserveIssue(d);
+      if (!guard.ok) {
+        return NextResponse.json({ error: guard.message }, { status: 409 });
+      }
+      try {
+        await adjustUserCredits(email, d, "管理员调整积分", { months });
+      } catch (e) {
+        if (d > 0) await releaseIssue(d); // 入账失败,额度还回库存
+        throw e;
+      }
     } else if (action === "ban") {
       await setUserBanned(email, body.banned === true);
     } else if (action === "note") {

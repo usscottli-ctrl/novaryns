@@ -34,7 +34,9 @@ services:
       OPENAI_BASE_URL: ${OPENAI_BASE_URL:-}
       # AES key for encrypting stored API keys at rest.
       # ⚠️ Set a long random value BEFORE first run and never change it afterwards.
-      SETTINGS_SECRET: change-me-to-a-long-random-string
+      # 会话签名 + API Key 落库加密的密钥。install.sh 首装时自动生成随机值写进 .env;
+      # ⚠️ 装好后别改:改了之前保存的 API Key 就解不开了。
+      SETTINGS_SECRET: ${SETTINGS_SECRET:-change-me-to-a-long-random-string}
       # Local disk media storage (no R2 needed). Mounted as a volume below.
       MEDIA_DIR: /data/media
       # Optional: Pro license (or enter it in the first-run wizard instead)

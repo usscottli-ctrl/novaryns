@@ -20,7 +20,8 @@ export type Category =
   | "tryon" // 服装上身(虚拟试穿)产物,作品页单独筛选
   | "dress3d" // 3D 服装图(立体产品图)产物,作品页单独筛选
   | "dewrinkle" // 服装去皱产物,作品页单独筛选
-  | "dewatermark"; // 去水印产物,作品页单独筛选
+  | "dewatermark" // 去水印产物,作品页单独筛选
+  | "video"; // AI 视频(方舟 Seedance)产物 —— 是 mp4 不是图,渲染要用 <video>
 
 export const CATEGORY_LABELS: Record<Category, string> = {
   main: "电商主图",
@@ -42,6 +43,7 @@ export const CATEGORY_LABELS: Record<Category, string> = {
   dress3d: "3D 服装图",
   dewrinkle: "服装去皱",
   dewatermark: "去水印",
+  video: "AI 视频",
 };
 
 export type PromptTemplate = {
@@ -155,8 +157,48 @@ export const TOOL_COST = {
 } as const;
 export type ToolKey = keyof typeof TOOL_COST;
 
+// ── 视频生成积分单价(积分/秒)────────────────────────────────────────────
+// 同上铁律:前端展示与后端实扣都从 videoCost() 取。
+// 成本依据:方舟按**视频 token** 计费。2026-08-15 实测一条 480p/5s = 48,437 tokens,
+// 按官方档位折算约 ¥0.7/条(≈¥0.14/s);720p 像素约 2.25×,估 ¥0.32/s。
+// 充值基准 10 积分/¥,下表留 ~3× 毛利。**改价只改这一处**(前端展示与后端实扣都走 videoCost)。
+export const VIDEO_COST_PER_SEC = {
+  "480p": 5,
+  "720p": 10,
+  // 1080p 保留档位:部分账号有权益(实测本账号报 "not supported for this account
+  // and model"),开通后前端加回选项即可,后端无需改。
+  "1080p": 21,
+} as const;
+export type VideoResolution = keyof typeof VIDEO_COST_PER_SEC;
+
+// 可选视频模型(后台下拉用)。放这里而不是 volcengine.ts:那个是 server-only,
+// 后台是客户端组件用不了。
+// ⚠️ 两种填法都支持:
+//   · 基础模型名(如 doubao-seedance-2-5)—— 需要用**控制台创建的 API Key**;
+//   · 推理接入点 ID(ep-xxxx)—— AK/SK 换来的临时 Key 只按接入点授权,**必须填 ep-**,
+//     填模型名会 401(2026-08-15 实测)。
+export const VIDEO_MODELS = [
+  { id: "doubao-seedance-2-5", label: "Seedance 2.5(最新)" },
+  { id: "doubao-seedance-2-0", label: "Seedance 2.0" },
+  { id: "doubao-seedance-2-0-fast", label: "Seedance 2.0 Fast(快)" },
+  { id: "doubao-seedance-1-0-pro", label: "Seedance 1.0 Pro" },
+] as const;
+
+export const DEFAULT_VIDEO_MODEL = VIDEO_MODELS[0].id;
+
+/** 一次视频生成的积分成本。duration 单位秒(Seedance 支持 3~12)。 */
+export function videoCost(duration: number, resolution: string): number {
+  const rate =
+    VIDEO_COST_PER_SEC[resolution as VideoResolution] ??
+    VIDEO_COST_PER_SEC["720p"];
+  return Math.round(duration * rate);
+}
+
 // Pro 商业授权直售价(分):¥1,999/年。官网直售自动发 Key(2026-07-03 起,替代爱发电主通道)。
 export const RMB_PRO_LICENSE_FEN = 199900;
+
+// 云端托管直售价(分):¥3,999/年。付款后自动开通 <子域>.starzeco.com 专属实例(含算力)。
+export const RMB_CLOUD_FEN = 399900;
 
 // 一键套图目标平台(前端选择器用;各平台风格提示词在 prompt-config 的 SUITE_PLATFORM_HINTS,后台可改)。
 export const SUITE_PLATFORMS = [
@@ -412,6 +454,8 @@ export const GENERATION_RATIOS = [
   { id: "1:1", label: "主图 1:1", w: 1, h: 1 },
   { id: "3:4", label: "竖版 3:4", w: 3, h: 4 },
   { id: "4:3", label: "横版 4:3", w: 4, h: 3 },
+  { id: "2:3", label: "详情 2:3", w: 2, h: 3 },
+  { id: "3:2", label: "横幅 3:2", w: 3, h: 2 },
   { id: "16:9", label: "Banner 16:9", w: 16, h: 9 },
   { id: "9:16", label: "长图 9:16", w: 9, h: 16 },
 ];
@@ -436,16 +480,201 @@ export type ResolutionTier = {
   longSide: number;
 };
 
+// ⚠️ 2026-08-15 重定价:gpt-image-2 **原生直出**任意尺寸(宽高被 16 整除即可),
+// 2K/4K 不再是 sharp 插值放大,而是真的烧 token。旧价(2K=8、4K=12)是"放大不要钱"
+// 时代定的,直出后会亏,故按**实测 token** 重定:
+//   1024x1024 medium = 1756 tokens(基准 1.00x,77 秒)
+//   2048x2048 medium = 3568 tokens(2.03x,157 秒)
+//   3840 长边  medium ≈ 6690 tokens(3.81x,外推)
+// 注意 token **近似随长边线性增长,不是随面积**(2K 是 4 倍像素却只 2 倍 token),
+// 所以别按面积定价,会贵得离谱。
+// longSide 现在同时是 **v2 的实际请求尺寸**(见 route.ts 的 nativeSize)。
 export const GENERATION_RESOLUTIONS: ResolutionTier[] = [
+  // 1K 保持 longSide=0 → 走模型默认(auto / 1024x1536 三档)。**别改成 1024**:
+  // 那样 3:4 会被算成 768x1024,比现在的 1024x1536 还小,等于降级。
   { id: "1K", label: "1K 标准", cost: POINTS_PER_IMAGE, longSide: 0 },
-  { id: "2K", label: "2K 高清", cost: 8, longSide: 2048 },
-  { id: "4K", label: "4K 超清", cost: 12, longSide: 4096 },
+  { id: "2K", label: "2K 高清", cost: 12, longSide: 2048 },
+  // ⚠️ **最长边上限 3840**(实测 4096 直接 400:"The longest edge must be less
+  // than or equal to 3840")。所以"4K"= 3840 长边(4K UHD),别写 4096。
+  { id: "4K", label: "4K 超清", cost: 23, longSide: 3840 },
 ];
 
-export function resolutionCost(id: string): number {
-  return (
-    GENERATION_RESOLUTIONS.find((r) => r.id === id)?.cost ?? POINTS_PER_IMAGE
-  );
+// ── 可选生图模型(前台下拉,用户自选)────────────────────────────────────────
+// 不同模型调性差别很大,专业客户要按项目挑(客户原话:「不同风格调性 用不同平台的优势去做」)。
+// provider 决定走哪套 SDK:openai=方舟/OpenAI 兼容接口,gemini=Google(Nano Banana)。
+// maxLongSide=该模型原生能出的最大长边,前台据此过滤分辨率档,避免选了出不来。
+export const IMAGE_MODELS = [
+  {
+    id: "gpt-image-2",
+    label: "GPT生图",
+    hint: "综合最强，人像/质感稳",
+    provider: "openai" as const,
+    res: ["1K", "2K", "4K"],
+    quality: true, // 支持 low/medium/high 三档
+  },
+  // ⚠️ **顺序即前台按钮顺序**(生图页从左到右)。香蕉2 排在香蕉PRO 前面是**有意的**:
+  // 它三档全支持、更快、更便宜,是香蕉系里该被优先选的那个;PRO 只剩 1K 可用。
+  // 别为了"PRO 听起来更高级"把它调回前面。IMAGE_MODELS[0] 同时是默认模型,别动第一位。
+  {
+    id: "gemini-3.1-flash-image",
+    label: "香蕉2",
+    hint: "快，三档都能出，4K 只要 26 秒",
+    provider: "gemini" as const,
+    // 三档实测全通(1K 10s / 2K 60s / 4K 26s)。曾有一次 4K 拿到 503
+    // 「high demand」,复测正常 —— 那是 Google 侧偶发容量,**不是能力缺失,别据此砍档**。
+    res: ["1K", "2K", "4K"],
+    quality: false,
+  },
+  // FLUX.2 [pro] —— 客户点名要的模型。走 Replicate(比 BFL 官方便宜,详见 flux-image.ts)。
+  // 成本 1K ¥0.218 / 2K ¥0.553 / 4K ¥0.989 —— **1K 与 2K 是三个模型里最便宜的**,
+  // 4K 让给 GPT(¥0.726)。官方支持最多 8 张参考图,多件服装场景不用自己拼画布。
+  {
+    id: "black-forest-labs/flux-2-pro",
+    label: "F2PRO",
+    hint: "1K/2K 最省，参考图最多 8 张",
+    provider: "replicate" as const,
+    // ⚠️ **没有 4K**:官方 resolution 枚举只有 0.5/1/2/4 MP,且最大边长 2048
+    // (schema 原文 "The maximum image size is 2048x2048")。列出 4K 只会让用户
+    // 花 23 积分拿到一张 2048 的图 —— 那不是 4K。真要 4K 用 GPT生图(它才是原生直出)。
+    res: ["1K", "2K"],
+    quality: false, // FLUX 没有 low/medium/high 参数
+  },
+  {
+    id: "gemini-3.1-flash-lite-image",
+    label: "香蕉Lite",
+    hint: "12 秒出图，试稿用",
+    provider: "gemini" as const,
+    res: ["1K"], // 实测 2K/4K 直接报 "not supported for this model"
+    quality: false,
+  },
+] as const;
+export type ImageModelId = (typeof IMAGE_MODELS)[number]["id"];
+
+// ⚠️ **初代香蕉 gemini-2.5-flash-image 已排除,别加回来**:它不报错但**无视
+// imageSize 参数** —— 请求 4K 照样只出 1024x1024(实测 7 秒 1.11MB)。
+// 用户以为拿到 4K 实际是 1K,比直接报错更糟。
+
+/** 某模型支持的分辨率档(前端据此灰掉不可选项)。 */
+export function modelResolutions(id: string): readonly string[] {
+  return IMAGE_MODELS.find((m) => m.id === id)?.res ?? ["1K", "2K", "4K"];
+}
+
+/** 该模型是否有质量档。**只有 OpenAI 有** —— Gemini 没这个参数,
+ *  传了也不生效,所以计价时必须按标准档算,否则用户白付 4 倍钱。 */
+export function modelHasQuality(id: string): boolean {
+  return IMAGE_MODELS.find((m) => m.id === id)?.quality ?? false;
+}
+
+export function modelProvider(id: string): "openai" | "gemini" | "replicate" {
+  return IMAGE_MODELS.find((m) => m.id === id)?.provider ?? "openai";
+}
+
+// ── 出图质量档 ──────────────────────────────────────────────────────────────
+// gpt-image 的 quality 参数(low/medium/high)。**高阶档贵得多但质感差距明显**,
+// 专业客户(视觉/设计公司)会一眼看出来 —— 别再像以前那样锁死 medium 省成本。
+// 倍率是相对标准档的**价格倍数**,乘在分辨率单价上。
+export const GENERATION_QUALITIES = [
+  { id: "low", label: "基础", hint: "快、省,试稿用", mult: 0.4 },
+  { id: "medium", label: "标准", hint: "日常电商出图", mult: 1 },
+  // 实测 1024 高阶 = 7024 tokens vs 标准 1756 = **正好 4 倍**(耗时也翻倍:161s vs 77s)
+  { id: "high", label: "高阶", hint: "质感最好,交付用", mult: 4 },
+] as const;
+export type QualityTier = (typeof GENERATION_QUALITIES)[number]["id"];
+
+export function qualityMult(id: string): number {
+  return GENERATION_QUALITIES.find((q) => q.id === id)?.mult ?? 1;
+}
+
+/**
+ * 预计出图耗时(秒)。**给用户一个明确预期** —— 4K/高阶是分钟级操作,
+ * 不告诉用户的话他会以为卡死(客户实测时就问过"是不是卡了")。
+ *
+ * ⚠️ **基准必须用"美国机直测"的数字**,别用国内机测的 —— 后者含跨境开销会虚高一倍。
+ * 2026-08-15 实测(美国机直连 / 国内站经境外代跑,两者接近):
+ *   1024² medium ≈ 46s · 2480×3296(4K竖版) medium ≈ 45~50s · 1024² high ≈ 90s
+ * 出人意料的是**尺寸对耗时影响很小**(4K 和 1K 差不多),质量档才是主因。
+ * 所以模型改成:基准 45s + 尺寸轻微加成 + 质量档倍率。
+ */
+const QUALITY_TIME_MULT: Record<string, number> = {
+  low: 0.6,
+  medium: 1,
+  high: 2,
+};
+
+export function estimateGenSeconds(
+  resolution: string,
+  quality: string,
+  count = 1
+): number {
+  const long = resolutionLongSide(resolution) || 1024;
+  // 尺寸影响很小:长边翻倍只多约 15%(实测 4K≈1K)。别再按长边线性放大。
+  const base = 45 * (1 + 0.15 * Math.log2(Math.max(1, long / 1024)));
+  const qm = QUALITY_TIME_MULT[quality] ?? 1;
+  return Math.round(base * qm * Math.max(1, count)); // 多张串行,乘张数
+}
+
+/** 把秒数说成人话:"约 1 分 20 秒"。 */
+export function humanSeconds(s: number): string {
+  if (s < 60) return `预计约 ${s} 秒`;
+  const m = Math.floor(s / 60);
+  const r = Math.round(s % 60);
+  return r ? `预计约 ${m} 分 ${r} 秒` : `预计约 ${m} 分钟`;
+}
+
+// ── 分模型计价 ──────────────────────────────────────────────────────────────
+// **各模型成本差好几倍,不能共用一张表**(2026-08-17 用真实账单 + 实测 token 核出来的)。
+// 此前全站按 1K=6/2K=12/4K=23 一口价,结果:香蕉PRO 每张成本 ¥1.04 却只收 6 分(¥0.33),
+// 亏 68%;GPT 标准档在最大充值档也亏 14%。
+//
+// 成本来源(¥,汇率 7.1):
+//   · GPT gpt-image-2  —— OpenAI 真实账单反推 ¥217.6/百万 token × 实测 token:
+//       1K 1,756tok=¥0.382 · 2K 3,568tok=¥0.777 · 4K 6,690tok=¥1.456
+//   · 香蕉2  gemini-3.1-flash-image  —— 官方 $0.067/1K,$59.82/百万 token × 实测:
+//       1K 1,500tok=¥0.637 · 2K 2,069tok=¥0.879 · 4K 2,654tok=¥1.127
+//   · (香蕉PRO gemini-3-pro-image 已于 2026-08-17 下架:只能出 1K、成本 ¥1.035 比香蕉2
+//      贵 62%、出图慢一倍,2K/4K 一律 300 秒超时。质感确有优势但客户要的是 4K 交付,
+//      而它给不了。**别加回来**——当初是我们自己多加的,客户只要 GPT + 香蕉2。)
+//   · 香蕉Lite gemini-3.1-flash-lite-image —— 官方 $0.034/1K,$30.36/百万 × 实测 1,481tok=¥0.319
+//
+// 下表 = 上述成本 × 1.2 ÷ ¥0.055(**最大充值档单价**,即最坏情况仍保 ~20% 毛利)。
+// ⚠️ 改价请连同上面的成本一起更新,别只动数字 —— 否则下次没人知道这些数是怎么来的。
+// 注意一个反直觉的结论:**香蕉2 出 4K 比 GPT 出 4K 还便宜**(¥1.127 vs ¥1.456)且快得多。
+const MODEL_CREDITS: Record<string, Record<string, number>> = {
+  // **三个模型统一 6/12/23**(用户 2026-08-18 决定)。理由:
+  //   ① 香蕉的成本我只能用"官方价目 × 实测 token"推算,**没有 Google 账单验证**,
+  //      两种计费口径差 34%(¥0.476 vs ¥0.637/张),不足以支撑差异化定价;
+  //   ② 产品逻辑上,**能力更弱的模型却更贵不合常理**,客户第一眼就会质疑;
+  //   ③ 定价当天已反复改错数次,在有长期成本核算之前不应再凭估算调价。
+  // 已知代价:香蕉2 出 1K 在这个价位大概率是亏的(成本 ¥0.476~0.637 > 站长最高付 ¥0.384),
+  // 这是**知情后接受的**,不是疏漏。等积累到真实账单再回来校准。
+  "gpt-image-2": { "1K": 6, "2K": 12, "4K": 23 },
+  "gemini-3.1-flash-image": { "1K": 6, "2K": 12, "4K": 23 },
+  "gemini-3.1-flash-lite-image": { "1K": 6 },
+  // FLUX 走 Replicate 的成本比 GPT 还低(1K ¥0.218 / 2K ¥0.553 / 4K ¥0.989),
+  // 沿用统一档位三档毛利分别 +51% / +19% / +28%,无需单独定价。
+  "black-forest-labs/flux-2-pro": { "1K": 6, "2K": 12 },
+};/** 没登记的模型(老数据/自托管改过配置)回落到 GPT 那档,不至于免费出图。 */
+const FALLBACK_MODEL = "gpt-image-2";
+
+/**
+ * 一张图的积分单价 = 该模型该分辨率的基准 × 质量档倍率。
+ * quality 只对 OpenAI 系生效(香蕉没有质量参数,传了也不计价,见 modelHasQuality)。
+ * ⚠️ 用 round 不用 ceil:ceil 会把「基础档」从 3 顶到 4(+33%),把最便宜的试稿档做贵,
+ * 而它恰恰是客户改稿时用得最多的一档。
+ */
+export function resolutionCost(
+  id: string,
+  quality = "medium",
+  model = FALLBACK_MODEL
+): number {
+  const table = MODEL_CREDITS[model] ?? MODEL_CREDITS[FALLBACK_MODEL];
+  // 该模型不支持这一档(如香蕉PRO 只有 1K)→ 按它支持的最高档计,不会算出 0。
+  const base =
+    table[id] ??
+    table[Object.keys(table)[Object.keys(table).length - 1]] ??
+    POINTS_PER_IMAGE;
+  const mult = modelHasQuality(model) ? qualityMult(quality) : 1;
+  return Math.max(1, Math.round(base * mult));
 }
 
 export function resolutionLongSide(id: string): number {

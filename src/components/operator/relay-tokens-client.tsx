@@ -94,7 +94,7 @@ export function RelayTokensClient({ embedded = false }: { embedded?: boolean }) 
   const [contact, setContact] = React.useState("");
   const [months, setMonths] = React.useState<MonthValue>("12");
   const [kind, setKind] = React.useState<KindValue>("byok");
-  const [quota, setQuota] = React.useState("2000"); // managed 初始配额(次)
+  const [quota, setQuota] = React.useState("3000"); // managed 初始配额(积分,1张=6)
   const [generating, setGenerating] = React.useState(false);
 
   // 本次新生成的行(高亮 + 顶部大地址卡,方便直接复制发货)
@@ -255,10 +255,10 @@ export function RelayTokensClient({ embedded = false }: { embedded?: boolean }) 
   // ── 充算力配额(managed;正数=充,负数=收回)──
   const handleTopup = async (t: RelayRow) => {
     const raw = window.prompt(
-      `给「${t.label || t.id}」充多少算力(生图次数)?当前已用 ${t.quota_used} / 配额 ${
+      `给「${t.label || t.id}」充多少算力积分(1 张图=6 积分)?当前已用 ${t.quota_used} / 配额 ${
         t.quota_total > 0 ? t.quota_total : "不限量"
       }。填负数可收回。`,
-      "1000"
+      "5000"
     );
     if (raw == null) return;
     const n = Number(raw);
@@ -454,7 +454,7 @@ export function RelayTokensClient({ embedded = false }: { embedded?: boolean }) 
               {kind === "managed" && (
                 <div>
                   <label className="mb-2 block text-[12.5px] font-medium text-c-text3">
-                    算力配额(生图次数,0=不限量)
+                    算力配额(积分,1 张图=6;0=不限量)
                   </label>
                   <Input
                     value={quota}

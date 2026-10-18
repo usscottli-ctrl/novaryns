@@ -14,6 +14,7 @@ import {
   Sparkles,
 } from "lucide-react";
 import { PromptAssistPopup } from "@/components/tools/prompt-assist-popup";
+import { useStickyState } from "@/lib/use-sticky-state";
 import { useAuth } from "@/lib/auth-context";
 import { useAuthModal } from "@/lib/auth-modal-context";
 import { useI18n } from "@/lib/i18n/locale-context";
@@ -47,7 +48,7 @@ export function InpaintClient() {
   const [imgUrl, setImgUrl] = useState<string>("");
   const [brush, setBrush] = useState(40);
   const [prompt, setPrompt] = useState("");
-  const [resolution, setResolution] = useState<"1K" | "2K">("1K");
+  const [resolution, setResolution] = useStickyState<"1K" | "2K">("inpaint.resolution", "1K", (v) => v === "1K" || v === "2K");
   const [loading, setLoading] = useState(false);
   const [result, setResult] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -458,6 +459,8 @@ export function InpaintClient() {
                 );
               })}
             </div>
+            {/* 2026-08-26 起 2K 是**原生直出**(路由按原图比例请求 2048 长边),
+                不再是插值放大 —— 原来的"生成后放大"标注已随之删除。 */}
           </div>
         </>
       }

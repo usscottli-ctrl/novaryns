@@ -41,6 +41,12 @@
     --shadow-pop: 0 18px 44px -16px rgba(16, 18, 23, 0.42);
     --shadow-toast: 0 12px 30px -10px rgba(0, 0, 0, 0.4);
     --ring-focus: 0 0 0 3px rgba(79, 70, 229, 0.12);
+    /* 图表系列色(后台访问统计的 PV/UV 折线)。
+       **刻意不跟 --acc 走强调色切换**:这一对是按色觉障碍(protan/deutan)分离度
+       与对白底 3:1 对比度校验过的组合(浅色 ΔE 32.1 / 深色 ΔE 32.2,均 ≥3:1);
+       跟着强调色变会让校验失效。默认强调色下 chart-1 正好等于 --acc。 */
+    --chart-1: #4f46e5;
+    --chart-2: #c2620a;
     /* 设计系统原始 hex token(组件按名直接用,与上面 HSL token 并存) */
     --c-bg: #f6f7f9;
     --c-card: #fff;
@@ -101,6 +107,10 @@
     --shadow-pop: 0 18px 44px -16px rgba(0, 0, 0, 0.6);
     --shadow-toast: 0 12px 30px -10px rgba(0, 0, 0, 0.6);
     --ring-focus: 0 0 0 3px rgba(99, 102, 241, 0.18);
+    /* 深色图表系列色:不是浅色值的机械翻转,是按深色卡面 #141519 重新校验过的一档
+       (浅色的 #c2620a 在深色底上亮度低于色带下限,必须提亮到 #d97706)。 */
+    --chart-1: #6366f1;
+    --chart-2: #d97706;
     /* 深色 hex token */
     --c-bg: #0a0b0d;
     --c-card: #141519;
@@ -425,8 +435,13 @@
 @keyframes nv-shimmer { 0% { background-position: -200% 0; } 100% { background-position: 200% 0; } }
 @keyframes nv-pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.45; } }
 @keyframes nv-flow { to { stroke-dashoffset: -24; } }
+/* 不定进度条(视频生成:上游只给排队/运行,没有百分比,所以不编假进度) */
+@keyframes nv-indeterminate { 0% { transform: translateX(-100%); } 100% { transform: translateX(400%); } }
 @keyframes nv-menu-up { from { opacity: 0; transform: translateY(6px) scale(0.985); } to { opacity: 1; transform: none; } }
 @keyframes nv-menu-down { from { opacity: 0; transform: translateY(-6px) scale(0.985); } to { opacity: 1; transform: none; } }
+/* 移动端底部抽屉入场:从下往上滑。**不要拿 nv-menu-down 凑合** —— 那是下拉菜单用的
+   (缩放 .985 + 上移),贴底弹窗用它会视觉缩水、离底露出一条背景,方向也反。 */
+@keyframes nv-sheet-up { from { opacity: 0; transform: translateY(14px); } to { opacity: 1; transform: none; } }
 @keyframes nv-floaty { 0%, 100% { transform: translateY(0); } 50% { transform: translateY(-8px); } }
 @keyframes nv-glow { 0%, 100% { opacity: 0.55; } 50% { opacity: 0.9; } }
 @keyframes nv-reveal { 0% { clip-path: inset(0 100% 0 0); } 100% { clip-path: inset(0 0 0 0); } }
@@ -441,6 +456,11 @@
 .nv-pulse { animation: nv-pulse 1.4s ease-in-out infinite; }
 .nv-menu-up { animation: nv-menu-up 0.16s cubic-bezier(0.16, 1, 0.3, 1) both; transform-origin: bottom center; }
 .nv-menu-down { animation: nv-menu-down 0.16s cubic-bezier(0.16, 1, 0.3, 1) both; transform-origin: top center; }
+/* 手机贴底抽屉滑入;sm 起(桌面居中卡片)换回菜单式的轻微下沉。 */
+.nv-sheet { animation: nv-sheet-up 0.2s cubic-bezier(0.16, 1, 0.3, 1) both; }
+@media (min-width: 640px) {
+  .nv-sheet { animation: nv-menu-down 0.16s cubic-bezier(0.16, 1, 0.3, 1) both; transform-origin: top center; }
+}
 @media (prefers-reduced-motion: reduce) {
-  .nv-spin, .nv-skeleton, .nv-pulse, .nv-menu-up, .nv-menu-down { animation: none; }
+  .nv-spin, .nv-skeleton, .nv-pulse, .nv-menu-up, .nv-menu-down, .nv-sheet { animation: none; }
 }

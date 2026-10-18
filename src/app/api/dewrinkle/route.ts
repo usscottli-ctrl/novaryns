@@ -13,6 +13,7 @@ import { clientIp } from "@/lib/ip";
 import { rateLimit } from "@/lib/rate-limit";
 import { resolveUserEmail } from "@/lib/admin-auth";
 import { storageEnabled, uploadImage } from "@/lib/storage";
+import { generateBuffer } from "@/lib/image-gen";
 import { getOpenAISettings } from "@/lib/settings";
 import { getOpenAIBaseUrl } from "@/lib/openai-base";
 import { TOOL_COST } from "@/lib/mock-data";
@@ -113,17 +114,12 @@ export async function POST(request: Request) {
       });
       const png = await toPng(input.bytes);
       const prompt = BASE_PROMPT + (input.prompt ? ` Extra: ${input.prompt}.` : "");
-      const r = await client.images.edit({
-        model: genModel || "gpt-image-2",
-        image: await toFile(png, "image.png", { type: "image/png" }),
-        prompt,
-        n: 1,
-        size: sizeForRatio(input.ratio) as "1024x1024",
-        quality: "high" as "high",
+      out = await generateBuffer({
+          prompt: prompt,
+          images: [{ buf: png }],
+          model: genModel || "gpt-image-2",
+          size: sizeForRatio(input.ratio) as "1024x1024",
       });
-      const b64 = r.data?.[0]?.b64_json;
-      if (!b64) throw new Error("未返回结果图");
-      out = Buffer.from(b64, "base64");
     } catch (e) {
       if (useDb && cost > 0) await refundCredits(input.email, cost).catch(() => {});
       throw e;

@@ -11,6 +11,8 @@ import {
   Download,
   Plus,
   Trash2,
+  RotateCcw,
+  X,
 } from "lucide-react";
 import { Media } from "@/components/media";
 import { downloadImage } from "@/lib/download";
@@ -20,6 +22,7 @@ import { useAuth } from "@/lib/auth-context";
 import { authHeader } from "@/lib/supabase";
 import { cn } from "@/lib/utils";
 import { WorkLightbox, type LightboxWork } from "@/components/works/work-lightbox";
+import { isUserOutput } from "@/lib/artwork-filter";
 
 // ---------------------------------------------------------------------------
 // 作品库(设计 screen==='works',星泽商图.dc.html 1247–1328)。
@@ -38,7 +41,21 @@ type Artwork = {
   prompt?: string;
   cost?: number;
   category?: string;
+  deletedAt?: string | null; // 仅回收站列表带
+  templateId?: string | null; // 非空 = 模板原图(血缘根节点),不是用户产出
 };
+
+// 回收站保留天数。与服务端 db.ts 的 TRASH_RETENTION_DAYS 对齐;
+// 只用于文案显示,真正的清理以服务端为准。
+const TRASH_DAYS = 30;
+
+/** 还剩几天被彻底清理。用户怕的是"删了找不回来",给确切天数比"若干天"管用。 */
+function daysLeft(deletedAt?: string | null): number | null {
+  if (!deletedAt) return null;
+  const gone = new Date(deletedAt).getTime() + TRASH_DAYS * 86400_000;
+  const d = Math.ceil((gone - Date.now()) / 86400_000);
+  return Number.isFinite(d) ? Math.max(0, d) : null;
+}
 
 // 作品按「功能」分组:category → 分组(key + 中文名)。
 // 生图各子类(main/banner/scene/detail/sub/...)与套图(main/detail)合并为「AI 生图」。
@@ -107,6 +124,11 @@ export function WorksClient() {
   const [favs, setFavs] = useState<Set<string>>(new Set());
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [active, setActive] = useState<LightboxWork | null>(null);
+  // 回收站。作品页原来只有删除、没有入口 —— 图其实还在(软删),但用户找不到路,
+  // 体感就是"删了就没了"。这里接现成的 /api/artworks/trash,不新增后端。
+  const [trashOpen, setTrashOpen] = useState(false);
+  const [trashItems, setTrashItems] = useState<Artwork[] | null>(null);
+  const [trashBusy, setTrashBusy] = useState(false);
 
   // 拉作品(与首页同源)。
   useEffect(() => {
@@ -128,7 +150,12 @@ export function WorksClient() {
         const d = await r.json();
         const arts = (d.artworks ?? []) as Artwork[];
         if (cancelled) return;
-        setWorks(arts.filter((a) => a.image && a.status !== "failed"));
+        // 只显示**用户真正生成出来的图**。账户下还混着两类素材,它们也是 app_artworks
+        // 行(血缘树需要),但不是用户的产出,列在作品库里客户会当成自己的作品:
+        //   · 模板原图(templateId 非空)——「做同款」时建的血缘根节点,是模板自带的参考图;
+        //   · 上传图(无提示词)——用户自己拖进来的底图。
+        // 点进去还会在生成页显示"参考图/引用的提示词",更容易误解。
+        setWorks(arts.filter(isUserOutput));
       } catch {
         if (!cancelled) setWorks([]);
       }
@@ -287,9 +314,56 @@ export function WorksClient() {
       if (!res.ok) throw new Error();
       setWorks((w) => (w ? w.filter((x) => x.id !== id) : w));
       setActive(null);
-      toast("已删除", "success");
+      // 说清楚"还能捞回来" —— 原来只说「已删除」,用户以为是永久的。
+      toast(`已移入回收站，${TRASH_DAYS} 天内可恢复`, "success");
     } catch {
       toast("删除失败,请重试", "error");
+    }
+  };
+
+  // 打开回收站(每次现拉,顺带触发服务端懒清理)
+  const openTrash = async () => {
+    setTrashOpen(true);
+    setTrashItems(null);
+    if (!user?.email) {
+      setTrashItems([]);
+      return;
+    }
+    try {
+      const r = await fetch(
+        `/api/artworks/trash?email=${encodeURIComponent(user.email)}`
+      );
+      const d = await r.json();
+      setTrashItems((d?.artworks ?? []) as Artwork[]);
+    } catch {
+      setTrashItems([]);
+      toast("回收站加载失败,请重试", "error");
+    }
+  };
+
+  const trashAction = async (action: "restore" | "purge", ids: string[]) => {
+    if (!user?.email || ids.length === 0 || trashBusy) return;
+    setTrashBusy(true);
+    try {
+      const r = await fetch("/api/artworks/trash", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ email: user.email, action, ids }),
+      });
+      if (!r.ok) throw new Error();
+      const restored = trashItems?.filter((w) => ids.includes(w.id)) ?? [];
+      setTrashItems((prev) => (prev ? prev.filter((w) => !ids.includes(w.id)) : prev));
+      if (action === "restore") {
+        // 直接补回列表,不重新拉整个作品库(几百张时那样会闪一下)
+        setWorks((w) => (w ? [...restored, ...w] : w));
+        toast(`已恢复 ${restored.length} 张`, "success");
+      } else {
+        toast("已彻底删除", "success");
+      }
+    } catch {
+      toast(action === "restore" ? "恢复失败,请重试" : "删除失败,请重试", "error");
+    } finally {
+      setTrashBusy(false);
     }
   };
 
@@ -313,32 +387,42 @@ export function WorksClient() {
 
   return (
     <div className="flex w-full flex-col gap-5 px-5 py-7 pb-24 sm:px-6 lg:px-8">
-      {/* 头部 */}
-      <div className="flex items-end justify-between gap-4">
+      {/* 头部。窄屏换行:标题 + 搜索框 + 多选挤一行放不下(375px 会溢出),
+          手机上让工具行掉到标题下方并占满宽。 */}
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between sm:gap-4">
         <div>
           <h1 className="text-[26px] font-bold tracking-tight text-c-text">
             作品库
           </h1>
           <p className="mt-1 text-[13.5px] text-c-text3">
-            {count} 张作品 · 生成结果自动保留 180 天
+            {count} 张作品 · 生成结果自动保留 180 天 · 删除后进回收站可恢复
           </p>
         </div>
         <div className="flex items-center gap-2.5">
-          {/* 搜索框(占位,暂不接逻辑) */}
-          <div className="flex h-9 items-center gap-1.5 rounded-field border border-c-border2 bg-c-card px-3">
-            <Search size={14} className="text-c-text4" strokeWidth={1.8} />
+          {/* 搜索框(占位,暂不接逻辑)。手机上占满剩余宽度,桌面回到固定 120。 */}
+          <div className="flex h-9 min-w-0 flex-1 items-center gap-1.5 rounded-field border border-c-border2 bg-c-card px-3 sm:flex-none">
+            <Search size={14} className="flex-none text-c-text4" strokeWidth={1.8} />
             <input
               value={query}
               onChange={(e) => setQuery(e.target.value)} // TODO: 搜索暂不接逻辑
               placeholder="搜索作品"
-              className="w-[120px] bg-transparent text-[12.5px] text-c-text placeholder:text-c-text4 focus:outline-none"
+              className="w-full min-w-0 bg-transparent text-[12.5px] text-c-text placeholder:text-c-text4 focus:outline-none sm:w-[120px]"
             />
           </div>
+          {/* 回收站入口。放在多选左边:它是"找回东西"的入口,比多选更该被看见。 */}
+          <button
+            type="button"
+            onClick={openTrash}
+            className="flex h-9 flex-none items-center gap-1.5 rounded-field border border-c-border2 bg-c-card px-3 text-[12.5px] text-c-text2 transition-colors hover:bg-c-subtle"
+          >
+            <Trash2 size={14} strokeWidth={1.8} />
+            回收站
+          </button>
           {/* 多选 toggle */}
           <button
             type="button"
             onClick={toggleSelecting}
-            className="flex h-9 items-center gap-1.5 rounded-field border border-c-border2 bg-c-card px-3 text-[12.5px] text-c-text2 transition-colors hover:bg-c-subtle"
+            className="flex h-9 flex-none items-center gap-1.5 rounded-field border border-c-border2 bg-c-card px-3 text-[12.5px] text-c-text2 transition-colors hover:bg-c-subtle"
           >
             <CheckSquare size={14} strokeWidth={1.8} />
             {selecting ? "完成" : "多选"}
@@ -370,7 +454,7 @@ export function WorksClient() {
 
       {/* 加载骨架 */}
       {loading && (
-        <div className="grid grid-cols-5 gap-3.5">
+        <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 sm:gap-3.5 md:grid-cols-4 lg:grid-cols-5">
           {Array.from({ length: 10 }).map((_, i) => (
             <Skeleton key={i} className="aspect-square rounded-[13px]" />
           ))}
@@ -424,9 +508,10 @@ export function WorksClient() {
         </>
       )}
 
-      {/* 浮动批量操作条 */}
+      {/* 浮动批量操作条。手机要抬到底部 Tab(h-58px,见 app-rail)上方,否则被挡住;
+          窄屏还要留左右边距 + 允许内容换行,免得按钮溢出屏幕。 */}
       {selecting && selected.size > 0 && (
-        <div className="fixed bottom-6 left-1/2 z-[80] flex -translate-x-1/2 items-center gap-1.5 rounded-[14px] border border-c-border bg-c-card py-2 pl-4 pr-2.5 shadow-pop">
+        <div className="fixed bottom-[70px] left-1/2 z-[80] flex max-w-[calc(100vw-24px)] -translate-x-1/2 flex-wrap items-center justify-center gap-1.5 rounded-[14px] border border-c-border bg-c-card py-2 pl-4 pr-2.5 shadow-pop md:bottom-6">
           <span className="whitespace-nowrap text-[13px] font-semibold text-c-text">
             已选 {selected.size} 项
           </span>
@@ -513,7 +598,10 @@ export function WorksClient() {
                 if (!res.ok) throw new Error("delete failed");
                 setWorks((w) => (w ? w.filter((x) => !selected.has(x.id)) : w));
                 setSelected(new Set());
-                toast(`已删除 ${ids.length} 张`, "success");
+                toast(
+                  `已移入回收站 ${ids.length} 张，${TRASH_DAYS} 天内可恢复`,
+                  "success"
+                );
               } catch {
                 toast("删除失败,请重试", "error");
               }
@@ -542,6 +630,126 @@ export function WorksClient() {
         onDelete={deleteOne}
         onClose={() => setActive(null)}
       />
+
+      {/* 回收站面板 */}
+      {trashOpen && (
+        <div
+          className="fixed inset-0 z-50 flex items-end justify-center bg-black/50 p-0 sm:items-center sm:p-6"
+          onClick={() => setTrashOpen(false)}
+        >
+          <div
+            className="flex max-h-[85vh] w-full max-w-[720px] flex-col rounded-t-2xl bg-c-card sm:rounded-2xl"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="flex items-center justify-between border-b border-c-line px-5 py-4">
+              <div>
+                <h2 className="text-[16px] font-bold text-c-text">回收站</h2>
+                <p className="mt-0.5 text-[12.5px] text-c-text3">
+                  删除的作品在这里保留 {TRASH_DAYS} 天，到期后彻底清除
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={() => setTrashOpen(false)}
+                className="rounded-[8px] p-1.5 text-c-text3 transition-colors hover:bg-c-subtle"
+                aria-label="关闭"
+              >
+                <X size={18} strokeWidth={1.8} />
+              </button>
+            </div>
+
+            <div className="min-h-0 flex-1 overflow-y-auto p-5">
+              {trashItems === null ? (
+                <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
+                  {Array.from({ length: 4 }).map((_, i) => (
+                    <Skeleton key={i} className="aspect-square rounded-xl" />
+                  ))}
+                </div>
+              ) : trashItems.length === 0 ? (
+                <p className="py-10 text-center text-[13.5px] text-c-text3">
+                  回收站是空的
+                </p>
+              ) : (
+                <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
+                  {trashItems.map((w) => {
+                    const left = daysLeft(w.deletedAt);
+                    return (
+                      <div key={w.id} className="flex flex-col gap-1.5">
+                        <div className="relative overflow-hidden rounded-xl border border-c-border2">
+                          <Media
+                            src={cdnUrl(w.image)}
+                            alt={w.title ?? "作品"}
+                            className="aspect-square w-full object-cover"
+                          />
+                          {left !== null && (
+                            <span
+                              className={cn(
+                                "absolute left-1.5 top-1.5 rounded-[6px] px-1.5 py-0.5 text-[11px] font-medium text-white",
+                                left <= 3 ? "bg-c-danger" : "bg-black/60"
+                              )}
+                            >
+                              {left <= 0 ? "即将清除" : `还剩 ${left} 天`}
+                            </span>
+                          )}
+                        </div>
+                        <div className="flex gap-1.5">
+                          <button
+                            type="button"
+                            disabled={trashBusy}
+                            onClick={() => trashAction("restore", [w.id])}
+                            className="flex flex-1 items-center justify-center gap-1 rounded-[8px] border border-c-border2 py-1.5 text-[12px] text-c-text2 transition-colors hover:bg-c-subtle disabled:opacity-50"
+                          >
+                            <RotateCcw size={13} strokeWidth={1.8} />
+                            恢复
+                          </button>
+                          <button
+                            type="button"
+                            disabled={trashBusy}
+                            onClick={() => {
+                              // 这一步不可逆(真删库行 + 删存储对象),必须再问一次
+                              if (
+                                window.confirm(
+                                  "彻底删除后无法恢复，确定要删除这张作品吗？"
+                                )
+                              )
+                                trashAction("purge", [w.id]);
+                            }}
+                            className="flex items-center justify-center rounded-[8px] border border-c-border2 px-2 py-1.5 text-c-danger transition-colors hover:bg-c-tint-r disabled:opacity-50"
+                            aria-label="彻底删除"
+                          >
+                            <Trash2 size={13} strokeWidth={1.8} />
+                          </button>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+            </div>
+
+            {!!trashItems?.length && (
+              <div className="flex items-center justify-between gap-3 border-t border-c-line px-5 py-3.5">
+                <span className="text-[12.5px] text-c-text3">
+                  共 {trashItems.length} 张
+                </span>
+                <button
+                  type="button"
+                  disabled={trashBusy}
+                  onClick={() =>
+                    trashAction(
+                      "restore",
+                      trashItems.map((w) => w.id)
+                    )
+                  }
+                  className="rounded-[8px] bg-acc px-3.5 py-2 text-[12.5px] font-medium text-white shadow-btn transition-opacity hover:opacity-90 disabled:opacity-50"
+                >
+                  全部恢复
+                </button>
+              </div>
+            )}
+          </div>
+        </div>
+      )}
     </div>
   );
 }
@@ -573,7 +781,9 @@ function WorkGroup({
   return (
     <div>
       <div className="mb-3 text-[12.5px] font-semibold text-c-text3">{title}</div>
-      <div className="grid grid-cols-5 gap-3.5">
+      {/* 手机 2 列(每张约 160px,看得清)→ 桌面逐步加到 5 列。原本写死 grid-cols-5,
+          375px 屏上每张只剩 ~65px,卡片全糊在一起。 */}
+      <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 sm:gap-3.5 md:grid-cols-4 lg:grid-cols-5">
         {works.map((w) => (
           <WorkTile
             key={w.id}
@@ -678,9 +888,12 @@ function WorkTile({
         )}
       </div>
 
-      {/* hover overlay(下载 / 收藏 / 加入) */}
+      {/* hover overlay(下载 / 收藏 / 加入)。
+          ⚠️ 只在**有 hover 能力的设备**(桌面)显示:触屏上 group-hover 会被一次点击
+          触发成 sticky 状态卡在半开,还会挡住点击 → 手机点卡片直接进灯箱(灯箱里有全部操作)。
+          pointer-events 一并门控,免得看不见的按钮在触屏上误触。 */}
       {!selecting && (
-        <div className="absolute inset-0 flex items-center justify-center gap-2 bg-[rgba(22,24,29,.34)] opacity-0 transition-opacity duration-150 group-hover:opacity-100">
+        <div className="pointer-events-none absolute inset-0 flex items-center justify-center gap-2 bg-[rgba(22,24,29,.34)] opacity-0 transition-opacity duration-150 [@media(hover:hover)]:group-hover:pointer-events-auto [@media(hover:hover)]:group-hover:opacity-100">
           <button
             type="button"
             aria-label="下载"

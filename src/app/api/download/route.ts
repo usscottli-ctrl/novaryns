@@ -27,7 +27,9 @@ function allowed(u: URL): boolean {
   }
   return (
     u.protocol === "https:" &&
-    (u.host === "images.unsplash.com" || u.host.endsWith(".r2.dev"))
+    (u.host === "images.unsplash.com" ||
+      u.host.endsWith(".r2.dev") ||
+      u.host === "img.novaryns.com") // R2 自定义域名(2026-09-03 起)
   );
 }
 
@@ -44,10 +46,18 @@ export async function GET(request: Request) {
 
   // 同源相对路径(如本地存储的 /media/...):相对 app 自己 origin 解析并放行。
   // 排除 //host(协议相对 = 外站)防 SSRF;其余外站走 allowed() 白名单。
+  //
+  // ⚠️ **必须回环到 127.0.0.1,不能用 reqUrl.origin**(2026-08-17 线上事故):
+  // 反代后 Next 拿到的 request.url 带**内部监听端口**(如 https://站点域名:3000),
+  // 而那个端口只在容器内监听、公网并不开放 → 容器 fetch 自己的公网地址必然
+  // UND_ERR_CONNECT_TIMEOUT,导出一律 502「fetch failed」。
+  // 只在**本地存储的实例**(云端租户/自托管)暴露——主站图在 R2 走绝对地址,
+  // 压根进不到这个分支,所以主站永远测不出来。回环还省掉一次绕公网的往返。
   const sameOrigin = raw.startsWith("/") && !raw.startsWith("//");
+  const selfOrigin = `http://127.0.0.1:${process.env.PORT || 3000}`;
   let target: URL;
   try {
-    target = sameOrigin ? new URL(raw, reqUrl.origin) : new URL(raw);
+    target = sameOrigin ? new URL(raw, selfOrigin) : new URL(raw);
   } catch {
     return NextResponse.json({ error: "URL 非法" }, { status: 400 });
   }

@@ -13,7 +13,9 @@ import { clientIp } from "@/lib/ip";
 import { rateLimit } from "@/lib/rate-limit";
 import { resolveUserEmail } from "@/lib/admin-auth";
 import { storageEnabled, uploadImage } from "@/lib/storage";
-import { getOpenAISettings, getCutoutSettings } from "@/lib/settings";
+import { generateBuffer } from "@/lib/image-gen";
+import { transparentModel, getOpenAISettings, getCutoutSettings } from "@/lib/settings";
+import { nativeEditSize } from "@/lib/image-size";
 import { getOpenAIBaseUrl } from "@/lib/openai-base";
 import { resolutionCost } from "@/lib/mock-data";
 import { safeError } from "@/lib/api-error";
@@ -207,8 +209,7 @@ export async function POST(request: Request) {
 
     let out: Buffer;
     try {
-      const { apiKey } = await getOpenAISettings();
-      const { openaiModel } = await getCutoutSettings();
+      const { apiKey, model: genModel } = await getOpenAISettings();
       if (!apiKey) throw new Error("未配置 OpenAI key");
       const client = new OpenAI({
         apiKey,
@@ -233,22 +234,48 @@ export async function POST(request: Request) {
           : "";
       const prompt =
         BASE_PROMPT + modeHint + completeHint + categoryHint + userHint;
-      const r = await client.images.edit({
-        // 透明底只 gpt-image-1 支持(gpt-image-2 实测报错),印花透明底必须用它。
-        model: openaiModel || "gpt-image-1",
-        image: await toFile(png, "image.png", { type: "image/png" }),
-        prompt,
-        n: 1,
-        size: sizeForRatio(input.ratio) as "1024x1024",
-        background: "transparent" as const,
-      });
-      const b64 = r.data?.[0]?.b64_json;
-      if (!b64) throw new Error("未返回图案");
-      out = Buffer.from(b64, "base64");
-      // 2K/4K 按长边放大(保留透明底)。
-      const longTarget =
-        input.resolution === "4K" ? 4096 : input.resolution === "2K" ? 2048 : 0;
-      if (longTarget) out = await upscaleLong(out, longTarget);
+      // 原生直出要知道真实宽高比(用户选"自动"时按源图推)。
+      let ratioHint = input.ratio;
+      if (!/^\d+:\d+$/.test(ratioHint)) {
+        try {
+          const sharp = (await import("sharp")).default;
+          const meta = await sharp(png).metadata();
+          ratioHint = `${meta.width ?? 1024}:${meta.height ?? 1024}`;
+        } catch {
+          ratioHint = "1:1";
+        }
+      }
+      // ⚠️ **透明底只有 gpt-image-1 支持**(gpt-image-2 实测不吃 background:transparent),
+      // 而 v1 只能出 1024 系固定尺寸 —— 所以**透明档的 2K/4K 仍然是后期放大**(页面已如实标注)。
+      // 选了白底/黑底的没有这个约束:走 gpt-image-2 **原生直出**真实尺寸。
+      const nativeModel = genModel || "gpt-image-2";
+      const nativeSizeStr =
+        input.bg === "transparent"
+          ? null
+          : nativeEditSize(ratioHint, input.resolution, nativeModel);
+      if (nativeSizeStr) {
+        out = await generateBuffer({
+          prompt: prompt.replace(
+            "on a fully transparent background",
+            `on a plain solid ${input.bg} background`
+          ),
+          images: [{ buf: png }],
+          model: nativeModel,
+          size: nativeSizeStr,
+        });
+      } else {
+        out = await generateBuffer({
+            prompt: prompt,
+            images: [{ buf: png }],
+            model: transparentModel(),
+            size: sizeForRatio(input.ratio) as "1024x1024",
+            transparent: true,
+        });
+        // 2K/4K 按长边放大(保留透明底)。
+        const longTarget =
+          input.resolution === "4K" ? 4096 : input.resolution === "2K" ? 2048 : 0;
+        if (longTarget) out = await upscaleLong(out, longTarget);
+      }
     } catch (e) {
       if (useDb && cost > 0)
         await refundCredits(input.email, cost).catch(() => {});

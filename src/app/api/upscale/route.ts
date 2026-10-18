@@ -27,6 +27,8 @@ export const runtime = "nodejs";
 export const maxDuration = 120; // Replicate 冷启动可能 1-2 分钟
 
 const UPSCALE_COST = TOOL_COST.upscale;
+import { runReplicate, fetchResultBytes } from "@/lib/replicate-run";
+
 const MODEL = process.env.REPLICATE_UPSCALE_MODEL || "nightmareai/real-esrgan";
 
 type UpscaleInput = {
@@ -125,57 +127,14 @@ async function upscaleReplicate(
     // sharp 解析失败 → 退回原图(可能仍因过大失败,但不影响小图正常工作)。
   }
   const dataUri = `data:${inType};base64,${inBytes.toString("base64")}`;
-  const version = await resolveReplicateVersion(MODEL, token);
-  const create = await fetch("https://api.replicate.com/v1/predictions", {
-    method: "POST",
-    headers: {
-      Authorization: `Bearer ${token}`,
-      "Content-Type": "application/json",
-      Prefer: "wait",
-    },
-    body: JSON.stringify({
-      version,
-      input: { image: dataUri, scale, face_enhance: faceEnhance },
-    }),
+  // 统一走 lib/replicate-run —— 国内站直连 api.replicate.com 不通(实测 20s 超时),
+  // 由它内部决定直连还是走境外代跑。别在这里自己 fetch Replicate。
+  const url = await runReplicate(MODEL, {
+    image: dataUri,
+    scale,
+    face_enhance: faceEnhance,
   });
-  let pred = (await create.json()) as {
-    status?: string;
-    output?: string | string[];
-    error?: string;
-    detail?: string;
-    urls?: { get?: string };
-  };
-  if (!create.ok) {
-    throw new Error(pred?.detail || pred?.error || `Replicate ${create.status}`);
-  }
-  const deadline = Date.now() + 110_000;
-  while (
-    pred.status &&
-    pred.status !== "succeeded" &&
-    pred.status !== "failed" &&
-    pred.status !== "canceled"
-  ) {
-    if (Date.now() > deadline) throw new Error("Replicate 超时");
-    if (!pred.urls?.get) break;
-    await new Promise((r) => setTimeout(r, 2000));
-    const g = await fetch(pred.urls.get, {
-      headers: { Authorization: `Bearer ${token}` },
-      cache: "no-store",
-    });
-    pred = await g.json();
-  }
-  if (pred.status !== "succeeded") {
-    throw new Error(`Replicate 失败:${pred.error || pred.status || "未知"}`);
-  }
-  const outUrl = Array.isArray(pred.output) ? pred.output[0] : pred.output;
-  if (!outUrl || typeof outUrl !== "string") {
-    throw new Error("Replicate 未返回图片");
-  }
-  const dl = await fetch(outUrl);
-  if (!dl.ok) throw new Error("下载放大结果失败");
-  const buf = Buffer.from(await dl.arrayBuffer());
-  const contentType = dl.headers.get("content-type") || "image/png";
-  return { buf, contentType };
+  return await fetchResultBytes(url);
 }
 
 export async function POST(request: Request) {

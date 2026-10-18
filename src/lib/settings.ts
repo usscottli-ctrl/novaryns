@@ -1,6 +1,7 @@
 import "server-only";
 import crypto from "crypto";
 import { dbEnabled, getSetting, setSetting, getSignupBonus } from "@/lib/db";
+import { DEFAULT_VIDEO_MODEL } from "@/lib/mock-data";
 
 // ---------------------------------------------------------------------------
 // Runtime-mutable OpenAI settings, editable from the admin page.
@@ -30,6 +31,11 @@ const CUTOUT_BACKEND = "cutout_backend";
 // Replicate BiRefNet(第三方抠图):API Token(AES 加密存储、不回显)+ 模型 slug,后台可改。
 const REPLICATE_TOKEN_ENC = "replicate_token_enc";
 const REPLICATE_MODEL = "replicate_cutout_model";
+
+// ---- 视频生成(火山引擎方舟 Seedance)。API Key 走 AES 加密存储,绝不回显。 ----
+const VIDEO_KEY_ENC = "video_api_key_enc";
+const VIDEO_MODEL = "video_model";
+const VIDEO_BASE_URL = "video_base_url";
 
 // ---- 微信公众号「扫码关注即登录」配置(后台可配,env 兜底)。 ----
 // AppID/Token/邮箱域名为非敏感明文;AppSecret 走 AES 加密存储,绝不回显。
@@ -209,49 +215,44 @@ export async function saveCutoutModel(model: string): Promise<void> {
 }
 
 // ---------------------------------------------------------------------------
-// 抠图后端配置。首选自托管 rembg 服务(localhost:8090),不可用时兜底走 gpt-image。
-// 自托管服务真正加载的模型在服务端 start.sh 里设(CUTOUT_MODEL),这里只读不写——
-// 后台展示的「当前模型」实时从服务 /health 拉,保证显示的就是线上真在跑的那个。
-// ---------------------------------------------------------------------------
-export type CutoutBackend = "openai" | "replicate";
+// 抠图配置。**只有 Replicate BiRefNet 一条路,没有兜底**(2026-08-18 用户要求删除)。
+// 曾经的做法是"Replicate 失败 → 退 gpt-image 透明底",问题在于那不是抠图而是**重绘**:
+// 主体被重画、边缘不对,但接口返回成功。国内站因为连不上 Replicate,**每次抠图都在走兜底**,
+// 功能坏了很久没人发现 —— 兜底把失败伪装成了劣质成功。宁可报错也不要偷偷降级。
+// 国内站的连通性由 lib/replicate-run 的境外代跑通道解决,不在这里兜。
 export type CutoutSettings = {
-  /** 主用后端:replicate=BiRefNet(主) / openai=gpt-image 直出(强制兜底)。 */
-  backend: CutoutBackend;
-  /** OpenAI 兜底抠图模型。 */
-  openaiModel: string;
-  /** Replicate API token(后台 AES 加密存储优先 → env 兜底;绝不回显)。 */
+  /** Replicate API token(后台 AES 加密存储优先 → env;绝不回显)。 */
   replicateToken: string;
   /** Replicate 上的 BiRefNet 模型 slug。 */
   replicateModel: string;
 };
 
 export async function getCutoutSettings(): Promise<CutoutSettings> {
-  const envModel = process.env.OPENAI_CUTOUT_MODEL || "gpt-image-1";
   const envReplicateToken = process.env.REPLICATE_API_TOKEN || "";
   const envReplicateModel =
     process.env.REPLICATE_CUTOUT_MODEL || "men1scus/birefnet";
-  let backend: CutoutBackend = "replicate"; // 默认主用 Replicate BiRefNet
-  let openaiModel = envModel;
   let replicateToken = envReplicateToken;
   let replicateModel = envReplicateModel;
   if (dbEnabled) {
-    const b = await getSetting(CUTOUT_BACKEND);
-    const m = await getSetting(OAI_CUTOUT_MODEL);
     const rt = await getSetting(REPLICATE_TOKEN_ENC);
     const rm = await getSetting(REPLICATE_MODEL);
-    // 旧值 "self"(自托管已下线)一律按 replicate 处理
-    backend = b === "openai" ? "openai" : "replicate";
-    if (m) openaiModel = m;
-    const dbToken = rt ? decryptAtRest(rt) : null;
-    if (dbToken) replicateToken = dbToken;
+    if (rt) {
+      try {
+        replicateToken = decryptAtRest(rt) || envReplicateToken;
+      } catch {
+        replicateToken = envReplicateToken;
+      }
+    }
     if (rm) replicateModel = rm;
   }
-  return { backend, openaiModel, replicateToken, replicateModel };
+  return { replicateToken, replicateModel };
 }
 
-export async function saveCutoutBackend(backend: string): Promise<void> {
-  const b: CutoutBackend = backend.trim() === "openai" ? "openai" : "replicate";
-  await setSetting(CUTOUT_BACKEND, b);
+/** 支持 background:transparent 的模型 —— 抠头像/印花提取/服装提取这三个工具要用。
+ *  **只有 gpt-image-1 支持透明底**(gpt-image-2 实测不支持)。
+ *  它跟"抠图"无关,以前借用抠图兜底配置里的 openaiModel,兜底删掉后独立出来。 */
+export function transparentModel(): string {
+  return process.env.OPENAI_TRANSPARENT_MODEL || "gpt-image-1";
 }
 
 /** 保存 Replicate API Token(浏览器 RSA 解密后的明文 → AES 加密存储)。 */
@@ -262,6 +263,50 @@ export async function saveReplicateToken(plain: string): Promise<void> {
 /** 保存 Replicate 抠图模型 slug。 */
 export async function saveReplicateModel(model: string): Promise<void> {
   await setSetting(REPLICATE_MODEL, model.trim());
+}
+
+// ---------------------------------------------------------------------------
+// 视频生成设置(火山引擎方舟 Seedance)。
+// 与 OpenAI Key 同一套安全模型:浏览器 RSA 加密上传 → AES 加密落库 → **只回 mask**。
+// ---------------------------------------------------------------------------
+
+export type VideoSettings = {
+  /** 方舟 API Key(DB AES 优先 → env 兜底;绝不回显)。 */
+  apiKey: string;
+  /** 模型 ID 或推理接入点 ID。 */
+  model: string;
+  /** 接口地址(私有化/代理时可改)。 */
+  baseUrl: string;
+};
+
+export async function getVideoSettings(): Promise<VideoSettings> {
+  // env 兜底:自部署买家可以只配 env 不进后台。
+  let apiKey = process.env.ARK_API_KEY || process.env.VOLC_API_KEY || "";
+  let model = process.env.ARK_VIDEO_MODEL || DEFAULT_VIDEO_MODEL;
+  let baseUrl = process.env.ARK_BASE_URL || "";
+  if (dbEnabled) {
+    const k = await getSetting(VIDEO_KEY_ENC);
+    const m = await getSetting(VIDEO_MODEL);
+    const b = await getSetting(VIDEO_BASE_URL);
+    const dbKey = k ? decryptAtRest(k) : null;
+    if (dbKey) apiKey = dbKey;
+    if (m) model = m;
+    if (b) baseUrl = b;
+  }
+  return { apiKey, model, baseUrl };
+}
+
+/** 保存方舟 API Key(浏览器 RSA 解密后的明文 → AES 加密存储)。 */
+export async function saveVideoKey(plain: string): Promise<void> {
+  await setSetting(VIDEO_KEY_ENC, encryptAtRest(plain.trim()));
+}
+
+export async function saveVideoModel(model: string): Promise<void> {
+  await setSetting(VIDEO_MODEL, model.trim());
+}
+
+export async function saveVideoBaseUrl(url: string): Promise<void> {
+  await setSetting(VIDEO_BASE_URL, url.trim());
 }
 
 // ---------------------------------------------------------------------------
@@ -609,6 +654,7 @@ export async function getAdminView() {
   const c = await getCutoutSettings();
   const w = await getWechatSettings();
   const p = await getPaymentSettings();
+  const v = await getVideoSettings();
   const baseUrlPlain = await readOpenAIBaseUrlPlain();
   return {
     model: s.model,
@@ -621,12 +667,15 @@ export async function getAdminView() {
     openaiBaseUrlSet: !!baseUrlPlain,
     // 新用户注册赠送积分(后台可配)
     signupBonus: await getSignupBonus(),
-    // 抠图后端:replicate(主) / openai(兜底)
-    cutoutBackend: c.backend,
     // Replicate BiRefNet(第三方,后台可改 token + 模型):token 绝不回显,只给是否已配 + 掩码
     cutoutReplicateReady: !!c.replicateToken,
     cutoutReplicateModel: c.replicateModel,
     cutoutReplicateTokenMasked: maskKey(c.replicateToken),
+    // 视频生成(火山引擎方舟 Seedance):Key 与 OpenAI Key 同规格 —— 只回掩码,永不回明文
+    videoReady: !!v.apiKey,
+    videoKeyMasked: maskKey(v.apiKey),
+    videoModel: v.model,
+    videoBaseUrl: v.baseUrl,
     // 微信登录:非敏感明文回显;AppSecret 只回掩码 + 是否就绪
     wechatAppid: w.appid,
     wechatToken: w.token,

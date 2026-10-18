@@ -30,6 +30,9 @@ import {
   FileText,
   Sparkles,
   Ticket,
+  Cloud,
+  BarChart3,
+  HardDrive,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -43,6 +46,12 @@ import { Pager } from "@/components/admin/pager";
 import { ImageLightbox } from "@/components/image-lightbox";
 import { SelectMenu } from "@/components/ui/select-menu";
 import { AdminPrompts } from "@/components/admin/admin-prompts";
+import { AdminCloudTenants } from "@/components/admin/admin-cloud-tenants";
+import { AdminCloudCodes } from "@/components/admin/admin-cloud-codes";
+import { AdminAnalytics } from "@/components/admin/admin-analytics";
+import { AdminStorage } from "@/components/admin/admin-storage";
+import { VIDEO_MODELS } from "@/lib/mock-data";
+import { ComputeCard } from "@/components/admin/compute-card";
 import { DeployCenter } from "@/components/operator/deploy-center";
 import { LicensesClient } from "@/components/operator/licenses-client";
 import { RelayTokensClient } from "@/components/operator/relay-tokens-client";
@@ -146,7 +155,10 @@ type View = {
   source: "db" | "env" | "none";
   openaiBaseUrlMasked?: string;
   openaiBaseUrlSet?: boolean;
-  cutoutBackend?: "openai" | "replicate";
+  videoReady?: boolean;
+  videoKeyMasked?: string;
+  videoModel?: string;
+  videoBaseUrl?: string;
   cutoutReplicateReady?: boolean;
   cutoutReplicateModel?: string;
   cutoutReplicateTokenMasked?: string;
@@ -275,6 +287,7 @@ function hasSubtle(): boolean {
 // pro:true = 运营/变现/多用户向的分栏,仅 Pro(官方云/自托管激活)可见;
 //            开源精简版(单个自托管者)隐藏。false = 自托管者配置自己实例要用的,始终开放。
 const SECTIONS = [
+  { id: "analytics", label: "访问统计", icon: BarChart3, pro: true },
   { id: "users", label: "用户与会员", icon: Users, pro: true },
   { id: "artworks", label: "作品库", icon: ImageIcon, pro: true },
   { id: "templates", label: "模板管理", icon: LayoutGrid, pro: false },
@@ -286,8 +299,12 @@ const SECTIONS = [
   { id: "pages", label: "站点页面", icon: FileText, pro: false },
   { id: "credits", label: "积分计费", icon: Database, pro: false },
   { id: "ledger", label: "积分流水", icon: Database, pro: true },
+  { id: "storage", label: "存储治理", icon: HardDrive, pro: true },
   { id: "deploy", label: "部署与授权", icon: Server, pro: true },
   { id: "cardkeys", label: "兑换码", icon: Ticket, pro: true },
+  // 仅在配了 provisioner 的官方购买站显示(cloudAdmin 门控),普通自托管 Pro 买家看不到。
+  { id: "cloud", label: "云端租户", icon: Cloud, pro: true },
+  { id: "cloudcodes", label: "云端开通码", icon: Ticket, pro: true },
 ] as const;
 
 // Pro 门控的板块 id 集合(左侧导航隐藏 + 内容区兜底不渲染)。
@@ -335,11 +352,13 @@ export function AdminSettings({ localAdmin = false }: { localAdmin?: boolean }) 
   const [baseUrl, setBaseUrl] = useState("");
   const [baseUrlMasked, setBaseUrlMasked] = useState("");
   const [baseUrlSet, setBaseUrlSet] = useState(false);
-  const [cutoutBackend, setCutoutBackend] = useState<"openai" | "replicate">(
-    "replicate"
-  );
   const [replicateModel, setReplicateModel] = useState("");
   const [replicateTokenInput, setReplicateTokenInput] = useState("");
+  // 视频生成(火山引擎方舟 Seedance):Key 只进不出 —— 输入框永远只用来粘贴新值,
+  // 已存的 Key 服务端只回掩码,任何情况下都取不回明文。
+  const [videoKeyInput, setVideoKeyInput] = useState("");
+  const [videoModel, setVideoModel] = useState("");
+  const [videoBaseUrl, setVideoBaseUrl] = useState("");
   const [bonus, setBonus] = useState(""); // 新用户注册赠送积分
   // ── 登录与支付板块 ──
   // 微信登录(明文字段 + AppSecret 加密输入)
@@ -398,6 +417,7 @@ export function AdminSettings({ localAdmin = false }: { localAdmin?: boolean }) 
   const [ledgerPage, setLedgerPage] = useState(0);
   // 左侧分栏:当前板块(方案 A,大厂式后台)
   const [section, setSection] = useState<
+    | "analytics"
     | "users"
     | "artworks"
     | "templates"
@@ -409,9 +429,29 @@ export function AdminSettings({ localAdmin = false }: { localAdmin?: boolean }) 
     | "pages"
     | "credits"
     | "ledger"
+    | "storage"
     | "deploy"
     | "cardkeys"
-  >("users");
+    | "cloud"
+    | "cloudcodes"
+    // 后台默认落在「访问统计」——它是只读概览,适合当管理后台的着陆页;
+    // 非 Pro 实例被门控时下面的 effect 会自动落到 api。
+  >("analytics");
+  // 本实例是否启用云端托管开通(= 配了 provisioner)。仅官方购买站为真 → 显示「云端租户」板块。
+  const [cloudAdmin, setCloudAdmin] = useState(false);
+  // 本实例是否为云端托管租户 → **隐藏「部署与授权」**(那屏是 Novaryns 的售卖页:
+  // 开源版 GitHub + git clone + Pro/云端标准价。给已付费托管客户看等于教他免费自部署,
+  // 还会暴露标准价与按项目谈的定制报价打架)。Pro 自托管买家不受影响,仍要激活 License。
+  const [cloudTenant, setCloudTenant] = useState(false);
+  useEffect(() => {
+    fetch("/api/config", { cache: "no-store" })
+      .then((r) => r.json())
+      .then((d) => {
+        setCloudAdmin(!!d.cloudAdmin);
+        setCloudTenant(!!d.cloudTenant);
+      })
+      .catch(() => {});
+  }, []);
   const [editCredit, setEditCredit] = useState<{
     email: string;
     value: string;
@@ -563,8 +603,10 @@ export function AdminSettings({ localAdmin = false }: { localAdmin?: boolean }) 
     setBaseUrl(""); // 不回显明文
     setBaseUrlMasked(v.openaiBaseUrlMasked ?? "");
     setBaseUrlSet(!!v.openaiBaseUrlSet);
-    setCutoutBackend(v.cutoutBackend ?? "replicate");
     setReplicateModel(v.cutoutReplicateModel ?? "men1scus/birefnet");
+    // 视频:模型/地址是非敏感明文可回填;**Key 不回填**(服务端也只回掩码)。
+    setVideoModel(v.videoModel ?? "doubao-seedance-1-0-pro-250528");
+    setVideoBaseUrl(v.videoBaseUrl ?? "");
     setBonus(String(v.signupBonus ?? 30));
     // 登录与支付:回填明文字段(敏感字段只看掩码,不回填输入框)
     setWechatAppid(v.wechatAppid ?? "");
@@ -702,11 +744,10 @@ export function AdminSettings({ localAdmin = false }: { localAdmin?: boolean }) 
       const payload: {
         model?: string;
         cutoutModel?: string;
-        cutoutBackend?: string;
         replicateModel?: string;
         encryptedKey?: string;
         keyPlain?: string; // HTTP 无 crypto.subtle 时的明文兜底(服务端仍加密落库)
-      } = { model, cutoutModel, cutoutBackend, replicateModel };
+      } = { model, cutoutModel, replicateModel };
       if (opts.withKey) {
         if (!keyInput.trim()) throw new Error("请输入新的 API Key");
         if (hasSubtle())
@@ -726,7 +767,6 @@ export function AdminSettings({ localAdmin = false }: { localAdmin?: boolean }) 
       setView(data as View);
       setModel((data as View).model);
       setCutoutModel((data as View).cutoutModel);
-      setCutoutBackend((data as View).cutoutBackend ?? "replicate");
       setReplicateModel(
         (data as View).cutoutReplicateModel ?? "men1scus/birefnet"
       );
@@ -801,6 +841,48 @@ export function AdminSettings({ localAdmin = false }: { localAdmin?: boolean }) 
       setReplicateModel((data as View).cutoutReplicateModel ?? replicateModel);
       setReplicateTokenInput("");
       setMsg({ ok: true, text: "Replicate Token 已加密更新" });
+    } catch (e) {
+      setMsg({ ok: false, text: e instanceof Error ? e.message : "保存失败" });
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  // 保存视频生成设置(火山引擎方舟 Seedance)。
+  // Key 与 OpenAI Key 同规格:HTTPS 下浏览器内 RSA 加密再传;HTTP 自托管无
+  // crypto.subtle 时退回明文传输(服务端仍 AES 落库,见 hasSubtle 注释)。
+  // 只填模型/地址不填 Key 也能保存 —— 换模型不必重新粘 Key。
+  async function saveVideo(opts: { withKey: boolean }) {
+    if (!token) return;
+    setBusy(true);
+    setMsg(null);
+    try {
+      const payload: Record<string, unknown> = {
+        videoModel,
+        videoBaseUrl,
+      };
+      if (opts.withKey) {
+        if (!videoKeyInput.trim()) throw new Error("请输入新的视频 API Key");
+        if (hasSubtle())
+          payload.encryptedVideoKey = await encryptKey(videoKeyInput.trim(), token);
+        else payload.videoKeyPlain = videoKeyInput.trim();
+      }
+      const res = await fetch("/api/admin/settings", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${token}`,
+        },
+        body: JSON.stringify(payload),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || "保存失败");
+      setView(data as View);
+      setVideoKeyInput(""); // 提交后立刻清空,不在内存里留着
+      setMsg({
+        ok: true,
+        text: opts.withKey ? "视频 API Key 已加密更新" : "视频设置已保存",
+      });
     } catch (e) {
       setMsg({ ok: false, text: e instanceof Error ? e.message : "保存失败" });
     } finally {
@@ -988,7 +1070,12 @@ export function AdminSettings({ localAdmin = false }: { localAdmin?: boolean }) 
       <div className="flex flex-col overflow-hidden rounded-2xl border border-border bg-card card-shadow lg:flex-row">
         {/* 左侧分栏导航(方案 A) */}
         <nav className="flex flex-row gap-1 overflow-x-auto border-b border-border bg-card p-2 lg:w-52 lg:flex-none lg:flex-col lg:border-b-0 lg:border-r">
-          {SECTIONS.filter((s) => pro || !s.pro).map((s) => {
+          {SECTIONS.filter(
+            (s) =>
+              (pro || !s.pro) &&
+              ((s.id !== "cloud" && s.id !== "cloudcodes") || cloudAdmin) &&
+              (s.id !== "deploy" || !cloudTenant)
+          ).map((s) => {
             const Icon = s.icon;
             return (
               <button
@@ -1404,6 +1491,12 @@ export function AdminSettings({ localAdmin = false }: { localAdmin?: boolean }) 
 
       )}
 
+      {/* 访问统计(自建 PV/UV/国家/来源,数据只在本实例) */}
+      {pro && section === "analytics" && <AdminAnalytics token={token} />}
+
+      {/* 存储治理:用量总览 + 保留期清理 */}
+      {pro && section === "storage" && <AdminStorage token={token} />}
+
       {/* 模板管理 */}
       {section === "templates" && <AdminTemplates token={token} />}
 
@@ -1415,6 +1508,10 @@ export function AdminSettings({ localAdmin = false }: { localAdmin?: boolean }) 
       {/* 提示词配置 */}
       {section === "prompts" && <AdminPrompts />}
 
+      {pro && cloudAdmin && section === "cloud" && <AdminCloudTenants token={token} />}
+
+      {pro && cloudAdmin && section === "cloudcodes" && <AdminCloudCodes />}
+
       {/* 管理员 · OpenAI 接口设置 */}
       {section === "api" && (
       <div>
@@ -1425,6 +1522,9 @@ export function AdminSettings({ localAdmin = false }: { localAdmin?: boolean }) 
             仅管理员可见
           </span>
         </div>
+
+        {/* 云端托管实例:托管算力余额 + 充值(managed 模式才渲染) */}
+        <ComputeCard token={token} />
 
         {/* 大陆服务器:模型接口地址配置帮助 */}
         <div className="mb-5 rounded-xl border border-c-border2 bg-c-subtle2 p-4 text-[13px] leading-relaxed">
@@ -1616,30 +1716,10 @@ export function AdminSettings({ localAdmin = false }: { localAdmin?: boolean }) 
               抠图模型
             </div>
             <p className="text-xs text-muted-foreground">
-              「AI 抠图」与画布抠图主用 Replicate BiRefNet(发丝级、像素保真,按次付费
-              ~¥0.03/张);gpt-image 会重绘主体、慢且烧 token,仅作兜底。选「Replicate」=
-              主用 BiRefNet、失败自动退 gpt-image;选「gpt-image」=强制走兜底。
+              「AI 抠图」与画布抠图**只走 Replicate BiRefNet**(发丝级、像素保真,
+              按次付费 ~¥0.03/张)。**没有兜底** —— 失败会明确报错,不会悄悄换成
+              gpt-image 重绘(那不是抠图,主体会被重画,成品看着像抠图其实是错的)。
             </p>
-            {/* 后端切换 */}
-            <div className="flex flex-wrap gap-2">
-              {[
-                { id: "replicate" as const, label: "Replicate BiRefNet(主)" },
-                { id: "openai" as const, label: "OpenAI gpt-image(兜底)" },
-              ].map((b) => (
-                <button
-                  key={b.id}
-                  onClick={() => setCutoutBackend(b.id)}
-                  className={`rounded-full border px-3 py-1 text-xs transition-colors ${
-                    cutoutBackend === b.id
-                      ? "border-primary bg-primary/10 text-primary"
-                      : "border-border text-muted-foreground hover:bg-secondary"
-                  }`}
-                >
-                  {b.label}
-                </button>
-              ))}
-            </div>
-
             {/* Replicate BiRefNet(第三方,后台可改 Token + 模型) */}
             <div className="space-y-2 rounded-xl border border-border bg-secondary/40 p-3">
               <div className="flex items-center justify-between text-xs font-medium">
@@ -1692,6 +1772,115 @@ export function AdminSettings({ localAdmin = false }: { localAdmin?: boolean }) 
                   {busy && <Loader2 className="h-4 w-4 animate-spin" />}
                   加密更新 Token
                 </Button>
+              </div>
+            </div>
+
+            {/* 视频生成:火山引擎方舟 Seedance。Key 与 OpenAI Key 同规格 —— 只进不出。 */}
+            <div className="space-y-2 rounded-xl border border-border bg-secondary/40 p-3">
+              <div className="flex items-center justify-between text-xs font-medium">
+                <span>视频生成 · 火山引擎方舟（Seedance）</span>
+                <span
+                  className={`inline-flex items-center gap-1 rounded-full px-2 py-0.5 ${
+                    view?.videoReady
+                      ? "bg-emerald-500/10 text-emerald-600"
+                      : "bg-amber-500/10 text-amber-600"
+                  }`}
+                >
+                  <span
+                    className={`h-1.5 w-1.5 rounded-full ${
+                      view?.videoReady ? "bg-emerald-500" : "bg-amber-500"
+                    }`}
+                  />
+                  {view?.videoReady
+                    ? `已配置 · ${view.videoKeyMasked || "••••"}`
+                    : "未配置 Key"}
+                </span>
+              </div>
+              <p className="text-[11px] leading-relaxed text-muted-foreground">
+                在
+                <a
+                  href="https://console.volcengine.com/ark"
+                  target="_blank"
+                  rel="noreferrer"
+                  className="mx-1 text-acc hover:underline"
+                >
+                  方舟控制台
+                </a>
+                创建 API Key 并开通视频生成模型。配置后前台「AI 生图」页会出现「视频」入口。
+                <br />
+                模型可填基础模型名（如 doubao-seedance-2-5），也可填推理接入点 ID（ep-
+                开头）。若用 AK/SK 换来的临时 Key，
+                <b>必须填接入点 ID</b>，填模型名会鉴权失败。
+              </p>
+
+              <label className="block text-[11px] font-medium text-muted-foreground">
+                模型 ID / 推理接入点
+              </label>
+              <Input
+                value={videoModel}
+                onChange={(e) => setVideoModel(e.target.value)}
+                placeholder="doubao-seedance-1-0-pro-250528"
+              />
+              <div className="flex flex-wrap gap-1.5">
+                {VIDEO_MODELS.map((m) => (
+                  <button
+                    key={m.id}
+                    type="button"
+                    onClick={() => setVideoModel(m.id)}
+                    className={`rounded-lg border px-2 py-1 text-[11px] transition-colors ${
+                      videoModel === m.id
+                        ? "border-acc bg-acc/10 text-acc"
+                        : "border-border text-muted-foreground hover:bg-secondary"
+                    }`}
+                  >
+                    {m.label}
+                  </button>
+                ))}
+              </div>
+
+              <label className="block text-[11px] font-medium text-muted-foreground">
+                接口地址（留空用官方默认）
+              </label>
+              <Input
+                value={videoBaseUrl}
+                onChange={(e) => setVideoBaseUrl(e.target.value)}
+                placeholder="https://ark.cn-beijing.volces.com"
+              />
+
+              <label className="block text-[11px] font-medium text-muted-foreground">
+                API Key
+              </label>
+              <Input
+                type="password"
+                value={videoKeyInput}
+                onChange={(e) => setVideoKeyInput(e.target.value)}
+                placeholder="粘贴新的 API Key（提交前浏览器内 RSA 加密）"
+              />
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                <p className="flex items-center gap-1.5 text-[11px] text-muted-foreground">
+                  <ShieldCheck className="h-3.5 w-3.5 text-emerald-600" />
+                  RSA 加密传输 + AES 加密存储，永不明文、不回显
+                </p>
+                <div className="flex gap-2">
+                  <Button
+                    variant="secondary"
+                    size="sm"
+                    onClick={() => void saveVideo({ withKey: false })}
+                    disabled={busy}
+                  >
+                    {busy && <Loader2 className="h-4 w-4 animate-spin" />}
+                    保存模型设置
+                  </Button>
+                  <Button
+                    variant="gradient"
+                    size="sm"
+                    onClick={() => void saveVideo({ withKey: true })}
+                    disabled={busy || !videoKeyInput.trim()}
+                  >
+                    {busy && <Loader2 className="h-4 w-4 animate-spin" />}
+                    加密更新 Key
+                  </Button>
+                </div>
               </div>
             </div>
 
@@ -2652,7 +2841,7 @@ export function AdminSettings({ localAdmin = false }: { localAdmin?: boolean }) 
       )}
 
       {/* 部署与授权(Pro:运营/站长向,合并「部署中心」+「授权管理」两块内容) */}
-      {pro && section === "deploy" && (
+      {pro && !cloudTenant && section === "deploy" && (
         <div>
           <div className="mb-3 flex items-center gap-2">
             <Server className="h-5 w-5 text-primary" />

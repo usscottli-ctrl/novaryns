@@ -8,6 +8,7 @@ import {
 } from "@/lib/db";
 import { requireAdmin } from "@/lib/admin-auth";
 import { proEnabled } from "@/lib/edition";
+import { reserveIssue, releaseIssue } from "@/lib/credit-issue";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -59,13 +60,26 @@ export async function POST(request: Request) {
       { status: 400 }
     );
   }
-  const cards = await generateCardKeys({
-    credits,
-    count,
-    expiryDays,
-    batch: String(body.batch ?? ""),
-    note: String(body.note ?? ""),
-  });
+  // 兑换码按**预付卡**处理:发行那一刻就确认负债,从站点库存扣掉「面额 × 张数」。
+  // 否则站长可以生成无限张码,等于绕过站点配额(只堵"管理员加分"是堵不住的)。
+  const totalFace = credits * count;
+  const stock = await reserveIssue(totalFace);
+  if (!stock.ok) {
+    return NextResponse.json({ error: stock.message }, { status: 409 });
+  }
+  let cards;
+  try {
+    cards = await generateCardKeys({
+      credits,
+      count,
+      expiryDays,
+      batch: String(body.batch ?? ""),
+      note: String(body.note ?? ""),
+    });
+  } catch (e) {
+    await releaseIssue(totalFace); // 生成失败要把额度还回库存
+    throw e;
+  }
   const stats = await cardKeyStats();
   return NextResponse.json({ cards, stats });
 }

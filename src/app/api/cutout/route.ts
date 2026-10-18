@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { generateBuffer } from "@/lib/image-gen";
 import { TOOL_COST } from "@/lib/mock-data";
 import OpenAI, { toFile } from "openai";
 import {
@@ -15,7 +16,7 @@ import { rateLimit } from "@/lib/rate-limit";
 import { resolveUserEmail } from "@/lib/admin-auth";
 import { storageEnabled, uploadImage } from "@/lib/storage";
 import { getCutoutSettings, getOpenAISettings } from "@/lib/settings";
-import { getOpenAIBaseUrl } from "@/lib/openai-base";
+import { runReplicate, fetchResultBytes } from "@/lib/replicate-run";
 import { safeError } from "@/lib/api-error";
 
 // ---------------------------------------------------------------------------
@@ -23,7 +24,8 @@ import { safeError } from "@/lib/api-error";
 //
 // 与 /api/generate-image 的本质区别:抠图不重绘主体。主力走 Replicate BiRefNet
 // (men1scus/birefnet,发丝级、像素保真),把主体原样抠出、背景置透明。
-// 失败/未配 token 时兜底走 gpt-image background:transparent(会重绘、慢、烧 token)。
+// **无兜底**:失败就报错。曾经失败会退 gpt-image 透明底,结果是把抠图悄悄换成重绘,
+// 用户看不出来但成品是错的(2026-08-18 删除)。
 // (早期的自托管 rembg 微服务已于 2026-06-21 停用下线,不再回退自托管。)
 //
 // 同步返回(抠图很快),完成后落库为源节点的子节点,扣固定小额积分。
@@ -210,46 +212,6 @@ async function cutoutReplicate(
   }
 }
 
-// 兜底:gpt-image 透明底(主要用于本地开发没有自托管服务时)。
-async function cutoutOpenAI(
-  bytes: Buffer,
-  type: string,
-  apiKey: string,
-  model: string
-): Promise<Buffer> {
-  const client = new OpenAI({
-    apiKey,
-    baseURL: (await getOpenAIBaseUrl()) || undefined,
-    timeout: 120_000,
-    maxRetries: 0,
-  });
-  // 先用 sharp 规整成干净 PNG,避免 "Invalid image file"
-  let png = bytes;
-  try {
-    const mod = (await import("sharp")) as unknown as {
-      default?: typeof import("sharp");
-    } & typeof import("sharp");
-    const sharp = mod.default ?? mod;
-    png = await sharp(bytes).rotate().png().toBuffer();
-  } catch {
-    /* sharp 不可用 → 用原图 */
-  }
-  const fileType = png === bytes ? type || "image/png" : "image/png";
-  const file = await toFile(png, "input.png", { type: fileType });
-  const r = await client.images.edit({
-    // 透明底兜底:只 gpt-image-1 支持 background:transparent(主路径是第三方 BiRefNet)。
-    model: model || "gpt-image-1",
-    image: file,
-    prompt: "精确沿主体边缘抠出主体,移除背景,输出干净的透明底 PNG",
-    n: 1,
-    size: "auto" as "1024x1024",
-    background: "transparent" as const,
-  });
-  const b64 = r.data?.[0]?.b64_json;
-  if (!b64) throw new Error("抠图未返回结果");
-  return Buffer.from(b64, "base64");
-}
-
 export async function POST(request: Request) {
   let input: CutoutInput | null;
   try {
@@ -305,36 +267,17 @@ export async function POST(request: Request) {
     let out: Buffer;
     try {
       const cfg = await getCutoutSettings();
-      // 抠图统一走发丝级(Replicate);失败退 OpenAI(gpt-image-1 透明底)。
-      // 自托管 rembg 免费抠图已下线(2026-06-21 用户停用),不再回退自托管。
-      const fallback = async (): Promise<Buffer> => {
-        const { apiKey } = await getOpenAISettings();
-        if (!apiKey) throw new Error("抠图后端不可用");
-        return await cutoutOpenAI(
-          input.bytes,
-          input.type,
-          apiKey,
-          cfg.openaiModel
-        );
-      };
-      if (cfg.backend === "openai" || !cfg.replicateToken) {
-        out = await fallback(); // 主用 gpt-image,或没配 Replicate token → 直接兜底
-      } else {
-        try {
-          out = await cutoutReplicate(
-            input.bytes,
-            input.type,
-            cfg.replicateToken,
-            cfg.replicateModel
-          );
-        } catch (e) {
-          console.error(
-            "[cutout] Replicate failed, falling back:",
-            e instanceof Error ? e.message : e
-          );
-          out = await fallback();
-        }
-      }
+      // 抠图**只走 Replicate BiRefNet**(发丝级)。
+      // ⚠️ **不要再加 gpt-image 兜底**(2026-08-18 用户明确要求删除):
+      // 兜底会把"抠图"悄悄变成"透明底重绘" —— 主体被重画、边缘不对,
+      // 用户拿到的是一张看起来像抠图但其实是重绘的图,而系统还报"成功"。
+      // 国内站因为连不上 Replicate,**每一次抠图都在走兜底**,坏了很久没人发现,
+      // 正是因为兜底把失败伪装成了劣质成功。宁可明确报错,也不要偷偷降级。
+      const url = await runReplicate(
+        cfg.replicateModel,
+        { image: `data:${input.type || "image/png"};base64,${Buffer.from(input.bytes).toString("base64")}` }
+      );
+      out = (await fetchResultBytes(url)).buf;
     } catch (e) {
       if (useDb && cost > 0)
         await refundCredits(input.email, cost).catch(() => {});

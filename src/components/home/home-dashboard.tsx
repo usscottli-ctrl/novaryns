@@ -11,6 +11,7 @@ import { useAuth } from "@/lib/auth-context";
 import { authHeader } from "@/lib/supabase";
 import { cn } from "@/lib/utils";
 import type { PickedTemplate } from "@/lib/homepage-picks";
+import { isUserOutput } from "@/lib/artwork-filter";
 
 type RecentWork = {
   id: string;
@@ -69,7 +70,7 @@ export function HomeDashboard({ hot }: { hot: PickedTemplate[] }) {
         const d = await r.json();
         const arts = (d.artworks ?? []) as RecentWork[];
         if (cancelled) return;
-        const done = arts.filter((a) => a.image && a.status !== "failed");
+        const done = arts.filter(isUserOutput);
         const todayStr = new Date().toDateString();
         const today = done.filter(
           (a) => a.createdAt && new Date(a.createdAt).toDateString() === todayStr

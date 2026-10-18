@@ -11,6 +11,8 @@ type Ctx = {
   // 是否为官方站(NOVARYNS_EDITION=cloud)。落地页据此决定显不显示"我们的"销售内容
   // (定价三档 / 开通云端 / 获取授权 / 指向我们的 GitHub)——自部署实例一律不显示。
   official: boolean;
+  /** 本实例是否为云端托管租户 → 隐藏 Novaryns 自己的售卖/开源入口。 */
+  cloudTenant: boolean;
 };
 
 const PaymentContext = createContext<Ctx | null>(null);
@@ -19,16 +21,18 @@ export function PaymentProvider({
   rechargeEnabled,
   pro,
   official,
+  cloudTenant = false,
   children,
 }: {
   rechargeEnabled: boolean;
   pro: boolean;
   official: boolean;
+  cloudTenant?: boolean;
   children: React.ReactNode;
 }) {
   const value = useMemo<Ctx>(
-    () => ({ rechargeEnabled, pro, official }),
-    [rechargeEnabled, pro, official]
+    () => ({ rechargeEnabled, pro, official, cloudTenant }),
+    [rechargeEnabled, pro, official, cloudTenant]
   );
   return (
     <PaymentContext.Provider value={value}>{children}</PaymentContext.Provider>
@@ -38,6 +42,6 @@ export function PaymentProvider({
 /** Safe-to-call:在 Provider 外用返回默认(开源精简版:无充值、非 Pro、非官方站)。 */
 export function usePaymentConfig(): Ctx {
   const c = useContext(PaymentContext);
-  if (!c) return { rechargeEnabled: false, pro: false, official: false };
+  if (!c) return { rechargeEnabled: false, pro: false, official: false, cloudTenant: false };
   return c;
 }

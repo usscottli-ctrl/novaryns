@@ -19,6 +19,7 @@ import {
   ChevronDown,
   ShieldCheck,
   User as UserIcon,
+  LogIn,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useI18n } from "@/lib/i18n/locale-context";
@@ -443,15 +444,29 @@ export function AppRail() {
             acctTimer.current = setTimeout(() => setAcct(false), 160);
           }}
         >
-          <button
-            type="button"
-            onClick={() => (user ? setAcct((v) => !v) : openAuth())}
-            className="flex h-9 items-center gap-1.5 rounded-full pl-1 pr-2 transition-colors hover:bg-secondary"
-          >
-            <span className="flex h-8 w-8 items-center justify-center rounded-full text-[13px] font-bold text-white [background:var(--grad-acc)]">
-              {user ? initial : <UserIcon className="h-4 w-4" />}
-            </span>
-          </button>
+          {/* 未登录不用头像:头像的语义是「这是你」,没登录时没有「你」。
+              而且同一个紫色圆圈两态几乎一样,用户分不清登录没登录(也是退出后犯迷糊的根源之一)。
+              登出态换成带文字的「登录」按钮,一眼看懂、无需 hover 试探。 */}
+          {user ? (
+            <button
+              type="button"
+              onClick={() => setAcct((v) => !v)}
+              className="flex h-9 items-center gap-1.5 rounded-full pl-1 pr-2 transition-colors hover:bg-secondary"
+            >
+              <span className="flex h-8 w-8 items-center justify-center rounded-full text-[13px] font-bold text-white [background:var(--grad-acc)]">
+                {initial}
+              </span>
+            </button>
+          ) : (
+            <button
+              type="button"
+              onClick={() => openAuth()}
+              className="flex h-9 items-center gap-1.5 rounded-full border border-border px-3.5 text-[13px] font-medium transition-colors hover:border-transparent hover:bg-secondary"
+            >
+              <LogIn className="h-4 w-4" strokeWidth={2} />
+              {t("nav.signIn")}
+            </button>
+          )}
           <AccountMenu className="right-0 top-11" />
         </div>
         </div>
@@ -485,8 +500,12 @@ export function AppRail() {
             acct ? "text-primary" : "text-muted-foreground"
           )}
         >
-          <UserIcon className="h-[20px] w-[20px]" strokeWidth={2} />
-          <span>{t("nav.account")}</span>
+          {user ? (
+            <UserIcon className="h-[20px] w-[20px]" strokeWidth={2} />
+          ) : (
+            <LogIn className="h-[20px] w-[20px]" strokeWidth={2} />
+          )}
+          <span>{user ? t("nav.account") : t("nav.signIn")}</span>
         </button>
         <AccountMenu className="bottom-[64px] right-2" />
       </nav>

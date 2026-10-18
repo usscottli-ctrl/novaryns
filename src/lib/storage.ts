@@ -20,9 +20,24 @@ const accessKeyId = process.env.R2_ACCESS_KEY_ID ?? "";
 const secretAccessKey = process.env.R2_SECRET_ACCESS_KEY ?? "";
 const bucket = process.env.R2_BUCKET ?? "";
 const publicBase = (process.env.R2_PUBLIC_BASE_URL ?? "").replace(/\/$/, "");
+// S3 兼容端点(可选)。填了就用它,不填走 R2 默认。
+// **阿里云 OSS 就是靠这两个变量接进来的** —— OSS 提供 S3 兼容 API,签名/上传/删除
+// 与 R2 完全同一套代码,只是端点和 region 不同:
+//   S3_ENDPOINT=https://<bucket>.oss-cn-hangzhou.aliyuncs.com
+//   S3_REGION=oss-cn-hangzhou        (R2 用 "auto",OSS 必须给真实 region 否则签名不过)
+// 云端租户要挪到 OSS 就配这两个 + R2_ACCESS_KEY_ID/SECRET/BUCKET/PUBLIC_BASE_URL。
+const s3Endpoint = (process.env.S3_ENDPOINT ?? "").replace(/\/$/, "");
+const s3Region = process.env.S3_REGION || "auto";
 const hasR2 = Boolean(
-  accountId && accessKeyId && secretAccessKey && bucket && publicBase
+  accessKeyId && secretAccessKey && bucket && publicBase && (accountId || s3Endpoint)
 );
+
+/** 拼对象的完整端点 URL。OSS 用 <endpoint>/<key>,R2 用 <acct>.r2.../<bucket>/<key>。 */
+function objectUrl(k: string): string {
+  return s3Endpoint
+    ? `${s3Endpoint}/${k}`
+    : `https://${accountId}.r2.cloudflarestorage.com/${bucket}/${k}`;
+}
 
 const envDriver = (process.env.STORAGE_DRIVER ?? "").toLowerCase();
 export const storageDriver: "local" | "r2" =
@@ -47,7 +62,7 @@ function getClient(): AwsClient {
     client = new AwsClient({
       accessKeyId,
       secretAccessKey,
-      region: "auto",
+      region: s3Region,
       service: "s3",
     });
   }
@@ -82,7 +97,7 @@ export async function uploadImage(
     return `${MEDIA_URL_PREFIX}/${k}`;
   }
 
-  const endpoint = `https://${accountId}.r2.cloudflarestorage.com/${bucket}/${k}`;
+  const endpoint = objectUrl(k);
   // R2's PutObject requires an explicit Content-Length; Node fetch doesn't
   // always set it for typed-array bodies, which yields "411 Length Required".
   const body = Buffer.from(bytes);
@@ -121,8 +136,7 @@ export async function deleteImageByUrl(url: string): Promise<boolean> {
   const key = url.slice(publicBase.length + 1);
   if (!key) return false;
   try {
-    const endpoint = `https://${accountId}.r2.cloudflarestorage.com/${bucket}/${key}`;
-    const res = await getClient().fetch(endpoint, { method: "DELETE" });
+    const res = await getClient().fetch(objectUrl(key), { method: "DELETE" });
     return res.ok || res.status === 404;
   } catch {
     return false;

@@ -7,8 +7,10 @@ import {
   saveOpenAIModel,
   saveOpenAIBaseUrl,
   saveCutoutModel,
-  saveCutoutBackend,
   saveReplicateToken,
+  saveVideoKey,
+  saveVideoModel,
+  saveVideoBaseUrl,
   saveReplicateModel,
   saveWechatLogin,
   saveWechatSecret,
@@ -58,7 +60,6 @@ export async function POST(req: Request) {
   let body: {
     model?: string;
     cutoutModel?: string;
-    cutoutBackend?: string;
     replicateModel?: string;
     encryptedBaseUrl?: string; // AI 模型接口地址(RSA 加密传输)
     baseUrlPlain?: string; // HTTP 无 crypto.subtle 时的明文兜底(服务端仍加密落库)
@@ -100,6 +101,11 @@ export async function POST(req: Request) {
     encryptedAlipayPrivateKey?: string;
     encryptedWxpayApiv3?: string;
     encryptedWxpayCert?: string;
+    // 视频生成(火山引擎方舟):模型/地址明文;Key 优先 RSA 密文,HTTP 自托管退明文。
+    videoModel?: string;
+    videoBaseUrl?: string;
+    encryptedVideoKey?: string;
+    videoKeyPlain?: string;
   };
   try {
     body = await req.json();
@@ -173,12 +179,7 @@ export async function POST(req: Request) {
     if (typeof body.cutoutModel === "string" && body.cutoutModel.trim()) {
       await saveCutoutModel(body.cutoutModel);
     }
-    if (
-      typeof body.cutoutBackend === "string" &&
-      body.cutoutBackend.trim()
-    ) {
-      await saveCutoutBackend(body.cutoutBackend);
-    }
+    
     if (typeof body.replicateModel === "string" && body.replicateModel.trim()) {
       await saveReplicateModel(body.replicateModel);
     }
@@ -210,6 +211,31 @@ export async function POST(req: Request) {
         );
       }
       await saveReplicateToken(plain);
+    }
+
+    // ---- 视频生成(火山引擎方舟 Seedance)----
+    // Key 与 OpenAI Key 同规格:优先收 RSA 密文;HTTPS 缺失 crypto.subtle 的
+    // 自托管场景退回明文传输(服务端仍 AES 落库),见 [[reference_novaryns_http_selfhost_crypto]]。
+    if (typeof body.videoModel === "string" && body.videoModel.trim()) {
+      await saveVideoModel(body.videoModel);
+    }
+    if (typeof body.videoBaseUrl === "string") {
+      await saveVideoBaseUrl(body.videoBaseUrl);
+    }
+    if (body.encryptedVideoKey) {
+      const plain = await decryptFromClient(body.encryptedVideoKey);
+      if (!plain || plain.length < 8) {
+        return NextResponse.json(
+          { error: "解密后的视频 API Key 无效" },
+          { status: 400 }
+        );
+      }
+      await saveVideoKey(plain);
+    } else if (typeof body.videoKeyPlain === "string" && body.videoKeyPlain.trim()) {
+      if (body.videoKeyPlain.trim().length < 8) {
+        return NextResponse.json({ error: "视频 API Key 无效" }, { status: 400 });
+      }
+      await saveVideoKey(body.videoKeyPlain.trim());
     }
 
     // ---- 微信登录:明文字段(空串自动跳过) ----

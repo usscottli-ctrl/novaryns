@@ -385,7 +385,8 @@ export function Landing({ hot }: { hot: PickedTemplate[] }) {
           {[
             {
               name: L("开源自部署", "Self-host"),
-              price: "¥0",
+              price: L("¥0", "Free"),
+              note: "",
               badge: { text: "AGPL-3.0", kind: "agpl" as const },
               rows: [
                 L("全部基础生成与图像工具", "All core generation & image tools"),
@@ -397,7 +398,11 @@ export function Landing({ hot }: { hot: PickedTemplate[] }) {
             },
             {
               name: L("Pro 自托管", "Pro self-host"),
-              price: L("¥1,999/年起", "from ¥1,999/yr"),
+              price: L("¥1,999/年起", "from CNY ¥1,999/yr"),
+              // 英文版必须写 CNY:`¥` 的国际默认含义是日元,¥1,999 会被当成 ≈US$13
+              // (差 20 倍),客户按错误预期来谈,一报真价就跑。美元只作参考、不作承诺
+              // —— 我们目前没有跨境收款渠道,标死美元价等于承诺了收不了的款。
+              note: L("", "≈ US$280 · paid in CNY"),
               badge: { text: L("推荐", "Recommended"), kind: "gold" as const },
               tag: L("源码授权", "Source license"),
               rows: [
@@ -410,12 +415,12 @@ export function Landing({ hot }: { hot: PickedTemplate[] }) {
             },
             {
               name: L("云端托管", "Cloud"),
-              price: L("¥3,999/年起", "from ¥3,999/yr"),
+              price: L("¥3,999/年", "CNY ¥3,999/yr"),
+              note: L("", "≈ US$560/yr · paid in CNY"),
               badge: { text: L("免运维", "Zero-ops"), kind: "blue" as const },
               rows: [
-                L("免部署 · 自动更新", "Zero-ops · auto updates"),
-                L("大陆可用 · 无需自备中转", "Works in mainland China · no relay needed"),
-                L("弹性算力 · 优先队列", "Elastic compute · priority queue"),
+                L("含 12,000 算力积分(每月 1,000),用完可充", "12,000 credits included (1,000/mo), top up anytime"),
+                L("免部署 · 自动更新 · 大陆可用", "Zero-ops · auto updates · works in China"),
                 L("绑定域名 · 白标", "Custom domain · white-label"),
               ],
               cta: { label: L("开通云端", "Go cloud"), href: "/deploy", primary: false, external: false },
@@ -457,6 +462,9 @@ export function Landing({ hot }: { hot: PickedTemplate[] }) {
               <p className="mt-2 text-[24px] font-extrabold tracking-tight text-c-text">
                 {tier.price}
               </p>
+              {tier.note && (
+                <p className="mt-0.5 text-[12px] text-c-text3">{tier.note}</p>
+              )}
               <ul className="mt-4 flex-1 space-y-2.5">
                 {tier.rows.map((r) => (
                   <li key={r} className="flex items-start gap-2 text-[13px] text-c-text2">
