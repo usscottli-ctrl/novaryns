@@ -937,6 +937,8 @@ export async function POST(request: Request) {
   if (!allowed.includes(p.resolution)) {
     p.resolution = allowed[allowed.length - 1];
   }
+  // 自定义模型统一标准档(前台也不显示质量选择),调用与计费一致
+  if (p.customModel) p.quality = "medium";
   const billQuality = modelHasQuality(priceModel) ? p.quality : "medium";
   const cost = p.count * resolutionCost(p.resolution, billQuality, priceModel);
 

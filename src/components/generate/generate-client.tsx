@@ -599,7 +599,8 @@ export function GenerateClient({
   // 自定义模型(第三方中转)按 GPT生图 的能力与价格表处理,和后端口径一致
   const capModel = isCustomModel ? "gpt-image-2" : model;
   const allowedRes = modelResolutions(capModel);
-  const hasQuality = modelHasQuality(capModel);
+  // 自定义模型不提供出图质量选择:第三方中转是否按质量档出图/计价无法确认,统一按标准档
+  const hasQuality = !isCustomModel && modelHasQuality(capModel);
   // 切到能力更窄的模型时,把非法选择拉回合法值,避免带着 4K 去点 Lite 直接报错。
   useEffect(() => {
     if (!allowedRes.includes(resolution)) setResolution(allowedRes[0]);
