@@ -706,8 +706,17 @@ async function runJob(
   try {
     // —— 临时埋点:量出每段耗时,定位生图慢在哪(OpenAI出图 / 放大 / 传R2 / 图大小)——
     const _t0 = Date.now();
+    // 前台选的是 OpenAI 系(「GPT生图」)时,**实际调用后台配置的模型名**。
+    // 第三方中转的模型名各不相同(如 gpt-image-2.5-cdn),前台只认我们自己的 id `gpt-image-2`;
+    // 不这么映射的话,前台带上 `gpt-image-2` 会覆盖后台设置,中转直接报 model_not_found
+    // (2026-10-19 首个商业版客户实测:网页上点生成必失败,直调接口不带 model 反而成功)。
+    // 官方两站后台配的就是 gpt-image-2,行为不变。
+    const callModel =
+      p.model && modelProvider(p.model) === "openai" && model && modelProvider(model) === "openai"
+        ? model
+        : p.model || model;
     let images = apiKey
-      ? await openaiImages(p, apiKey, p.model || model, cutoutModel)
+      ? await openaiImages(p, apiKey, callModel, cutoutModel)
       : mockImages(p);
     const _tOpenai = Date.now() - _t0;
     const _t1 = Date.now();
