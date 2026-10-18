@@ -32,6 +32,8 @@ services:
       DATABASE_URL: postgres://novaryns:novaryns@db:5432/novaryns?sslmode=disable
       # 大陆服务器连不上 api.openai.com 时,设为任意 OpenAI 兼容中转地址即可。
       OPENAI_BASE_URL: ${OPENAI_BASE_URL:-}
+      # 可选:第三方中转返回的是图片链接时,经此代取地址把图拉回(大陆服务器提速用)
+      IMAGE_FETCH_PROXY: ${IMAGE_FETCH_PROXY:-}
       # AES key for encrypting stored API keys at rest.
       # ⚠️ Set a long random value BEFORE first run and never change it afterwards.
       # 会话签名 + API Key 落库加密的密钥。install.sh 首装时自动生成随机值写进 .env;

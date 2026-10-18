@@ -36,6 +36,7 @@ import {
 import { getOpenAISettings } from "@/lib/settings";
 import { getOpenAIBaseUrl } from "@/lib/openai-base";
 import { sizeFor } from "@/lib/image-size";
+import { fetchRemoteImage, isOwnStorageUrl, resultToB64 } from "@/lib/remote-image";
 import { proxyHeaders } from "@/lib/proxy-identity";
 import { getStyleGuide } from "@/lib/prompt-config";
 
@@ -372,7 +373,7 @@ async function openaiImages(
       size: size as never,
     });
     usedTokens += r.usage?.output_tokens ?? 0;
-    const b64 = r.data?.[0]?.b64_json;
+    const b64 = await resultToB64(r.data?.[0]);
     if (!b64) throw new Error("OpenAI 未返回图片");
     const cropped = await cropToRatio(Buffer.from(b64, "base64"), p.ratio);
     return [
@@ -537,17 +538,15 @@ async function persistToStorage(
   if (!storageEnabled) return images;
   return Promise.all(
     images.map(async (image) => {
-      // Replicate 直连回来的是 **replicate.delivery 临时地址,会过期** ——
-      // 不转存的话作品几天后就打不开(国内站走代跑已在那侧转存好,这里只处理直连)。
-      if (/^https?:\/\//.test(image.url) && image.url.includes("replicate.delivery")) {
+      // 外部图片链接一律转存到本站存储:Replicate 的 replicate.delivery、第三方中转
+      // 返回的图片 url 都是**临时地址,会过期**;不转存的话作品几天后就打不开,
+      // 而且用户每次看图都要现从对方的海外机器拉(大陆实测 4K 要 10 分钟)。
+      // 国内站走代跑时图已在那侧存好,是本站地址,这里会跳过。
+      if (/^https?:\/\//.test(image.url) && !isOwnStorageUrl(image.url)) {
         try {
-          const r = await fetch(image.url, { cache: "no-store" });
-          if (r.ok) {
-            const bytes = new Uint8Array(await r.arrayBuffer());
-            const ct = r.headers.get("content-type") || "image/png";
-            const url = await uploadImage(bytes, ct, `generations/${image.id}.png`);
-            return { ...image, url };
-          }
+          const bytes = new Uint8Array(await fetchRemoteImage(image.url));
+          const url = await uploadImage(bytes, "image/png", `generations/${image.id}.png`);
+          return { ...image, url };
         } catch {
           /* 取不回就保留原地址,至少当下能看 */
         }

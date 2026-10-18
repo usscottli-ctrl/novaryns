@@ -3,6 +3,7 @@ import OpenAI, { toFile } from "openai";
 import { storageEnabled, uploadImage, deleteImageByUrl } from "@/lib/storage";
 import { getOpenAISettings } from "@/lib/settings";
 import { getOpenAIBaseUrl } from "@/lib/openai-base";
+import { resultToB64 } from "@/lib/remote-image";
 import { proxyHeaders } from "@/lib/proxy-identity";
 
 // ---------------------------------------------------------------------------
@@ -157,7 +158,8 @@ async function rawGenerate(p: EditParams): Promise<string> {
           ? { ...base, background: "transparent" as const }
           : base
     );
-    b64 = r.data?.[0]?.b64_json;
+    // 第三方中转常返回图片链接而非 b64,下载下来(见 lib/remote-image)
+    b64 = await resultToB64(r.data?.[0]);
   } else {
     const r = await client.images.generate({
       model: p.model,
@@ -166,7 +168,7 @@ async function rawGenerate(p: EditParams): Promise<string> {
       size: p.size as never,
       quality: p.quality || "medium",
     });
-    b64 = r.data?.[0]?.b64_json;
+    b64 = await resultToB64(r.data?.[0]);
   }
   if (!b64) throw new Error("未返回结果图");
   return b64;

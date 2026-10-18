@@ -22,6 +22,7 @@ import { storageEnabled, uploadImage } from "@/lib/storage";
 import { generateToR2 } from "@/lib/image-gen";
 import { getOpenAISettings } from "@/lib/settings";
 import { getOpenAIBaseUrl } from "@/lib/openai-base";
+import { fetchRemoteImage } from "@/lib/remote-image";
 import { getSuiteSystem, getSuitePlatformHint } from "@/lib/prompt-config";
 
 // ---------------------------------------------------------------------------
@@ -179,10 +180,7 @@ async function genOneShot(
   const d = r.data?.[0];
   if (!d) throw new Error("空返回");
   if (d.b64_json) return Buffer.from(d.b64_json, "base64");
-  if (d.url) {
-    const res = await fetch(d.url);
-    return Buffer.from(await res.arrayBuffer());
-  }
+  if (d.url) return fetchRemoteImage(d.url); // 可经 IMAGE_FETCH_PROXY 加速
   throw new Error("空返回");
 }
 
