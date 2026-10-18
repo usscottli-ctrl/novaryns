@@ -17,8 +17,9 @@ function load(): Promise<number> {
   return cached;
 }
 
-export function useArtworkKeepDays(): number {
-  const [days, setDays] = React.useState(180);
+/** 读到之前返回 null(提示里先不写天数),避免先闪一下默认的 180 天。 */
+export function useArtworkKeepDays(): number | null {
+  const [days, setDays] = React.useState<number | null>(null);
   React.useEffect(() => {
     let alive = true;
     void load().then((d) => alive && setDays(d));
@@ -30,7 +31,8 @@ export function useArtworkKeepDays(): number {
 }
 
 /** 底部提示文案(中英)。 */
-export function keepNote(days: number, en = false): string {
+export function keepNote(days: number | null, en = false): string {
+  if (days == null) return en ? "Results are auto-saved to your Library" : "生成结果将自动保存到「作品库」";
   return en
     ? `Results are auto-saved to your Library for ${days} days`
     : `生成结果将自动保存到「作品库」,保留 ${days} 天${days <= 30 ? ",请及时下载" : ""}`;
