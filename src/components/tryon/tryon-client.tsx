@@ -1,5 +1,6 @@
 "use client";
 
+import { fetchJobStatus } from "@/lib/poll-job";
 import { useEffect, useRef, useState } from "react";
 import {
   Shirt,
@@ -240,10 +241,7 @@ export function TryonClient() {
         await new Promise((r) => setTimeout(r, 2500));
         if (Date.now() > deadline)
           throw new Error(L("生成超时,请稍后重试", "Timed out, please retry"));
-        const sres = await fetch(`/api/tryon?job=${encodeURIComponent(jobId)}`, {
-          cache: "no-store",
-        });
-        const s = await sres.json();
+        const s = await fetchJobStatus(`/api/tryon?job=${encodeURIComponent(jobId)}`);
         if (s.status === "done") data = s;
         else if (s.status === "error")
           throw new Error(s.error ?? L("生成失败", "Failed"));

@@ -1,5 +1,6 @@
 "use client";
 
+import { fetchJobStatus } from "@/lib/poll-job";
 import { useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
@@ -332,11 +333,7 @@ export function GenChatClient() {
       for (;;) {
         await new Promise((r) => setTimeout(r, 2500));
         if (Date.now() > deadline) throw new Error(t("genchat.fail"));
-        const pr = await fetch(
-          `/api/generate-image?job=${encodeURIComponent(jobId)}`,
-          { cache: "no-store" }
-        );
-        const pj = await pr.json();
+        const pj = await fetchJobStatus(`/api/generate-image?job=${encodeURIComponent(jobId)}`);
         if (pj.status === "done") {
           images = ((pj.images ?? []) as { id: string; url?: string; image?: string }[]).map(
             (im) => ({ id: im.id, image: im.image || im.url || "" })

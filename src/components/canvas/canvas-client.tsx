@@ -1,4 +1,5 @@
 "use client";
+import { fetchJobStatus } from "@/lib/poll-job";
 import { copyText } from "@/lib/clipboard";
 
 import {
@@ -1823,11 +1824,7 @@ export function CanvasClient() {
       for (;;) {
         await new Promise((r) => setTimeout(r, 2500));
         if (Date.now() > deadline) throw new Error(t("canvas.genFail"));
-        const pr = await fetch(
-          `/api/generate-image?job=${encodeURIComponent(jobId)}`,
-          { cache: "no-store" }
-        );
-        const pj = await readJsonSafe(pr);
+        const pj = await fetchJobStatus(`/api/generate-image?job=${encodeURIComponent(jobId)}`);
         if (pj.status === "done") {
           newIds = ((pj.images ?? []) as { id?: string }[])
             .map((im) => im.id)
@@ -2900,11 +2897,7 @@ export function CanvasClient() {
       for (;;) {
         await new Promise((r) => setTimeout(r, 2500));
         if (Date.now() > deadline) throw new Error(t("canvas.genFail"));
-        const pr = await fetch(
-          `/api/generate-image?job=${encodeURIComponent(jobId)}`,
-          { cache: "no-store" }
-        );
-        const pj = await readJsonSafe(pr);
+        const pj = await fetchJobStatus(`/api/generate-image?job=${encodeURIComponent(jobId)}`);
         if (pj.status === "done") {
           newId = pj.images?.[0]?.id ?? null;
           if (pj.user) applyServerUser(pj.user); // 即时回写余额积分

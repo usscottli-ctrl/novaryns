@@ -1,5 +1,6 @@
 "use client";
 
+import { fetchJobStatus } from "@/lib/poll-job";
 import { useArtworkKeepDays, keepNote } from "@/lib/use-keep-days";
 import { cdnUrl } from "@/lib/cdn";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
@@ -691,11 +692,7 @@ export function GenerateClient({
       while (!data) {
         await new Promise((r) => setTimeout(r, 2500));
         if (Date.now() > deadline) throw new Error(t("gen.errTimeout"));
-        const sres = await fetch(
-          `/api/generate-image?job=${encodeURIComponent(jobId)}`,
-          { cache: "no-store" }
-        );
-        const s = await sres.json();
+        const s = await fetchJobStatus(`/api/generate-image?job=${encodeURIComponent(jobId)}`);
         if (s.status === "done") data = s;
         else if (s.status === "error")
           throw new Error(s.error ?? t("gen.errFail"));
