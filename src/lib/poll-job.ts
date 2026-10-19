@@ -11,7 +11,6 @@
 
 const RETRIES = 4;
 
-// eslint-disable-next-line @typescript-eslint/no-explicit-any -- 各页面的任务状态结构不同,原来就是 res.json() 的 any
 export async function fetchJobStatus<T = any>(
   url: string,
   init?: RequestInit
