@@ -88,7 +88,7 @@ export function VariationsClient() {
   const fileRef = useRef<HTMLInputElement>(null);
   const [slot, setSlot] = useState<Slot | null>(null);
   const [splitMode, setSplitMode] = useState("print");
-  const [similarity, setSimilarity] = useState(80);
+  const [similarity, setSimilarity] = useState(95);
   const [prompt, setPrompt] = useState("");
   const [count, setCount] = useStickyState("variations.count", 1, (v) => [1, 2, 4].includes(v));
   const [loading, setLoading] = useState(false);
