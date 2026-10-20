@@ -220,6 +220,12 @@ export function SuiteClient() {
       setError(t("suite.errNoImage"));
       return;
     }
+    // 还没看过设计方向:先看图出 4 个方向让用户选,这一下不扣积分、不出图
+    // (参考竞品:点生成先给方向;以前方向是可选步骤,直接点生成会悄悄随机一个,客户以为没有这功能)
+    if (!directions) {
+      await fetchDirections();
+      return;
+    }
     setLoading(true);
     setFinished(false);
     setShots([]);
@@ -724,7 +730,7 @@ export function SuiteClient() {
           variant="gradient"
           className="h-12 w-full text-[15px]"
           onClick={generate}
-          disabled={loading}
+          disabled={loading || dirLoading}
         >
           {loading ? (
             <Loader2 className="h-4 w-4 animate-spin" />
@@ -735,7 +741,11 @@ export function SuiteClient() {
             ? t("suite.loginToGen")
             : loading
               ? fmt(t("suite.generating"), { done, total })
-              : fmt(t("suite.genBtn"), { c: cost })}
+              : !directions
+                ? dirLoading
+                  ? L("AI 正在看图构思设计方向…", "Thinking up directions…")
+                  : L("下一步:看图生成设计方向(免费)", "Next: get design directions (free)")
+                : fmt(t("suite.genBtn"), { c: cost })}
         </Button>
 
         <p className="text-xs leading-relaxed text-muted-foreground">
