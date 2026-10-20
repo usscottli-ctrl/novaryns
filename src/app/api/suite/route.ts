@@ -21,16 +21,24 @@ import { resolveUserEmail } from "@/lib/admin-auth";
 import { storageEnabled, uploadImage } from "@/lib/storage";
 import { generateToR2 } from "@/lib/image-gen";
 import { getOpenAISettings } from "@/lib/settings";
-import { getOpenAIBaseUrl } from "@/lib/openai-base";
 import { fetchRemoteImage } from "@/lib/remote-image";
-import { getSuiteSystem, getSuitePlatformHint } from "@/lib/prompt-config";
+import {
+  getSuiteSystem,
+  getSuitePlatformHint,
+  DEFAULT_SUITE_DIRECTIONS_SYSTEM,
+  FALLBACK_SUITE_DIRECTIONS,
+} from "@/lib/prompt-config";
+import { getChatLLM, parseJsonLoose } from "@/lib/chat-llm";
 
 // ---------------------------------------------------------------------------
 // 一键电商套图：上传产品图(+可选文字) → 自动出 1 主图 + 4 副图 + 8 详情页图。
 //
 // 两层 pipeline：
-//   第0层：视觉 LLM(gpt-4o-mini) 读产品图+文字 → 输出 13 张图的定制中文提示词 JSON。
-//          LLM 不可用/失败时回退到写死的蓝图模板(零配置可跑铁律)。
+//   前置(action=directions,免费)：识图模型看产品图给 4 个设计方向,用户选一个
+//          —— 同一产品每次方向都不同,是"换批次不重样"的主要来源(参考竞品的两步式)。
+//   第0层：识图模型(后台「识图/文案模型」,没配用主 Key + gpt-4o-mini)读产品图+文字+所选方向
+//          → 输出整套统一视觉基调 style + 13 张图的定制中文提示词 JSON。
+//          失败时回退写死的蓝图模板(仍带上方向与平台),并在结果里标 planFallback 让前端明说。
 //   第1-13层：gpt-image 图生图,每张 = 产品图(参考,保一致) + 该张的定制提示词。
 //          并发限流逐张生成,完成一张即落 R2 并更新进度。
 // 异步 job + 逐张进度,复用生图的 jobId+轮询模式(CF 免费版 ~100s 硬超时,套图更长)。
@@ -55,7 +63,6 @@ type ShotResult = ShotSpec & {
 };
 
 const CONCURRENCY = 2; // 降并发避免 gpt-image 频率限制导致整片失败
-const PER_SHOT_TIMEOUT = 240_000;
 const SHOT_RETRIES = 3; // 每张失败后最多再重试 3 次(指数退避,扛住尾部限频)
 
 const GRADIENTS = [
@@ -69,8 +76,20 @@ const GRADIENTS = [
 
 // 写死蓝图(LLM 失败时回退)。13 张:1 主图 + 4 副图 + 8 详情。
 // 模型直出整图:每张 prompt 直接要求渲染中文营销文案(字体多样精美),不再做代码叠字。
-function fallbackBlueprint(extra: string): ShotSpec[] {
-  const base = extra ? `产品/品牌补充信息：${extra}。` : "";
+// 兜底模板按平台补一句风格/语言(规划模型的平台覆盖段是写给 LLM 的,不适合直接拼进出图提示词)
+const FALLBACK_PLATFORM_STYLE: Record<string, string> = {
+  douyin: "整体走抖音种草风：视觉冲击强、色彩饱满、大字报式主标题。",
+  pdd: "整体走实惠促销风：红黄促销色系、高对比、主标题突出性价比。",
+  xhs: "整体走小红书清新种草风：柔和色调、大量留白、真实生活感，弱化促销感。",
+  amazon: "所有画面文字一律改为简洁英文(不出现中文)，整体极简专业。",
+  global: "所有画面文字一律改为简洁英文(不出现中文)，整体现代简约品牌风。",
+};
+
+function fallbackBlueprint(extra: string, direction: string, platform: string): ShotSpec[] {
+  const base =
+    (extra ? `产品/品牌补充信息：${extra}。` : "") +
+    (direction ? `整套统一设计方向：${direction}。` : "") +
+    (FALLBACK_PLATFORM_STYLE[platform] ?? "");
   const lead =
     "在完整保留上传产品(包装、品牌、文字、外观)不变的前提下，把它合成进一张专业、可直接上架的中国电商营销视觉，整图(含文字)由你直接渲染：";
   const tail =
@@ -108,13 +127,17 @@ function fallbackBlueprint(extra: string): ShotSpec[] {
   ];
 }
 
-// 第0层:视觉 LLM 读产品图 → 输出 13 张定制提示词。失败回退蓝图。
+// 第0层:识图模型读产品图 + 所选方向 → 输出统一视觉基调 + 13 张定制提示词。
+// 失败回退蓝图(planned=false,前端会提示"本次未能智能规划")。
 async function planShots(
-  client: OpenAI,
   firstImage: { buf: Buffer; type: string },
   extra: string,
-  platform: string
-): Promise<ShotSpec[]> {
+  platform: string,
+  direction: string
+): Promise<{ shots: ShotSpec[]; planned: boolean }> {
+  const fallback = () => ({ shots: fallbackBlueprint(extra, direction, platform), planned: false });
+  const llm = await getChatLLM({ timeout: 120_000 });
+  if (!llm) return fallback();
   try {
     const dataUrl = await toVisionDataUrl(firstImage.buf, firstImage.type);
     const base = await getSuiteSystem(); // 后台可编辑的套图规划 system 指令
@@ -123,33 +146,113 @@ async function planShots(
 
 ${platHint}` : base;
     const user =
-      (extra ? `补充信息：${extra}\n` : "") + "请规划这套产品的电商套图。";
-    const resp = await client.chat.completions.create({
-      model: "gpt-4o-mini",
-      messages: [
-        { role: "system", content: sys },
-        {
-          role: "user",
-          content: [
-            { type: "text", text: user },
-            { type: "image_url", image_url: { url: dataUrl } },
-          ],
-        },
-      ],
-      response_format: { type: "json_object" },
-      max_tokens: 3000,
-    });
-    const raw = resp.choices[0]?.message?.content ?? "{}";
-    const parsed = JSON.parse(raw) as { shots?: ShotSpec[] };
-    const shots = (parsed.shots ?? []).filter(
-      (s) => s && s.prompt && s.role && s.ratio
-    );
+      (extra ? `补充信息：${extra}\n` : "") +
+      `本套设计方向：${direction}\n` +
+      "请按这个方向规划这套产品的电商套图。";
+    const raw = await chatJson(llm, sys, user, dataUrl, 0.9, 6000);
+    const parsed = parseJsonLoose<{ style?: string; shots?: ShotSpec[] }>(raw) ?? {};
+    const style = (parsed.style ?? "").toString().trim().slice(0, 300);
+    const shots = (parsed.shots ?? [])
+      .filter((s) => s && s.prompt && s.role && s.ratio)
+      .map((s) => ({
+        ...s,
+        ratio: s.role === "detail" ? "3:4" : "1:1",
+        // 统一视觉基调拼进每张,保证整套像一个设计师做的
+        prompt: style ? `${s.prompt}\n【整套统一视觉基调】${style}` : s.prompt,
+      }));
     // 校验数量与角色构成;不达标就回退,保证总是 13 张可控
     const mains = shots.filter((s) => s.role === "main").length;
-    if (shots.length >= 13 && mains >= 1) return shots.slice(0, 13);
-    return fallbackBlueprint(extra);
-  } catch {
-    return fallbackBlueprint(extra);
+    if (shots.length >= 13 && mains >= 1) return { shots: shots.slice(0, 13), planned: true };
+    console.warn("[suite] 规划结果不合格,回退模板:", shots.length, "张");
+    return fallback();
+  } catch (e) {
+    console.warn("[suite] 规划失败,回退模板:", e instanceof Error ? e.message : e);
+    return fallback();
+  }
+}
+
+// 看图 + 要 JSON。先带 json_object 模式请求;接口不支持该参数(400)时去掉再试一次。
+async function chatJson(
+  llm: { client: OpenAI; model: string },
+  sys: string,
+  user: string,
+  dataUrl: string,
+  temperature: number,
+  maxTokens: number
+): Promise<string> {
+  const body = {
+    model: llm.model,
+    messages: [
+      { role: "system" as const, content: sys },
+      {
+        role: "user" as const,
+        content: [
+          { type: "text" as const, text: user },
+          { type: "image_url" as const, image_url: { url: dataUrl } },
+        ],
+      },
+    ],
+    temperature,
+    max_tokens: maxTokens,
+  };
+  try {
+    const r = await llm.client.chat.completions.create({
+      ...body,
+      response_format: { type: "json_object" },
+    });
+    return r.choices[0]?.message?.content ?? "";
+  } catch (e) {
+    if ((e as { status?: number }).status !== 400) throw e;
+    const r = await llm.client.chat.completions.create(body);
+    return r.choices[0]?.message?.content ?? "";
+  }
+}
+
+type Direction = { name: string; desc: string };
+
+function randomDirections(n: number): Direction[] {
+  return [...FALLBACK_SUITE_DIRECTIONS].sort(() => Math.random() - 0.5).slice(0, n);
+}
+
+const SUITE_PLATFORM_NAMES: Record<string, string> = {
+  taobao: "淘宝/天猫",
+  douyin: "抖音电商",
+  pdd: "拼多多",
+  xhs: "小红书",
+  amazon: "亚马逊(跨境,英文)",
+  global: "跨境独立站(英文)",
+};
+
+// 前置:看图给 4 个设计方向。失败/没配识图模型 → 随机方向池(fallback=true)。
+async function suggestDirections(
+  image: { buf: Buffer; type: string },
+  extra: string,
+  platform: string
+): Promise<{ directions: Direction[]; fallback: boolean }> {
+  const llm = await getChatLLM({ timeout: 60_000 });
+  if (!llm) return { directions: randomDirections(4), fallback: true };
+  try {
+    const dataUrl = await toVisionDataUrl(image.buf, image.type);
+    const plat = SUITE_PLATFORM_NAMES[platform] ?? "淘宝/天猫";
+    const user =
+      `目标平台：${plat}\n` +
+      (extra ? `补充信息：${extra}\n` : "") +
+      "请给出 4 个设计方向。";
+    // 温度拉高:同一产品每次给的方向都不一样
+    const raw = await chatJson(llm, DEFAULT_SUITE_DIRECTIONS_SYSTEM, user, dataUrl, 1.0, 800);
+    const parsed = parseJsonLoose<{ directions?: Direction[] }>(raw);
+    const list = (parsed?.directions ?? [])
+      .filter((d) => d && typeof d.name === "string" && d.name.trim())
+      .map((d) => ({
+        name: d.name.trim().slice(0, 16),
+        desc: String(d.desc ?? "").trim().slice(0, 60),
+      }))
+      .slice(0, 4);
+    if (list.length >= 2) return { directions: list, fallback: false };
+    return { directions: randomDirections(4), fallback: true };
+  } catch (e) {
+    console.warn("[suite] 设计方向生成失败:", e instanceof Error ? e.message : e);
+    return { directions: randomDirections(4), fallback: true };
   }
 }
 
@@ -206,6 +309,8 @@ type Job = {
   creditsUsed?: number;
   mock?: boolean;
   error?: string;
+  /** 规划没走成识图模型、用了兜底模板(前端要明确提示) */
+  planFallback?: boolean;
   createdAt: number;
 };
 const JOBS = new Map<string, Job>();
@@ -221,6 +326,7 @@ async function runSuite(
   productImages: { buf: Buffer; type: string }[],
   extra: string,
   platform: string,
+  direction: string,
   email: string,
   apiKey: string,
   model: string,
@@ -232,22 +338,15 @@ async function runSuite(
     if (cur) JOBS.set(jobId, { ...cur, ...patch });
   };
   try {
-    const client = new OpenAI({
-      apiKey,
-      baseURL: (await getOpenAIBaseUrl()) || undefined,
-      timeout: PER_SHOT_TIMEOUT,
-      maxRetries: 0,
-    });
-
     // 第0层:规划 13 张
-    const specs = await planShots(client, productImages[0], extra, platform);
+    const { shots: specs, planned } = await planShots(productImages[0], extra, platform, direction);
     const shots: ShotResult[] = specs.map((s, i) => ({
       ...s,
       id: `suite-${Date.now()}-${i}`,
       status: "pending",
       gradient: GRADIENTS[i % GRADIENTS.length],
     }));
-    set({ shots, total: shots.length });
+    set({ shots, total: shots.length, planFallback: !planned });
 
     const productFiles = await Promise.all(
       productImages.map((im, i) =>
@@ -382,6 +481,9 @@ async function parseInput(request: Request) {
     images,
     extra: (f.get("text") ?? "").toString().trim().slice(0, 600),
     platform: (f.get("platform") ?? "taobao").toString().trim().slice(0, 20),
+    // 用户选的设计方向(「风格名：描述」);空 = 随机挑一个
+    direction: (f.get("direction") ?? "").toString().trim().slice(0, 120),
+    action: (f.get("action") ?? "").toString().trim(),
     email: (f.get("email") ?? "").toString().trim(),
   };
 }
@@ -419,6 +521,17 @@ export async function POST(request: Request) {
       );
     }
     input.email = tokenEmail;
+  }
+  if (input.action === "directions") {
+    // 免费,单独限流(防脚本刷识图模型)
+    if (!rateLimit(`suite-dir:${ip}`, 30, 600_000)) {
+      return NextResponse.json({ error: "请求过于频繁，请稍后再试" }, { status: 429 });
+    }
+    return NextResponse.json(await suggestDirections(input.images[0], input.extra, input.platform));
+  }
+  if (!input.direction) {
+    const d = randomDirections(1)[0];
+    input.direction = `${d.name}：${d.desc}`;
   }
   const useDb = dbEnabled && input.email.length > 0;
   // 产品图上限统一 5 张(月度会员已下线)。超出部分静默截断(防绕过前端多传图)。
@@ -458,6 +571,7 @@ export async function POST(request: Request) {
     input.images,
     input.extra,
     input.platform,
+    input.direction,
     input.email,
     apiKey,
     model,
@@ -506,5 +620,6 @@ export async function GET(request: Request) {
     creditsUsed: job.status === "done" ? job.creditsUsed : undefined,
     mock: job.mock,
     error: job.error,
+    planFallback: job.planFallback,
   });
 }

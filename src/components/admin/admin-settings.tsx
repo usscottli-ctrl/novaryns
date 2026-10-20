@@ -159,6 +159,10 @@ type View = {
   videoKeyMasked?: string;
   videoModel?: string;
   videoBaseUrl?: string;
+  chatLlmReady?: boolean;
+  chatLlmKeyMasked?: string;
+  chatLlmModel?: string;
+  chatLlmBaseUrl?: string;
   cutoutReplicateReady?: boolean;
   cutoutReplicateModel?: string;
   cutoutReplicateTokenMasked?: string;
@@ -360,6 +364,9 @@ export function AdminSettings({ localAdmin = false }: { localAdmin?: boolean }) 
   const [videoKeyInput, setVideoKeyInput] = useState("");
   const [videoModel, setVideoModel] = useState("");
   const [videoBaseUrl, setVideoBaseUrl] = useState("");
+  const [chatKeyInput, setChatKeyInput] = useState("");
+  const [chatModel, setChatModel] = useState("");
+  const [chatBaseUrl, setChatBaseUrl] = useState("");
   const [bonus, setBonus] = useState(""); // 新用户注册赠送积分
   // ── 登录与支付板块 ──
   // 微信登录(明文字段 + AppSecret 加密输入)
@@ -609,6 +616,8 @@ export function AdminSettings({ localAdmin = false }: { localAdmin?: boolean }) 
     // 视频:模型/地址是非敏感明文可回填;**Key 不回填**(服务端也只回掩码)。
     setVideoModel(v.videoModel ?? "doubao-seedance-1-0-pro-250528");
     setVideoBaseUrl(v.videoBaseUrl ?? "");
+    setChatModel(v.chatLlmModel ?? "");
+    setChatBaseUrl(v.chatLlmBaseUrl ?? "");
     setBonus(String(v.signupBonus ?? 30));
     // 登录与支付:回填明文字段(敏感字段只看掩码,不回填输入框)
     setWechatAppid(v.wechatAppid ?? "");
@@ -855,6 +864,45 @@ export function AdminSettings({ localAdmin = false }: { localAdmin?: boolean }) 
   // Key 与 OpenAI Key 同规格:HTTPS 下浏览器内 RSA 加密再传;HTTP 自托管无
   // crypto.subtle 时退回明文传输(服务端仍 AES 落库,见 hasSubtle 注释)。
   // 只填模型/地址不填 Key 也能保存 —— 换模型不必重新粘 Key。
+  // 识图/文案模型:同视频 Key 的规格(RSA 传输 / AES 落库 / 只回掩码)
+  async function saveChatLlm(opts: { withKey: boolean }) {
+    if (!token) return;
+    setBusy(true);
+    setMsg(null);
+    try {
+      const payload: Record<string, unknown> = {
+        chatLlmModel: chatModel,
+        chatLlmBaseUrl: chatBaseUrl,
+      };
+      if (opts.withKey) {
+        if (!chatKeyInput.trim()) throw new Error("请输入新的 API Key");
+        if (hasSubtle())
+          payload.encryptedChatLlmKey = await encryptKey(chatKeyInput.trim(), token);
+        else payload.chatLlmKeyPlain = chatKeyInput.trim();
+      }
+      const res = await fetch("/api/admin/settings", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${token}`,
+        },
+        body: JSON.stringify(payload),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || "保存失败");
+      setView(data as View);
+      setChatKeyInput("");
+      setMsg({
+        ok: true,
+        text: opts.withKey ? "识图模型 API Key 已加密更新" : "识图模型设置已保存",
+      });
+    } catch (e) {
+      setMsg({ ok: false, text: e instanceof Error ? e.message : "保存失败" });
+    } finally {
+      setBusy(false);
+    }
+  }
+
   async function saveVideo(opts: { withKey: boolean }) {
     if (!token) return;
     setBusy(true);
@@ -1804,6 +1852,86 @@ export function AdminSettings({ localAdmin = false }: { localAdmin?: boolean }) 
                   {busy && <Loader2 className="h-4 w-4 animate-spin" />}
                   加密更新 Token
                 </Button>
+              </div>
+            </div>
+
+            {/* 识图/文案模型:套图规划、AI帮写、标题生成。Key 只进不出。 */}
+            <div className="space-y-2 rounded-xl border border-border bg-secondary/40 p-3">
+              <div className="flex items-center justify-between text-xs font-medium">
+                <span>识图 / 文案模型（一键套图规划 · AI帮写 · 标题）</span>
+                <span
+                  className={`inline-flex items-center gap-1 rounded-full px-2 py-0.5 ${
+                    view?.chatLlmReady
+                      ? "bg-emerald-500/10 text-emerald-600"
+                      : "bg-amber-500/10 text-amber-600"
+                  }`}
+                >
+                  <span
+                    className={`h-1.5 w-1.5 rounded-full ${
+                      view?.chatLlmReady ? "bg-emerald-500" : "bg-amber-500"
+                    }`}
+                  />
+                  {view?.chatLlmReady
+                    ? `已配置 · ${view.chatLlmKeyMasked || "••••"}`
+                    : "未配置（用主 Key + gpt-4o-mini）"}
+                </span>
+              </div>
+              <p className="text-[11px] leading-relaxed text-muted-foreground">
+                任意 OpenAI 兼容接口，需支持看图。默认阿里云百炼：在
+                <a
+                  href="https://bailian.console.aliyun.com/"
+                  target="_blank"
+                  rel="noreferrer"
+                  className="mx-1 text-acc hover:underline"
+                >
+                  百炼控制台
+                </a>
+                开通后创建 API Key 粘贴到下面即可（国内服务器直连）。生图走第三方中转、中转没有对话模型时必须配置，否则套图只能用固定模板。
+              </p>
+              <label className="block text-[11px] font-medium text-muted-foreground">模型</label>
+              <Input
+                value={chatModel}
+                onChange={(e) => setChatModel(e.target.value)}
+                placeholder="qwen3-vl-plus"
+              />
+              <label className="block text-[11px] font-medium text-muted-foreground">接口地址</label>
+              <Input
+                value={chatBaseUrl}
+                onChange={(e) => setChatBaseUrl(e.target.value)}
+                placeholder="https://dashscope.aliyuncs.com/compatible-mode/v1"
+              />
+              <label className="block text-[11px] font-medium text-muted-foreground">API Key</label>
+              <Input
+                type="password"
+                value={chatKeyInput}
+                onChange={(e) => setChatKeyInput(e.target.value)}
+                placeholder="粘贴新的 API Key（提交前浏览器内 RSA 加密）"
+              />
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                <p className="flex items-center gap-1.5 text-[11px] text-muted-foreground">
+                  <ShieldCheck className="h-3.5 w-3.5 text-emerald-600" />
+                  RSA 加密传输 + AES 加密存储，永不明文、不回显
+                </p>
+                <div className="flex gap-2">
+                  <Button
+                    variant="secondary"
+                    size="sm"
+                    onClick={() => void saveChatLlm({ withKey: false })}
+                    disabled={busy}
+                  >
+                    {busy && <Loader2 className="h-4 w-4 animate-spin" />}
+                    保存模型设置
+                  </Button>
+                  <Button
+                    variant="gradient"
+                    size="sm"
+                    onClick={() => void saveChatLlm({ withKey: true })}
+                    disabled={busy || !chatKeyInput.trim()}
+                  >
+                    {busy && <Loader2 className="h-4 w-4 animate-spin" />}
+                    加密更新 Key
+                  </Button>
+                </div>
               </div>
             </div>
 

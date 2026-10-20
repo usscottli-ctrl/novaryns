@@ -1,8 +1,6 @@
 import { NextResponse } from "next/server";
 import { toVisionDataUrl } from "@/lib/vision-image";
-import OpenAI from "openai";
-import { getOpenAISettings } from "@/lib/settings";
-import { getOpenAIBaseUrl } from "@/lib/openai-base";
+import { getChatLLM } from "@/lib/chat-llm";
 import {
   getAssistSystem,
   getOptimizeSystem,
@@ -72,9 +70,9 @@ export async function POST(req: Request) {
   }
   const hasImage = !!imageDataUrl;
 
-  // 帮写用 gpt-4o-mini(看图写,需视觉能力),复用主 OpenAI Key。
-  const { apiKey } = await getOpenAISettings();
-  if (!apiKey) {
+  // 帮写用识图/文案模型(看图写,需视觉能力):后台配了用它,没配用主 Key + gpt-4o-mini。
+  const llm = await getChatLLM();
+  if (!llm) {
     const base = idea || "高级电商主图";
     return NextResponse.json({
       prompt: `${base}，纯净背景，柔和均匀打光，居中构图，高级质感，商业产品摄影，可直接上架`,
@@ -82,10 +80,7 @@ export async function POST(req: Request) {
   }
 
   try {
-    const client = new OpenAI({
-      apiKey,
-      baseURL: (await getOpenAIBaseUrl()) || undefined,
-    });
+    const { client, model } = llm;
     // 分功能页写法指令(prompt-config.ts 可审计)。
     // 关键:帮写(write)时,若有功能页专用指令,**不叠加通用「写整图大片」系统**
     // ——否则那段又长又强势的通用系统会盖过功能页语义(印花提取被写成整图模特大片)。
@@ -118,7 +113,7 @@ export async function POST(req: Request) {
       : "(空,按产品/分类给通用电商主图提示词)";
     const text = `${ctx.join(";")}\n${label}:${idea || emptyHint}`;
     const resp = await client.chat.completions.create({
-      model: "gpt-4o-mini",
+      model,
       messages: [
         { role: "system", content: sys },
         {

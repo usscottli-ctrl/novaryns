@@ -93,6 +93,17 @@ export function SuiteClient() {
     setAssistOpen(true);
     setAssistRun({ mode, nonce: Date.now() });
   }
+  // 设计方向(两步式第一步):看图给 4 个方向,选一个再出整套。null=还没获取。
+  const [directions, setDirections] = useState<{ name: string; desc: string }[] | null>(null);
+  const [dirFallback, setDirFallback] = useState(false);
+  const [dirLoading, setDirLoading] = useState(false);
+  const [dirPick, setDirPick] = useState(-1); // -1 = 随机
+  const [planFallback, setPlanFallback] = useState(false);
+  // 换图/换平台后,之前的方向不再适用
+  useEffect(() => {
+    setDirections(null);
+    setDirPick(-1);
+  }, [files, platform]);
   const [done, setDone] = useState(0);
   const [total, setTotal] = useState(13);
   const [finished, setFinished] = useState(false);
@@ -142,6 +153,50 @@ export function SuiteClient() {
     setPreviews(previews.filter((_, j) => j !== i));
   }
 
+  function copyText() {
+    return [
+      title2.trim() && `主标题：${title2.trim()}`,
+      points.trim() && `卖点：${points.trim()}`,
+    ]
+      .filter(Boolean)
+      .join("；");
+  }
+
+  async function fetchDirections() {
+    setError(null);
+    if (!user) {
+      if (ready) openAuth("sign-in");
+      return;
+    }
+    if (files.length === 0) {
+      setError(t("suite.errNoImage"));
+      return;
+    }
+    setDirLoading(true);
+    try {
+      const fd = new FormData();
+      fd.append("image", files[0]);
+      const copy = copyText();
+      if (copy) fd.append("text", copy);
+      fd.append("platform", platform);
+      fd.append("action", "directions");
+      const res = await fetch("/api/suite", {
+        method: "POST",
+        headers: await authHeader(),
+        body: fd,
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || L("获取设计方向失败", "Failed to get directions"));
+      setDirections(data.directions ?? []);
+      setDirFallback(!!data.fallback);
+      setDirPick(0);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : L("获取设计方向失败", "Failed to get directions"));
+    } finally {
+      setDirLoading(false);
+    }
+  }
+
   async function generate() {
     setError(null);
     // 未登录:直接弹登录/注册窗(优先于上传校验),登录后再点生成。
@@ -157,17 +212,15 @@ export function SuiteClient() {
     setFinished(false);
     setShots([]);
     setDone(0);
+    setPlanFallback(false);
     try {
       const fd = new FormData();
       files.forEach((f) => fd.append("image", f));
-      const copy = [
-        title2.trim() && `主标题：${title2.trim()}`,
-        points.trim() && `卖点：${points.trim()}`,
-      ]
-        .filter(Boolean)
-        .join("；");
+      const copy = copyText();
       if (copy) fd.append("text", copy);
       fd.append("platform", platform);
+      const dir = directions && dirPick >= 0 ? directions[dirPick] : null;
+      if (dir) fd.append("direction", `${dir.name}：${dir.desc}`);
       fd.append("email", user.email);
       const res = await fetch("/api/suite", {
         method: "POST",
@@ -190,6 +243,7 @@ export function SuiteClient() {
           if (Array.isArray(s.shots)) setShots(s.shots);
           if (typeof s.done === "number") setDone(s.done);
           if (typeof s.total === "number") setTotal(s.total);
+          if (s.planFallback) setPlanFallback(true);
           if (s.status === "done") {
             if (pollRef.current) clearInterval(pollRef.current);
             if (s.user) applyServerUser(s.user);
@@ -504,6 +558,78 @@ export function SuiteClient() {
           <p className="text-xs text-muted-foreground">{t("suite.textHint")}</p>
         </div>
 
+        <div className="space-y-2">
+          <div className="flex items-center justify-between">
+            <label className="text-sm font-medium">{L("设计方向", "Design direction")}</label>
+            {directions && (
+              <button
+                type="button"
+                onClick={() => void fetchDirections()}
+                disabled={dirLoading || loading}
+                className="inline-flex items-center gap-1 text-[12px] font-medium text-acc hover:underline disabled:opacity-50"
+              >
+                <RefreshCw className={cn("h-3.5 w-3.5", dirLoading && "animate-spin")} />
+                {L("换一批", "Refresh")}
+              </button>
+            )}
+          </div>
+          {!directions ? (
+            <button
+              type="button"
+              onClick={() => void fetchDirections()}
+              disabled={dirLoading || loading}
+              className="flex w-full items-center justify-center gap-1.5 rounded-[10px] border border-dashed border-primary/40 bg-primary/5 px-3 py-2.5 text-[13px] font-medium text-primary transition-colors hover:bg-primary/10 disabled:opacity-60"
+            >
+              {dirLoading ? <Loader2 className="h-4 w-4 animate-spin" /> : <Wand2 className="h-4 w-4" />}
+              {dirLoading
+                ? L("AI 正在看图构思方向…", "Thinking up directions…")
+                : L("AI 看图给 4 个设计方向(免费)", "Get 4 design directions (free)")}
+            </button>
+          ) : (
+            <div className="space-y-1.5">
+              {directions.map((d, i) => (
+                <button
+                  key={`${d.name}-${i}`}
+                  type="button"
+                  onClick={() => setDirPick(i)}
+                  className={cn(
+                    "w-full rounded-[10px] border px-3 py-2 text-left transition-colors",
+                    dirPick === i
+                      ? "border-primary bg-primary/10"
+                      : "border-border hover:bg-secondary"
+                  )}
+                >
+                  <span className={cn("block text-[13px] font-semibold", dirPick === i ? "text-primary" : "text-c-text")}>
+                    {d.name}
+                  </span>
+                  <span className="block text-[11.5px] leading-snug text-muted-foreground">{d.desc}</span>
+                </button>
+              ))}
+              <button
+                type="button"
+                onClick={() => setDirPick(-1)}
+                className={cn(
+                  "w-full rounded-[10px] border px-3 py-1.5 text-left text-[12.5px] transition-colors",
+                  dirPick === -1 ? "border-primary bg-primary/10 text-primary" : "border-border text-muted-foreground hover:bg-secondary"
+                )}
+              >
+                {L("随机一个方向", "Random direction")}
+              </button>
+              {dirFallback && (
+                <p className="text-[11px] text-amber-600">
+                  {L("识图模型暂不可用,以上为通用方向(未根据产品定制)。", "Vision model unavailable — generic directions shown.")}
+                </p>
+              )}
+            </div>
+          )}
+          <p className="text-[11.5px] text-muted-foreground">
+            {L(
+              "整套 13 张统一按所选方向出图;想要不同风格就换个方向。不选则随机。",
+              "All 13 images follow the chosen direction. Skip to pick one at random."
+            )}
+          </p>
+        </div>
+
         <div className="rounded-xl bg-secondary/50 px-4 py-3 text-sm">
           <div className="flex items-center justify-between">
             <span className="text-muted-foreground">{t("suite.output")}</span>
@@ -626,6 +752,30 @@ export function SuiteClient() {
                 </Button>
               )}
             </div>
+            {planFallback && (
+              <p className="rounded-lg border border-amber-500/30 bg-amber-500/10 px-3 py-2 text-xs text-amber-700 dark:text-amber-400">
+                {L(
+                  "本次识图模型未能完成智能规划,已按通用模板 + 所选方向出图,画面可能不够贴合产品。请联系站长检查后台「识图 / 文案模型」配置。",
+                  "Smart planning was unavailable this time; a generic template was used. Ask the admin to check the vision model settings."
+                )}
+              </p>
+            )}
+            {finished && (
+              <div className="flex items-center justify-between rounded-lg bg-secondary/50 px-3 py-2 text-xs">
+                <span className="text-muted-foreground">
+                  {L("想要不同风格?换个设计方向再来一套。", "Want a different look? Try another direction.")}
+                </span>
+                <button
+                  type="button"
+                  onClick={() => void fetchDirections()}
+                  disabled={dirLoading}
+                  className="inline-flex items-center gap-1 font-medium text-acc hover:underline disabled:opacity-50"
+                >
+                  <RefreshCw className={cn("h-3.5 w-3.5", dirLoading && "animate-spin")} />
+                  {L("换一批方向", "New directions")}
+                </button>
+              </div>
+            )}
 
             {(["main", "sub", "detail"] as const).map((role) => {
               const list = group(role);

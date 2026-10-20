@@ -12,6 +12,9 @@ import {
   saveVideoKey,
   saveVideoModel,
   saveVideoBaseUrl,
+  saveChatLLMKey,
+  saveChatLLMModel,
+  saveChatLLMBaseUrl,
   saveReplicateModel,
   saveWechatLogin,
   saveWechatSecret,
@@ -108,6 +111,10 @@ export async function POST(req: Request) {
     videoBaseUrl?: string;
     encryptedVideoKey?: string;
     videoKeyPlain?: string;
+    chatLlmModel?: string;
+    chatLlmBaseUrl?: string;
+    encryptedChatLlmKey?: string;
+    chatLlmKeyPlain?: string;
   };
   try {
     body = await req.json();
@@ -238,6 +245,26 @@ export async function POST(req: Request) {
         return NextResponse.json({ error: "视频 API Key 无效" }, { status: 400 });
       }
       await saveVideoKey(body.videoKeyPlain.trim());
+    }
+
+    // ---- 识图/文案模型(套图规划/AI帮写/标题)----  Key 规格同视频 Key
+    if (typeof body.chatLlmModel === "string") {
+      await saveChatLLMModel(body.chatLlmModel);
+    }
+    if (typeof body.chatLlmBaseUrl === "string") {
+      await saveChatLLMBaseUrl(body.chatLlmBaseUrl);
+    }
+    if (body.encryptedChatLlmKey) {
+      const plain = await decryptFromClient(body.encryptedChatLlmKey);
+      if (!plain || plain.length < 8) {
+        return NextResponse.json({ error: "解密后的识图模型 API Key 无效" }, { status: 400 });
+      }
+      await saveChatLLMKey(plain);
+    } else if (typeof body.chatLlmKeyPlain === "string" && body.chatLlmKeyPlain.trim()) {
+      if (body.chatLlmKeyPlain.trim().length < 8) {
+        return NextResponse.json({ error: "识图模型 API Key 无效" }, { status: 400 });
+      }
+      await saveChatLLMKey(body.chatLlmKeyPlain.trim());
     }
 
     // ---- 微信登录:明文字段(空串自动跳过) ----

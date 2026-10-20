@@ -1,8 +1,6 @@
 import { NextResponse } from "next/server";
 import { toVisionDataUrl } from "@/lib/vision-image";
-import OpenAI from "openai";
-import { getOpenAISettings } from "@/lib/settings";
-import { getOpenAIBaseUrl } from "@/lib/openai-base";
+import { getChatLLM, parseJsonLoose } from "@/lib/chat-llm";
 import { getTitleSystem } from "@/lib/prompt-config";
 import { resolveUserEmail } from "@/lib/admin-auth";
 import { dbEnabled, addArtworks } from "@/lib/db";
@@ -81,8 +79,8 @@ export async function POST(req: Request) {
     );
   }
 
-  const { apiKey } = await getOpenAISettings();
-  if (!apiKey) {
+  const llm = await getChatLLM();
+  if (!llm) {
     const base = idea || "热销好物";
     return NextResponse.json({
       titles: Array.from({ length: count }, (_, i) =>
@@ -93,10 +91,7 @@ export async function POST(req: Request) {
   }
 
   try {
-    const client = new OpenAI({
-      apiKey,
-      baseURL: (await getOpenAIBaseUrl()) || undefined,
-    });
+    const { client, model } = llm;
     const sys = await getTitleSystem();
     const ctx: string[] = [`需要 ${count} 条标题`];
     if (platform) ctx.push(`平台:${platform}`);
@@ -105,7 +100,7 @@ export async function POST(req: Request) {
     ctx.push(hasImage ? "已提供产品图(看图后据此写)" : "无产品图(据描述写)");
     const text = `${ctx.join(";")}\n产品描述/卖点:${idea || "(空,看图自行判断)"}`;
     const resp = await client.chat.completions.create({
-      model: "gpt-4o-mini",
+      model,
       response_format: { type: "json_object" },
       messages: [
         { role: "system", content: sys },
@@ -124,9 +119,11 @@ export async function POST(req: Request) {
     });
     const raw = (resp.choices[0]?.message?.content ?? "").trim();
     let parsed: { titles?: unknown; sellingPoints?: unknown } = {};
-    try {
-      parsed = JSON.parse(raw);
-    } catch {
+    // 部分国产模型会把 JSON 包在 ```json 里,宽松解析
+    const loose = parseJsonLoose<typeof parsed>(raw);
+    if (loose) {
+      parsed = loose;
+    } else {
       return NextResponse.json({ error: "没生成出来,请重试" }, { status: 502 });
     }
     const titles = Array.isArray(parsed.titles)

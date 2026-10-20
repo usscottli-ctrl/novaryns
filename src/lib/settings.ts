@@ -310,6 +310,53 @@ export async function saveVideoBaseUrl(url: string): Promise<void> {
 }
 
 // ---------------------------------------------------------------------------
+// 识图/文案模型(一键套图规划、AI帮写、标题生成用的「看图 + 写字」对话模型)。
+// 为什么单独一组:生图常走第三方中转(只有出图模型、没有对话模型),
+// 原来写死用主 Key 调 gpt-4o-mini —— 中转没有这个模型时套图规划静默失败、
+// 每次都退回同一套模板,客户看到的就是"换平台/换批次出图都一样"。
+// 配了 Key 就用这里(任意 OpenAI 兼容接口,默认阿里云百炼);不配 = 原行为(主 Key + gpt-4o-mini)。
+// ---------------------------------------------------------------------------
+const CHAT_LLM_KEY_ENC = "chat_llm_key_enc";
+const CHAT_LLM_MODEL = "chat_llm_model";
+const CHAT_LLM_BASE_URL = "chat_llm_base_url";
+export const DEFAULT_CHAT_LLM_BASE_URL = "https://dashscope.aliyuncs.com/compatible-mode/v1";
+export const DEFAULT_CHAT_LLM_MODEL = "qwen3-vl-plus";
+
+export type ChatLLMSettings = { apiKey: string; model: string; baseUrl: string };
+
+export async function getChatLLMSettings(): Promise<ChatLLMSettings> {
+  let apiKey = process.env.CHAT_LLM_API_KEY || "";
+  let model = process.env.CHAT_LLM_MODEL || "";
+  let baseUrl = process.env.CHAT_LLM_BASE_URL || "";
+  if (dbEnabled) {
+    const k = await getSetting(CHAT_LLM_KEY_ENC);
+    const m = await getSetting(CHAT_LLM_MODEL);
+    const b = await getSetting(CHAT_LLM_BASE_URL);
+    const dbKey = k ? decryptAtRest(k) : null;
+    if (dbKey) apiKey = dbKey;
+    if (m) model = m;
+    if (b) baseUrl = b;
+  }
+  return {
+    apiKey,
+    model: model || DEFAULT_CHAT_LLM_MODEL,
+    baseUrl: baseUrl || DEFAULT_CHAT_LLM_BASE_URL,
+  };
+}
+
+export async function saveChatLLMKey(plain: string): Promise<void> {
+  await setSetting(CHAT_LLM_KEY_ENC, encryptAtRest(plain.trim()));
+}
+
+export async function saveChatLLMModel(model: string): Promise<void> {
+  await setSetting(CHAT_LLM_MODEL, model.trim());
+}
+
+export async function saveChatLLMBaseUrl(url: string): Promise<void> {
+  await setSetting(CHAT_LLM_BASE_URL, url.trim());
+}
+
+// ---------------------------------------------------------------------------
 // 微信登录配置:DB 优先 → env 兜底。
 //  - AppID/Token/邮箱域名:非敏感明文。
 //  - AppSecret:AES 加密存储(wechat_secret_enc),解出后用;绝不回显。
@@ -693,6 +740,7 @@ export async function getAdminView() {
   const w = await getWechatSettings();
   const p = await getPaymentSettings();
   const v = await getVideoSettings();
+  const cl = await getChatLLMSettings();
   const baseUrlPlain = await readOpenAIBaseUrlPlain();
   return {
     model: s.model,
@@ -714,6 +762,11 @@ export async function getAdminView() {
     videoKeyMasked: maskKey(v.apiKey),
     videoModel: v.model,
     videoBaseUrl: v.baseUrl,
+    // 识图/文案模型(套图规划/AI帮写/标题):Key 只回掩码
+    chatLlmReady: !!cl.apiKey,
+    chatLlmKeyMasked: maskKey(cl.apiKey),
+    chatLlmModel: cl.model,
+    chatLlmBaseUrl: cl.baseUrl,
     // 微信登录:非敏感明文回显;AppSecret 只回掩码 + 是否就绪
     wechatAppid: w.appid,
     wechatToken: w.token,
