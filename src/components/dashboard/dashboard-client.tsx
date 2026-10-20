@@ -42,6 +42,7 @@ import { Media } from "@/components/media";
 import { downloadImage } from "@/lib/download";
 import { useI18n } from "@/lib/i18n/locale-context";
 import { formatDate, cn } from "@/lib/utils";
+import { useBrand } from "@/lib/brand-context";
 
 function fmt(s: string, vars: Record<string, string | number>): string {
   return Object.entries(vars).reduce(
@@ -614,6 +615,7 @@ export function DashboardClient() {
 
 // 普通单张作品卡(原来的卡片,抽成组件供分组渲染复用)。
 function SingleCard({ a }: { a: Artwork }) {
+  const { name: brandName } = useBrand(); // 下载文件名用站点名(白标)
   const { t, te, locale } = useI18n();
   // 点作品进对应功能板块:抠图/融图各自的工具页,其余进生图迭代。
   const href = workHref(a);
@@ -774,7 +776,7 @@ function SingleCard({ a }: { a: Artwork }) {
             variant="secondary"
             size="sm"
             disabled={a.status !== "completed"}
-            onClick={() => downloadImage(a.image, `novaryns-${a.id}`)}
+            onClick={() => downloadImage(a.image, `${brandName}-${a.id}`)}
           >
             <Download className="h-3.5 w-3.5" />
             {t("dash.export")}
@@ -791,6 +793,7 @@ function SingleCard({ a }: { a: Artwork }) {
 // 一键套图批次卡:同一次生成的全部图片 + 提示词聚合,支持整批一键下载 ZIP。
 // 横跨整行(sm:col-span-2 lg:col-span-3)。
 function SuiteBatchCard({ items }: { items: Artwork[] }) {
+  const { name: brandName } = useBrand(); // 下载文件名用站点名(白标)
   const { t } = useI18n();
   const [showPrompts, setShowPrompts] = useState(false);
   const [downloading, setDownloading] = useState(false);
@@ -845,7 +848,7 @@ function SuiteBatchCard({ items }: { items: Artwork[] }) {
       const url = URL.createObjectURL(blob);
       const link = document.createElement("a");
       link.href = url;
-      link.download = `suite-${items[0]?.batchId ?? "batch"}.zip`;
+      link.download = `${brandName}-套图-${items[0]?.batchId ?? "batch"}.zip`;
       document.body.appendChild(link);
       link.click();
       link.remove();
@@ -915,7 +918,7 @@ function SuiteBatchCard({ items }: { items: Artwork[] }) {
             {it.status === "completed" && (
               <button
                 type="button"
-                onClick={() => downloadImage(it.image, `novaryns-${it.id}`)}
+                onClick={() => downloadImage(it.image, `${brandName}-${it.id}`)}
                 title={t("dash.export")}
                 className="absolute right-1.5 top-1.5 inline-flex h-7 w-7 items-center justify-center rounded-lg bg-card/85 text-foreground opacity-0 shadow transition-opacity hover:bg-card group-hover/thumb:opacity-100"
               >

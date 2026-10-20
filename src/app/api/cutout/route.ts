@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { generateBuffer } from "@/lib/image-gen";
-import { TOOL_COST } from "@/lib/mock-data";
+import { toolCost } from "@/lib/mock-data";
 import OpenAI, { toFile } from "openai";
 import {
   dbEnabled,
@@ -18,6 +18,7 @@ import { storageEnabled, uploadImage } from "@/lib/storage";
 import { getCutoutSettings, getOpenAISettings } from "@/lib/settings";
 import { runReplicate, fetchResultBytes } from "@/lib/replicate-run";
 import { safeError } from "@/lib/api-error";
+import { loadPriceOverrides } from "@/lib/price-overrides";
 
 // ---------------------------------------------------------------------------
 // 抠图(背景移除 / 透明底)专用端点。
@@ -36,7 +37,6 @@ export const maxDuration = 120; // Replicate 冷启动可能需要 1-2 分钟
 
 // 抠图只保留「发丝级」(Replicate BiRefNet),统一 1 积分/张
 // (2026-06-17 用户去掉免费极速档:画布与 AI 抠图都只发丝级、扣 1 分)。
-const CUTOUT_COST = TOOL_COST.cutout;
 
 type CutoutInput = {
   bytes: Buffer;
@@ -245,7 +245,8 @@ export async function POST(request: Request) {
     }
     const useDb = dbEnabled && input.email.length > 0;
     // 抠图统一 1 积分/张(只发丝级)。
-    const cost = CUTOUT_COST;
+    await loadPriceOverrides(); // 站长在后台改的板块价
+    const cost = toolCost("cutout");
 
     if (dbEnabled && (await isBanned(input.email, ip))) {
       return NextResponse.json(

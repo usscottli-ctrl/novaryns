@@ -157,6 +157,52 @@ export const TOOL_COST = {
 } as const;
 export type ToolKey = keyof typeof TOOL_COST;
 
+// ── 后台「各板块积分」覆盖(站长可自定义价格,2026-10-20 客户要求)────────────────
+// 站长在后台按板块填数字,没填的沿用本文件的默认价。**前端展示与后端实扣都经下面这几个函数**:
+//   固定价板块 → toolCost(key)
+//   按分辨率   → resolutionCost(档位, 质量, 模型, 板块)   key = "板块.档位",如 "suite.2K"
+//   3D 服装    → garment3dCost(档位)                      key = "garment3d.1K"
+//   视频       → videoCost(秒, 分辨率)                     key = "video.720p"(积分/秒)
+// 覆盖表的注入:服务端计价前 `await loadPriceOverrides()`(lib/price-overrides.ts,读 DB);
+// 前端由 layout SSR 读出后经 PriceProvider 在渲染前 setPriceOverrides(),页面首帧即是站长定的价。
+let PRICE_OV: Record<string, number> = {};
+export function setPriceOverrides(m: Record<string, number> | null | undefined): void {
+  PRICE_OV = m ?? {};
+}
+function priceOv(key: string): number | undefined {
+  const v = PRICE_OV[key];
+  return typeof v === "number" && Number.isFinite(v) && v >= 0 ? v : undefined;
+}
+/** 固定价板块的当前单价(站长覆盖优先)。 */
+export function toolCost(key: ToolKey): number {
+  return priceOv(key) ?? TOOL_COST[key];
+}
+
+/** 后台「各板块积分」的板块清单(label 与前台工具名一致)。tiers 有值=按档位分别定价。 */
+export const PRICE_BOARDS: readonly {
+  id: string;
+  label: string;
+  unit: string;
+  tiers?: readonly string[];
+}[] = [
+  { id: "generate", label: "AI 生图(含 AI 融图 / 图裂变 / 画布 / 对话生图)", unit: "积分/张", tiers: ["1K", "2K", "4K"] },
+  { id: "suite", label: "一键套图", unit: "积分/张(一套 13 张)", tiers: ["1K", "2K", "4K"] },
+  { id: "inpaint", label: "局部改图", unit: "积分/次", tiers: ["1K", "2K", "4K"] },
+  { id: "extract", label: "印花提取", unit: "积分/次", tiers: ["1K", "2K", "4K"] },
+  { id: "garment3d", label: "3D 服装图", unit: "积分/次", tiers: ["1K", "2K", "4K"] },
+  { id: "video", label: "视频生成", unit: "积分/秒", tiers: ["480p", "720p"] },
+  { id: "cutout", label: "AI 抠图", unit: "积分/次" },
+  { id: "avatar", label: "抠头像", unit: "积分/次" },
+  { id: "upscale", label: "AI 变清晰", unit: "积分/次" },
+  { id: "style", label: "风格转换", unit: "积分/次" },
+  { id: "dewatermark", label: "去水印", unit: "积分/次" },
+  { id: "tryon", label: "服装上身", unit: "积分/次" },
+  { id: "garment", label: "服装提取", unit: "积分/次" },
+  { id: "dewrinkle", label: "服装去皱", unit: "积分/次" },
+  { id: "ipcheck", label: "侵权检测", unit: "积分/次" },
+  { id: "printfile", label: "印刷图", unit: "积分/次" },
+];
+
 // ── 视频生成积分单价(积分/秒)────────────────────────────────────────────
 // 同上铁律:前端展示与后端实扣都从 videoCost() 取。
 // 成本依据:方舟按**视频 token** 计费。2026-08-15 实测一条 480p/5s = 48,437 tokens,
@@ -189,6 +235,7 @@ export const DEFAULT_VIDEO_MODEL = VIDEO_MODELS[0].id;
 /** 一次视频生成的积分成本。duration 单位秒(Seedance 支持 3~12)。 */
 export function videoCost(duration: number, resolution: string): number {
   const rate =
+    priceOv(`video.${resolution}`) ??
     VIDEO_COST_PER_SEC[resolution as VideoResolution] ??
     VIDEO_COST_PER_SEC["720p"];
   return Math.round(duration * rate);
@@ -665,15 +712,20 @@ const FALLBACK_MODEL = "gpt-image-2";
 export function resolutionCost(
   id: string,
   quality = "medium",
-  model = FALLBACK_MODEL
+  model = FALLBACK_MODEL,
+  board = "generate"
 ): number {
   const table = MODEL_CREDITS[model] ?? MODEL_CREDITS[FALLBACK_MODEL];
+  // 站长在后台给该板块该档位定了价就用它(仍乘质量档倍率);否则按模型价格表。
   // 该模型不支持这一档(如香蕉PRO 只有 1K)→ 按它支持的最高档计,不会算出 0。
   const base =
+    priceOv(`${board}.${id}`) ??
     table[id] ??
     table[Object.keys(table)[Object.keys(table).length - 1]] ??
     POINTS_PER_IMAGE;
   const mult = modelHasQuality(model) ? qualityMult(quality) : 1;
+  // 站长可把某板块定成 0 积分(免费),此时不再兜底成 1
+  if (base === 0) return 0;
   return Math.max(1, Math.round(base * mult));
 }
 
@@ -689,5 +741,20 @@ export const GARMENT3D_COST: Record<string, number> = {
   "4K": 18,
 };
 export function garment3dCost(id: string): number {
-  return GARMENT3D_COST[id] ?? GARMENT3D_COST["1K"];
+  return priceOv(`garment3d.${id}`) ?? GARMENT3D_COST[id] ?? GARMENT3D_COST["1K"];
+}
+
+/** 某价格键的默认价(不含站长覆盖),后台「各板块积分」显示参考用。 */
+export function defaultPrice(key: string): number {
+  const saved = PRICE_OV;
+  PRICE_OV = {};
+  try {
+    const [board, tier] = key.split(".");
+    if (!tier) return toolCost(board as ToolKey);
+    if (board === "video") return videoCost(1, tier);
+    if (board === "garment3d") return garment3dCost(tier);
+    return resolutionCost(tier, "medium", FALLBACK_MODEL, board);
+  } finally {
+    PRICE_OV = saved;
+  }
 }

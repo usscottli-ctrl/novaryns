@@ -13,6 +13,8 @@ import { getServerLocale } from "@/lib/i18n/server-locale";
 import { PaymentProvider } from "@/lib/payment-context";
 import { BrandProvider } from "@/lib/brand-context";
 import { getRuntimeBrand } from "@/lib/brand-runtime";
+import { PriceProvider } from "@/lib/price-context";
+import { getPriceOverrides } from "@/lib/price-overrides";
 import { getPaymentStatus } from "@/lib/settings";
 import { relayTokenIdFromBaseUrl } from "@/lib/cloud";
 import { proEnabled, editionName } from "@/lib/edition";
@@ -70,6 +72,8 @@ export default async function RootLayout({
   const rechargeEnabled = pro && (await getPaymentStatus()).enabled;
   // 运行时品牌(白标):DB site_name/brand_logo 覆盖 → env 默认兜底;DB 无覆盖时与现状一致。
   const brand = await getRuntimeBrand();
+  // 后台「各板块积分」覆盖表(站长自定义价格),SSR 注入前端计价函数
+  const prices = await getPriceOverrides();
   // 本实例是否为云端托管租户(OPENAI_BASE_URL 指向 relay 的 nvr- 通道)。
   const isCloudTenant =
     relayTokenIdFromBaseUrl(process.env.OPENAI_BASE_URL || "") !== null;
@@ -95,6 +99,7 @@ export default async function RootLayout({
             logo={brand.logo}
             logoHasText={brand.logoHasText}
           >
+          <PriceProvider prices={prices}>
           <AuthProvider>
             <AuthModalProvider>
               <RechargeModalProvider>
@@ -111,6 +116,7 @@ export default async function RootLayout({
               </RechargeModalProvider>
             </AuthModalProvider>
           </AuthProvider>
+          </PriceProvider>
           </BrandProvider>
           </PaymentProvider>
         </LocaleProvider>

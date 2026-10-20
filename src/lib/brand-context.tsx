@@ -1,6 +1,6 @@
 "use client";
 
-import { createContext, useContext, useMemo } from "react";
+import { createContext, useContext, useEffect, useMemo } from "react";
 import { BRAND, BRAND_LOGO, BRAND_LOGO_HAS_TEXT } from "@/lib/brand";
 
 // ---------------------------------------------------------------------------
@@ -38,6 +38,19 @@ export function BrandProvider({
     () => ({ name, logo, logoHasText }),
     [name, logo, logoHasText]
   );
+  // 各页 metadata 的标题是 build 期常量 `${BRAND}`(公共镜像里是 Novaryns),
+  // 白标客户站改了站点名后,标签页标题仍露出我们的品牌 → 运行时把它换成站点名。
+  // 用 MutationObserver 盯 <title>,前端路由切页后新标题同样会被替换。
+  useEffect(() => {
+    if (!name || name === BRAND) return;
+    const fix = () => {
+      if (document.title.includes(BRAND)) document.title = document.title.split(BRAND).join(name);
+    };
+    fix();
+    const obs = new MutationObserver(fix);
+    obs.observe(document.head, { subtree: true, childList: true, characterData: true });
+    return () => obs.disconnect();
+  }, [name]);
   return (
     <BrandContext.Provider value={value}>{children}</BrandContext.Provider>
   );

@@ -16,9 +16,10 @@ import { resolveUserEmail } from "@/lib/admin-auth";
 import { storageEnabled, uploadImage } from "@/lib/storage";
 import { getOpenAISettings } from "@/lib/settings";
 import { getOpenAIBaseUrl } from "@/lib/openai-base";
-import { TOOL_COST } from "@/lib/mock-data";
+import { toolCost } from "@/lib/mock-data";
 import { getTryonLibrary } from "@/lib/tryon-store";
 import { safeError } from "@/lib/api-error";
+import { loadPriceOverrides } from "@/lib/price-overrides";
 
 // ---------------------------------------------------------------------------
 // 服装上身(虚拟试穿)端点。
@@ -31,7 +32,6 @@ import { safeError } from "@/lib/api-error";
 export const runtime = "nodejs";
 export const maxDuration = 240;
 
-const TRYON_COST = TOOL_COST.tryon;
 
 type TryonInput = {
   top: Buffer | null; // 上装(可选)
@@ -339,7 +339,8 @@ export async function POST(request: Request) {
       input.email = tokenEmail;
     }
     const useDb = dbEnabled && input.email.length > 0;
-    const cost = TRYON_COST;
+    await loadPriceOverrides(); // 站长在后台改的板块价
+    const cost = toolCost("tryon");
 
     if (dbEnabled && (await isBanned(input.email, ip)))
       return NextResponse.json({ error: "账号或 IP 已被封禁" }, { status: 403 });

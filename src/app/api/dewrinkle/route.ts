@@ -16,14 +16,14 @@ import { storageEnabled, uploadImage } from "@/lib/storage";
 import { generateBuffer } from "@/lib/image-gen";
 import { getOpenAISettings } from "@/lib/settings";
 import { getOpenAIBaseUrl } from "@/lib/openai-base";
-import { TOOL_COST } from "@/lib/mock-data";
+import { toolCost } from "@/lib/mock-data";
 import { safeError } from "@/lib/api-error";
+import { loadPriceOverrides } from "@/lib/price-overrides";
 
 // 服装去皱:gpt-image-2 把衣服上的褶皱/折痕抚平、面料平整如新,其余(版型/颜色/模特/背景)全保留。
 export const runtime = "nodejs";
 export const maxDuration = 200;
 
-const COST = TOOL_COST.dewrinkle;
 
 const BASE_PROMPT =
   "Remove ALL wrinkles, creases and folds from the clothing in this image, making the fabric look smooth, flat, neat and freshly ironed/steamed. Keep EVERYTHING ELSE strictly identical — the exact garment design, cut, colour, pattern, prints, text, logos, the person/model (face, body, pose) if present, the background, lighting and overall composition must stay the same. Only smooth out the wrinkles; do not restyle, recolor or move anything.";
@@ -91,7 +91,8 @@ export async function POST(request: Request) {
       input.email = tokenEmail;
     }
     const useDb = dbEnabled && input.email.length > 0;
-    const cost = COST;
+    await loadPriceOverrides(); // 站长在后台改的板块价
+    const cost = toolCost("dewrinkle");
 
     if (dbEnabled && (await isBanned(input.email, ip)))
       return NextResponse.json({ error: "账号或 IP 已被封禁" }, { status: 403 });

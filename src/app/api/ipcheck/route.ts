@@ -15,13 +15,14 @@ import { resolveUserEmail } from "@/lib/admin-auth";
 import { getOpenAISettings } from "@/lib/settings";
 import { getOpenAIBaseUrl } from "@/lib/openai-base";
 import { safeError } from "@/lib/api-error";
+import { toolCost } from "@/lib/mock-data";
+import { loadPriceOverrides } from "@/lib/price-overrides";
 
 // 侵权检测:视觉模型筛查图片的版权/IP 风险(知名卡通形象、品牌 logo、商标、明星肖像、名画等),
-// 给出 高/中/低 风险 + 风险点 + 商用建议。**非生图**,不落作品库。计费 1 积分。
+// 给出 高/中/低 风险 + 风险点 + 商用建议。**非生图**,不落作品库。默认 1 积分(后台可改)。
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
-const COST = 1;
 
 const SYS =
   "你是电商图片的版权/知识产权风险筛查助手。看图判断它用于商用是否有侵权风险,重点查:① 知名版权卡通/动漫/游戏形象(如迪士尼米奇、三丽鸥、宝可梦等);② 品牌 logo / 商标 / 注册图形;③ 明星/公众人物肖像;④ 知名画作/IP 设计;⑤ 仿冒大牌元素。" +
@@ -62,8 +63,10 @@ export async function POST(req: Request) {
   if (dbEnabled && (await isBanned(email, ip)))
     return NextResponse.json({ error: "账号或 IP 已被封禁" }, { status: 403 });
 
+  await loadPriceOverrides(); // 站长在后台改的板块价
+  const cost = toolCost("ipcheck");
   if (useDb) {
-    const ok = await reserveCredits(email, COST);
+    const ok = await reserveCredits(email, cost);
     if (!ok)
       return NextResponse.json({ error: "积分不足,请充值后重试" }, { status: 402 });
   }
@@ -99,12 +102,12 @@ export async function POST(req: Request) {
       data = { risk: "low", riskLabel: "低风险", summary: "未识别到明显风险", items: [], advice: "" };
     }
     if (useDb) {
-      await addLedgerEntry(email, -COST, "侵权检测").catch(() => {});
+      await addLedgerEntry(email, -cost, "侵权检测").catch(() => {});
     }
     const user = useDb ? await getUser(email).catch(() => null) : null;
-    return NextResponse.json({ ok: true, result: data, creditsUsed: useDb ? COST : 0, user });
+    return NextResponse.json({ ok: true, result: data, creditsUsed: useDb ? cost : 0, user });
   } catch (e) {
-    if (useDb) await refundCredits(email, COST).catch(() => {});
+    if (useDb) await refundCredits(email, cost).catch(() => {});
     return NextResponse.json(
       { error: safeError(e, "侵权检测服务暂时不可用,请稍后重试") },
       { status: 500 }

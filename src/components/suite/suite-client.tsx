@@ -36,6 +36,7 @@ import { GenLoader } from "@/components/gen-loader";
 import { downloadImage } from "@/lib/download";
 import { SUITE_PLATFORMS, resolutionCost } from "@/lib/mock-data";
 import { cn } from "@/lib/utils";
+import { useBrand } from "@/lib/brand-context";
 
 function fmt(s: string, vars: Record<string, string | number>): string {
   return Object.entries(vars).reduce(
@@ -61,6 +62,7 @@ type Shot = {
 };
 
 export function SuiteClient() {
+  const { name: brandName } = useBrand(); // 下载文件名用站点名(白标)
   const keepDays = useArtworkKeepDays();
   const { user, ready, remaining, applyServerUser } = useAuth();
   const { openAuth } = useAuthModal();
@@ -133,7 +135,7 @@ export function SuiteClient() {
   // 严格不编造参数(默认关,2026-10-20 用户定):关着时 AI 按品类常识补充参数,图更有"参数感"但可能与实物不符;
   // 打开则只用用户自己写的参数
   const [strict, setStrict] = useStickyState<boolean>("suite.strict2", false, (v) => typeof v === "boolean");
-  const cost = 13 * resolutionCost(resolution, "medium", "gpt-image-2");
+  const cost = 13 * resolutionCost(resolution, "medium", "gpt-image-2", "suite");
 
   useEffect(() => {
     return () => {
@@ -294,7 +296,7 @@ export function SuiteClient() {
       const url = URL.createObjectURL(blob);
       const a = document.createElement("a");
       a.href = url;
-      a.download = `星泽商图-套图-${Date.now()}.zip`;
+      a.download = `${brandName}-套图-${Date.now()}.zip`;
       document.body.appendChild(a);
       a.click();
       a.remove();
@@ -391,7 +393,7 @@ export function SuiteClient() {
       const url = URL.createObjectURL(blob);
       const a = document.createElement("a");
       a.href = url;
-      a.download = `星泽商图-套图记录-${items.length}张.zip`;
+      a.download = `${brandName}-套图记录-${items.length}张.zip`;
       document.body.appendChild(a);
       a.click();
       a.remove();
@@ -687,7 +689,7 @@ export function SuiteClient() {
               >
                 {r.label}
                 <span className="block text-[10.5px] font-normal opacity-70">
-                  {13 * resolutionCost(r.id, "medium", "gpt-image-2")} {L("积分", "credits")}
+                  {13 * resolutionCost(r.id, "medium", "gpt-image-2", "suite")} {L("积分", "credits")}
                 </span>
               </button>
             ))}
@@ -987,7 +989,7 @@ export function SuiteClient() {
           src={cdnUrl(viewing.url)}
           alt={viewing.label}
           onClose={() => setViewing(null)}
-          downloadName="星泽商图-套图"
+          downloadName={`${brandName}-套图`}
         />
       )}
       {/* 记录列放大 */}
@@ -995,7 +997,7 @@ export function SuiteClient() {
         <ImageLightbox
           src={recView}
           onClose={() => setRecView("")}
-          downloadName="星泽商图-套图"
+          downloadName={`${brandName}-套图`}
         />
       )}
     </div>

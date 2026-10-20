@@ -50,7 +50,7 @@ import { AdminCloudTenants } from "@/components/admin/admin-cloud-tenants";
 import { AdminCloudCodes } from "@/components/admin/admin-cloud-codes";
 import { AdminAnalytics } from "@/components/admin/admin-analytics";
 import { AdminStorage } from "@/components/admin/admin-storage";
-import { VIDEO_MODELS } from "@/lib/mock-data";
+import { VIDEO_MODELS, PRICE_BOARDS, defaultPrice } from "@/lib/mock-data";
 import { ComputeCard } from "@/components/admin/compute-card";
 import { DeployCenter } from "@/components/operator/deploy-center";
 import { LicensesClient } from "@/components/operator/licenses-client";
@@ -177,6 +177,7 @@ type View = {
   multiUserEnabled?: boolean;
   // 积分计费开关
   creditsMetering?: boolean;
+  creditPrices?: Record<string, number>;
   customImageModels?: string;
   // SMTP(忘记密码用)
   smtpHost?: string;
@@ -378,6 +379,8 @@ export function AdminSettings({ localAdmin = false }: { localAdmin?: boolean }) 
   const [payEnabled, setPayEnabled] = useState(false);
   const [multiUserOn, setMultiUserOn] = useState(false);
   const [meteringOn, setMeteringOn] = useState(false);
+  // 各板块积分:输入框文本,空 = 用默认价
+  const [priceInputs, setPriceInputs] = useState<Record<string, string>>({});
   const [customModelsText, setCustomModelsText] = useState("");
   const [grantEmail, setGrantEmail] = useState("operator@novaryns.local");
   const [grantAmount, setGrantAmount] = useState("100");
@@ -626,6 +629,9 @@ export function AdminSettings({ localAdmin = false }: { localAdmin?: boolean }) 
     setPayEnabled(!!v.payEnabled);
     setMultiUserOn(!!v.multiUserEnabled);
     setMeteringOn(!!v.creditsMetering);
+    setPriceInputs(
+      Object.fromEntries(Object.entries(v.creditPrices ?? {}).map(([k, n]) => [k, String(n)]))
+    );
     setCustomModelsText(v.customImageModels ?? "");
     setSmtpHost(v.smtpHost ?? "");
     setSmtpPort(v.smtpPort || "465");
@@ -971,6 +977,9 @@ export function AdminSettings({ localAdmin = false }: { localAdmin?: boolean }) 
       setPayEnabled(!!v.payEnabled);
     setMultiUserOn(!!v.multiUserEnabled);
     setMeteringOn(!!v.creditsMetering);
+    setPriceInputs(
+      Object.fromEntries(Object.entries(v.creditPrices ?? {}).map(([k, n]) => [k, String(n)]))
+    );
     setCustomModelsText(v.customImageModels ?? "");
     setSmtpHost(v.smtpHost ?? "");
     setSmtpPort(v.smtpPort || "465");
@@ -2953,6 +2962,78 @@ export function AdminSettings({ localAdmin = false }: { localAdmin?: boolean }) 
             >
               {busy && <Loader2 className="h-4 w-4 animate-spin" />}
               保存
+            </Button>
+          </div>
+        </div>
+
+        {/* 各板块积分(站长自定义价格) */}
+        <div className="mb-5 space-y-3 rounded-2xl border border-border bg-card p-6 card-shadow">
+          <div className="flex items-center gap-2 text-sm font-semibold">
+            <Sparkles className="h-4 w-4 text-primary" />
+            各板块积分
+          </div>
+          <p className="text-xs text-muted-foreground">
+            按板块设置每次生成扣多少积分。<b>留空 = 用默认价</b>(灰字);填 0 = 该板块免费。
+            前台显示的价格与实际扣费同时生效(约 15 秒内)。按清晰度计价的板块可分别设置 1K / 2K / 4K;
+            AI 生图选「高清/高阶」质量时仍按质量倍率在此基础上加价。
+          </p>
+          <div className="divide-y divide-border rounded-xl border border-border">
+            {PRICE_BOARDS.map((b) => {
+              const keys = b.tiers ? b.tiers.map((t) => `${b.id}.${t}`) : [b.id];
+              return (
+                <div key={b.id} className="flex flex-wrap items-center gap-x-3 gap-y-2 px-3 py-2">
+                  <div className="min-w-[180px] flex-1">
+                    <div className="text-[13px] font-medium">{b.label}</div>
+                    <div className="text-[11px] text-muted-foreground">{b.unit}</div>
+                  </div>
+                  <div className="flex flex-wrap gap-2">
+                    {keys.map((k) => (
+                      <label key={k} className="flex items-center gap-1 text-[11px] text-muted-foreground">
+                        {b.tiers && <span className="w-9 text-right">{k.split(".")[1]}</span>}
+                        <Input
+                          inputMode="numeric"
+                          value={priceInputs[k] ?? ""}
+                          onChange={(e) =>
+                            setPriceInputs((m) => ({ ...m, [k]: e.target.value.replace(/[^0-9]/g, "") }))
+                          }
+                          placeholder={`默认 ${defaultPrice(k)}`}
+                          className="h-8 w-[88px] text-[12px]"
+                        />
+                      </label>
+                    ))}
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+          <div className="flex flex-wrap gap-2">
+            <Button
+              variant="outline"
+              size="sm"
+              disabled={busy}
+              onClick={() =>
+                void postSettings(
+                  {
+                    creditPrices: Object.fromEntries(
+                      Object.entries(priceInputs)
+                        .filter(([, v]) => v.trim() !== "")
+                        .map(([k, v]) => [k, Number(v)])
+                    ),
+                  },
+                  "各板块积分已保存,前台约 15 秒内生效"
+                )
+              }
+            >
+              {busy && <Loader2 className="h-4 w-4 animate-spin" />}
+              保存各板块积分
+            </Button>
+            <Button
+              variant="ghost"
+              size="sm"
+              disabled={busy}
+              onClick={() => setPriceInputs({})}
+            >
+              全部恢复默认(需再点保存)
             </Button>
           </div>
         </div>

@@ -94,6 +94,7 @@ export async function POST(req: Request) {
     multiUserEnabled?: boolean;
     // 积分计费开关(基础能力,单用户也可开)
     creditsMetering?: boolean;
+    creditPrices?: Record<string, unknown>;
     customImageModels?: string;
     // SMTP 邮件(Pro:忘记密码用;!pro 剥离)
     smtpHost?: string;
@@ -373,6 +374,10 @@ export async function POST(req: Request) {
     // ---- 积分计费开关(基础,单用户也可开)----
     if (typeof body.creditsMetering === "boolean") {
       await saveCreditsMetering(body.creditsMetering);
+    }
+    if (body.creditPrices && typeof body.creditPrices === "object") {
+      const { savePriceOverrides } = await import("@/lib/price-overrides");
+      await savePriceOverrides(body.creditPrices);
     }
     if (typeof body.customImageModels === "string") {
       await saveCustomImageModels(body.customImageModels);

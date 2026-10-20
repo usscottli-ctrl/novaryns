@@ -16,15 +16,15 @@ import { storageEnabled, uploadImage } from "@/lib/storage";
 import { generateBuffer } from "@/lib/image-gen";
 import { getOpenAISettings } from "@/lib/settings";
 import { getOpenAIBaseUrl } from "@/lib/openai-base";
-import { TOOL_COST } from "@/lib/mock-data";
+import { toolCost } from "@/lib/mock-data";
 import { safeError } from "@/lib/api-error";
+import { loadPriceOverrides } from "@/lib/price-overrides";
 
 // 去水印:gpt-image-2 擦除图中的水印/logo/文字叠层/时间戳/站标等标记,并自然补全被遮挡的底图,
 // 其余(主体/颜色/构图/背景/光照)全保留。
 export const runtime = "nodejs";
 export const maxDuration = 200;
 
-const COST = TOOL_COST.dewatermark;
 
 const BASE_PROMPT =
   "Remove ALL watermarks, logos, text overlays, timestamps, site/station marks and semi-transparent stamps from this image, and naturally reconstruct the underlying content behind them so the result looks clean and unmarked. Keep EVERYTHING ELSE strictly identical — the exact product/subject, colours, patterns, composition, background, lighting must stay the same. Only remove the watermark/overlay marks; do not restyle, recolor, crop or move anything.";
@@ -92,7 +92,8 @@ export async function POST(request: Request) {
       input.email = tokenEmail;
     }
     const useDb = dbEnabled && input.email.length > 0;
-    const cost = COST;
+    await loadPriceOverrides(); // 站长在后台改的板块价
+    const cost = toolCost("dewatermark");
 
     if (dbEnabled && (await isBanned(input.email, ip)))
       return NextResponse.json({ error: "账号或 IP 已被封禁" }, { status: 403 });

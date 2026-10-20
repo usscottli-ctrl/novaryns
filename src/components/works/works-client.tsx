@@ -23,6 +23,7 @@ import { authHeader } from "@/lib/supabase";
 import { cn } from "@/lib/utils";
 import { WorkLightbox, type LightboxWork } from "@/components/works/work-lightbox";
 import { isUserOutput } from "@/lib/artwork-filter";
+import { useBrand } from "@/lib/brand-context";
 
 // ---------------------------------------------------------------------------
 // 作品库(设计 screen==='works',星泽商图.dc.html 1247–1328)。
@@ -113,6 +114,7 @@ function isToday(iso?: string): boolean {
 }
 
 export function WorksClient() {
+  const { name: brandName } = useBrand(); // 下载文件名用站点名(白标)
   const { user, ready } = useAuth();
   const { toast } = useToast();
 
@@ -541,7 +543,7 @@ export function WorksClient() {
                 const url = URL.createObjectURL(blob);
                 const a = document.createElement("a");
                 a.href = url;
-                a.download = `星泽商图-作品-${Date.now()}.zip`;
+                a.download = `${brandName}-作品-${Date.now()}.zip`;
                 document.body.appendChild(a);
                 a.click();
                 a.remove();

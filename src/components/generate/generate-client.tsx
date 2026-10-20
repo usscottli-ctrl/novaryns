@@ -58,6 +58,7 @@ import { useI18n } from "@/lib/i18n/locale-context";
 import { cn } from "@/lib/utils";
 import { isUserOutput } from "@/lib/artwork-filter";
 import { PromptPanel } from "@/components/ui/prompt-panel";
+import { useBrand } from "@/lib/brand-context";
 
 function fmt(s: string, vars: Record<string, string | number>): string {
   return Object.entries(vars).reduce(
@@ -91,6 +92,7 @@ export function GenerateClient({
 }: {
   seedTemplateId?: string;
 } = {}) {
+  const { name: brandName } = useBrand(); // 下载文件名用站点名(白标)
   const params = useSearchParams();
   const router = useRouter();
   const { user, ready, remaining, consumeCredits, applyServerUser } =
@@ -1365,7 +1367,7 @@ export function GenerateClient({
                       onClick={() =>
                         images
                           .filter((im) => im.id.startsWith("gen-"))
-                          .forEach((im, i) => downloadImage(im.url, `novaryns-${i + 1}`))
+                          .forEach((im, i) => downloadImage(im.url, `${brandName}-${i + 1}`))
                       }
                       className="inline-flex items-center gap-1.5 rounded-[9px] border border-c-border2 px-3 py-1.5 text-[12.5px] font-medium text-c-text2 transition-colors hover:bg-c-subtle2"
                     >
@@ -1439,7 +1441,7 @@ export function GenerateClient({
                               type="button"
                               onClick={(e) => {
                                 e.stopPropagation();
-                                downloadImage(image.url, `novaryns-${i + 1}`);
+                                downloadImage(image.url, `${brandName}-${i + 1}`);
                               }}
                               className="flex items-center gap-1.5 rounded-[8px] bg-white/90 px-3 py-1.5 text-[12px] font-medium text-slate-900 hover:bg-white"
                             >
@@ -1602,7 +1604,7 @@ export function GenerateClient({
           src={cdnUrl(viewing.url)}
           alt={viewing.prompt}
           onClose={() => setViewing(null)}
-          downloadName="novaryns-生图"
+          downloadName={`${brandName}-生图`}
         />
       )}
     </div>

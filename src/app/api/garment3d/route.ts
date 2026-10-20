@@ -19,6 +19,7 @@ import { getOpenAIBaseUrl } from "@/lib/openai-base";
 import { garment3dCost, resolutionLongSide } from "@/lib/mock-data";
 import { nativeEditSize } from "@/lib/image-size";
 import { safeError } from "@/lib/api-error";
+import { loadPriceOverrides } from "@/lib/price-overrides";
 
 // ---------------------------------------------------------------------------
 // 3D 服装图:把用户上传的服装照(穿在人身上/平铺均可)渲染成干净的「3D 幽灵模特」
@@ -291,6 +292,7 @@ export async function POST(request: Request) {
       input.email = tokenEmail;
     }
     const useDb = dbEnabled && input.email.length > 0;
+    await loadPriceOverrides(); // 站长在后台改的板块价
     const cost = garment3dCost(input.resolution);
 
     if (dbEnabled && (await isBanned(input.email, ip)))

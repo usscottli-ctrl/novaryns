@@ -16,8 +16,9 @@ import { storageEnabled, uploadImage } from "@/lib/storage";
 import { generateBuffer } from "@/lib/image-gen";
 import { getOpenAISettings } from "@/lib/settings";
 import { getOpenAIBaseUrl } from "@/lib/openai-base";
-import { TOOL_COST } from "@/lib/mock-data";
+import { toolCost } from "@/lib/mock-data";
 import { safeError } from "@/lib/api-error";
+import { loadPriceOverrides } from "@/lib/price-overrides";
 
 // ---------------------------------------------------------------------------
 // 风格转换专用端点。
@@ -29,7 +30,6 @@ import { safeError } from "@/lib/api-error";
 export const runtime = "nodejs";
 export const maxDuration = 280;
 
-const STYLE_COST = TOOL_COST.style;
 
 const BASE_PROMPT =
   "Re-render the uploaded image into the target art style described below. Keep the main subject, overall composition, pose, layout and key recognizable elements intact — only change the artistic style, texture and rendering. Target style: ";
@@ -111,7 +111,8 @@ export async function POST(request: Request) {
       input.email = tokenEmail;
     }
     const useDb = dbEnabled && input.email.length > 0;
-    const cost = STYLE_COST;
+    await loadPriceOverrides(); // 站长在后台改的板块价
+    const cost = toolCost("style");
 
     if (dbEnabled && (await isBanned(input.email, ip))) {
       return NextResponse.json({ error: "账号或 IP 已被封禁" }, { status: 403 });

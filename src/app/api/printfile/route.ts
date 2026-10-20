@@ -1,3 +1,4 @@
+import { toolCost } from "@/lib/mock-data";
 import { NextResponse } from "next/server";
 import {
   dbEnabled,
@@ -13,6 +14,7 @@ import { rateLimit } from "@/lib/rate-limit";
 import { resolveUserEmail } from "@/lib/admin-auth";
 import { storageEnabled, uploadImage } from "@/lib/storage";
 import { safeError } from "@/lib/api-error";
+import { loadPriceOverrides } from "@/lib/price-overrides";
 
 // ---------------------------------------------------------------------------
 // 印刷图专用端点。
@@ -28,7 +30,6 @@ export const maxDuration = 60;
 
 // 纯本地 sharp 处理、零 API 成本,定价做成免费(0),作为引流工具 —— 比同行更低。
 // (积分系统为整数列,无法表示 0.3;免费是更干净且更低的等价方案。)
-const PRINTFILE_COST = 0;
 const MM_PER_INCH = 25.4;
 // 单边像素上限,防超大尺寸把内存打爆(8000px ≈ 67cm@300dpi,够海报)。
 const MAX_PX = 8000;
@@ -109,7 +110,8 @@ export async function POST(request: Request) {
       input.email = tokenEmail;
     }
     const useDb = dbEnabled && input.email.length > 0;
-    const cost = PRINTFILE_COST;
+    await loadPriceOverrides(); // 站长在后台改的板块价
+    const cost = toolCost("printfile");
 
     if (dbEnabled && (await isBanned(input.email, ip))) {
       return NextResponse.json({ error: "账号或 IP 已被封禁" }, { status: 403 });

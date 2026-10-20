@@ -18,6 +18,7 @@ import {
   createVideoTask,
   type VideoResolution,
 } from "@/lib/volcengine";
+import { loadPriceOverrides } from "@/lib/price-overrides";
 
 // ---------------------------------------------------------------------------
 // 视频生成 —— 创建任务(火山引擎方舟 Seedance)。
@@ -131,6 +132,7 @@ export async function POST(request: Request) {
       );
     }
 
+    await loadPriceOverrides(); // 站长在后台改的板块价
     const cost = videoCost(input.duration, input.resolution);
     if (useDb && cost > 0) {
       const ok = await reserveCredits(input.email, cost);

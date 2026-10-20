@@ -19,6 +19,7 @@ import { getOpenAIBaseUrl } from "@/lib/openai-base";
 import { resolutionCost, resolutionLongSide } from "@/lib/mock-data";
 import { nativeEditSize } from "@/lib/image-size";
 import { safeError } from "@/lib/api-error";
+import { loadPriceOverrides } from "@/lib/price-overrides";
 
 // ---------------------------------------------------------------------------
 // 局部改图(inpaint)专用端点。
@@ -145,7 +146,8 @@ export async function POST(request: Request) {
       input.email = tokenEmail;
     }
     const useDb = dbEnabled && input.email.length > 0;
-    const cost = resolutionCost(input.resolution);
+    await loadPriceOverrides(); // 站长在后台改的板块价
+    const cost = resolutionCost(input.resolution, "medium", undefined, "inpaint");
 
     if (dbEnabled && (await isBanned(input.email, ip))) {
       return NextResponse.json({ error: "账号或 IP 已被封禁" }, { status: 403 });

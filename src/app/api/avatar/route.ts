@@ -16,8 +16,9 @@ import { storageEnabled, uploadImage } from "@/lib/storage";
 import { generateBuffer } from "@/lib/image-gen";
 import { transparentModel, getOpenAISettings, getCutoutSettings } from "@/lib/settings";
 import { getOpenAIBaseUrl } from "@/lib/openai-base";
-import { TOOL_COST } from "@/lib/mock-data";
+import { toolCost } from "@/lib/mock-data";
 import { safeError } from "@/lib/api-error";
+import { loadPriceOverrides } from "@/lib/price-overrides";
 
 // ---------------------------------------------------------------------------
 // 抠头像专用端点。
@@ -29,7 +30,6 @@ import { safeError } from "@/lib/api-error";
 export const runtime = "nodejs";
 export const maxDuration = 200;
 
-const AVATAR_COST = TOOL_COST.avatar; // 同生图成本(gpt-image edit 一次)
 
 const BASE_PROMPT =
   "Cut out ONLY the head (with a little neck and shoulders) of the main subject in this image — a person, pet or cartoon character. Remove the body, any other subjects and the background completely. Output a clean, sharp head portrait in avatar / sticker style on a fully transparent background. Preserve the original face, hair, ears, expression and fine details exactly. No body, no extra subjects, no shadow, no border.";
@@ -125,7 +125,8 @@ export async function POST(request: Request) {
       input.email = tokenEmail;
     }
     const useDb = dbEnabled && input.email.length > 0;
-    const cost = AVATAR_COST;
+    await loadPriceOverrides(); // 站长在后台改的板块价
+    const cost = toolCost("avatar");
 
     if (dbEnabled && (await isBanned(input.email, ip))) {
       return NextResponse.json({ error: "账号或 IP 已被封禁" }, { status: 403 });

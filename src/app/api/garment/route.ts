@@ -16,8 +16,9 @@ import { storageEnabled, uploadImage } from "@/lib/storage";
 import { generateBuffer } from "@/lib/image-gen";
 import { transparentModel, getOpenAISettings, getCutoutSettings } from "@/lib/settings";
 import { getOpenAIBaseUrl } from "@/lib/openai-base";
-import { TOOL_COST } from "@/lib/mock-data";
+import { toolCost } from "@/lib/mock-data";
 import { safeError } from "@/lib/api-error";
+import { loadPriceOverrides } from "@/lib/price-overrides";
 
 // ---------------------------------------------------------------------------
 // 服装提取专用端点。
@@ -30,7 +31,6 @@ import { safeError } from "@/lib/api-error";
 export const runtime = "nodejs";
 export const maxDuration = 200;
 
-const GARMENT_COST = TOOL_COST.garment;
 
 const BASE_PROMPT =
   "Extract ONLY the main garment / clothing item from this image (the top, dress, jacket, coat, pants, skirt or similar). Remove the model / person, any other items and the background completely. Lay the garment out flat, front-facing, neatly arranged like a clean e-commerce flat-lay product photo, on a fully transparent background. Faithfully preserve the garment's true shape, cut, colour, material, texture, prints, buttons and details. No body, no mannequin, no shadow, no border.";
@@ -126,7 +126,8 @@ export async function POST(request: Request) {
       input.email = tokenEmail;
     }
     const useDb = dbEnabled && input.email.length > 0;
-    const cost = GARMENT_COST;
+    await loadPriceOverrides(); // 站长在后台改的板块价
+    const cost = toolCost("garment");
 
     if (dbEnabled && (await isBanned(input.email, ip))) {
       return NextResponse.json({ error: "账号或 IP 已被封禁" }, { status: 403 });

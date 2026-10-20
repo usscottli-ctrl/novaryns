@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { TOOL_COST } from "@/lib/mock-data";
+import { toolCost } from "@/lib/mock-data";
 import {
   dbEnabled,
   reserveCredits,
@@ -26,8 +26,8 @@ import { safeError } from "@/lib/api-error";
 export const runtime = "nodejs";
 export const maxDuration = 120; // Replicate 冷启动可能 1-2 分钟
 
-const UPSCALE_COST = TOOL_COST.upscale;
 import { runReplicate, fetchResultBytes } from "@/lib/replicate-run";
+import { loadPriceOverrides } from "@/lib/price-overrides";
 
 const MODEL = process.env.REPLICATE_UPSCALE_MODEL || "nightmareai/real-esrgan";
 
@@ -168,7 +168,8 @@ export async function POST(request: Request) {
       input.email = tokenEmail;
     }
     const useDb = dbEnabled && input.email.length > 0;
-    const cost = UPSCALE_COST;
+    await loadPriceOverrides(); // 站长在后台改的板块价
+    const cost = toolCost("upscale");
 
     if (dbEnabled && (await isBanned(input.email, ip))) {
       return NextResponse.json({ error: "账号或 IP 已被封禁" }, { status: 403 });

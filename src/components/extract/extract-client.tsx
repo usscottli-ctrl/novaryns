@@ -75,7 +75,7 @@ export function ExtractClient() {
     setAssistRun({ mode, nonce: Date.now() });
   }
 
-  const cost = resolutionCost(resolution);
+  const cost = resolutionCost(resolution, "medium", undefined, "extract");
 
   const controls = (
     <>

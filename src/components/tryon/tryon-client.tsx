@@ -23,7 +23,7 @@ import { useAuthModal } from "@/lib/auth-modal-context";
 import { useI18n } from "@/lib/i18n/locale-context";
 import { authHeader } from "@/lib/supabase";
 import { downloadImage } from "@/lib/download";
-import { TOOL_COST } from "@/lib/mock-data";
+import { toolCost } from "@/lib/mock-data";
 import {
   TRYON_MODELS,
   TRYON_SCENES,
@@ -42,6 +42,7 @@ import { ToolDemo, getDemo } from "@/components/tools/tool-demo";
 import { GenLoader } from "@/components/gen-loader";
 import { ImageLightbox } from "@/components/image-lightbox";
 import { cdnUrl, cdnThumb, onImgError, probeCdnHealth } from "@/lib/cdn";
+import { useBrand } from "@/lib/brand-context";
 
 const MAX_UPLOAD = 12 * 1024 * 1024;
 const ACCENT = "#E0568B";
@@ -49,6 +50,7 @@ const TINT = "rgba(224,86,139,.12)";
 const ACC_SOFT = "rgba(224,86,139,.08)";
 
 export function TryonClient() {
+  const { name: brandName } = useBrand(); // 下载文件名用站点名(白标)
   const { user, remaining, consumeCredits, applyServerUser } = useAuth();
   const { openAuth } = useAuthModal();
   const { locale } = useI18n();
@@ -88,7 +90,7 @@ export function TryonClient() {
   const allModels = customModel ? [customModel, ...models] : models;
   const model = allModels.find((x) => x.id === modelId);
   const scene = scenes.find((x) => x.id === sceneId);
-  const cost = TOOL_COST.tryon;
+  const cost = toolCost("tryon");
 
   useEffect(() => {
     let on = true;
@@ -701,7 +703,7 @@ export function TryonClient() {
         <ImageLightbox
           src={lightbox.url}
           onClose={() => setLightbox(null)}
-          downloadName={lightbox.name || "星泽商图-试穿"}
+          downloadName={lightbox.name || `${brandName}-试穿`}
         />
       )}
     </>

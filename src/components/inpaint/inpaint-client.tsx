@@ -53,7 +53,7 @@ export function InpaintClient() {
   const [result, setResult] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
 
-  const cost = resolutionCost(resolution);
+  const cost = resolutionCost(resolution, "medium", undefined, "inpaint");
 
   // AI帮写/智能优化(贴按钮弹窗,全站统一)
   const assistBtnRef = useRef<HTMLButtonElement>(null);

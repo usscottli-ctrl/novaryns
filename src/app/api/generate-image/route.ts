@@ -39,6 +39,7 @@ import { sizeFor } from "@/lib/image-size";
 import { fetchRemoteImage, isOwnStorageUrl, resultToB64 } from "@/lib/remote-image";
 import { proxyHeaders } from "@/lib/proxy-identity";
 import { getStyleGuide } from "@/lib/prompt-config";
+import { loadPriceOverrides } from "@/lib/price-overrides";
 
 // ---------------------------------------------------------------------------
 // Image generation / editing endpoint.
@@ -940,6 +941,7 @@ export async function POST(request: Request) {
   // 自定义模型统一标准档(前台也不显示质量选择),调用与计费一致
   if (p.customModel) p.quality = "medium";
   const billQuality = modelHasQuality(priceModel) ? p.quality : "medium";
+  await loadPriceOverrides(); // 站长在后台改的板块价(AI 生图板块)
   const cost = p.count * resolutionCost(p.resolution, billQuality, priceModel);
 
   if (dbEnabled && (await isBanned(p.email, ip))) {
