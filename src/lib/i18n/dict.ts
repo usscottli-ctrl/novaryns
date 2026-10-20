@@ -1805,8 +1805,14 @@ export function lookup(locale: Locale, key: string): unknown {
 /** Resolve a dot-path key to a string for a locale, falling back to zh then key.
  * 自动把字典里所有 "{brand}" 占位符替换成 NEXT_PUBLIC_BRAND_NAME (海外={brand},
  * 国内=星泽商图)。这样改品牌名只需要改一处 env,不用动每一个翻译键。 */
+// 运行时站点名(后台「品牌与白标」):白标客户站改了站名后,{brand} 要显示客户自己的名字,
+// 不能是 build 期常量(公共镜像里是 Novaryns)。服务端 layout 与前端 BrandProvider 渲染前各设一次。
+let runtimeBrand = BRAND;
+export function setI18nBrand(name: string): void {
+  if (name) runtimeBrand = name;
+}
 function applyBrand(s: string): string {
-  return s.includes("{brand}") ? s.replaceAll("{brand}", BRAND) : s;
+  return s.includes("{brand}") ? s.replaceAll("{brand}", runtimeBrand) : s;
 }
 export function translate(locale: Locale, key: string): string {
   const v = getRaw(DICTS[locale], key);

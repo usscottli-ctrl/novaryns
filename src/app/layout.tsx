@@ -14,6 +14,7 @@ import { PaymentProvider } from "@/lib/payment-context";
 import { BrandProvider } from "@/lib/brand-context";
 import { getRuntimeBrand } from "@/lib/brand-runtime";
 import { PriceProvider } from "@/lib/price-context";
+import { setI18nBrand } from "@/lib/i18n/dict";
 import { getPriceOverrides } from "@/lib/price-overrides";
 import { getPaymentStatus } from "@/lib/settings";
 import { relayTokenIdFromBaseUrl } from "@/lib/cloud";
@@ -72,6 +73,7 @@ export default async function RootLayout({
   const rechargeEnabled = pro && (await getPaymentStatus()).enabled;
   // 运行时品牌(白标):DB site_name/brand_logo 覆盖 → env 默认兜底;DB 无覆盖时与现状一致。
   const brand = await getRuntimeBrand();
+  setI18nBrand(brand.name); // 服务端渲染的 {brand} 文案也用站点名
   // 后台「各板块积分」覆盖表(站长自定义价格),SSR 注入前端计价函数
   const prices = await getPriceOverrides();
   // 本实例是否为云端托管租户(OPENAI_BASE_URL 指向 relay 的 nvr- 通道)。

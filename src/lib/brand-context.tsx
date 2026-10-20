@@ -2,6 +2,7 @@
 
 import { createContext, useContext, useEffect, useMemo } from "react";
 import { BRAND, BRAND_LOGO, BRAND_LOGO_HAS_TEXT } from "@/lib/brand";
+import { setI18nBrand } from "@/lib/i18n/dict";
 
 // ---------------------------------------------------------------------------
 // 品牌(白标)Context —— 客户端。仿 payment-context.tsx。
@@ -34,6 +35,8 @@ export function BrandProvider({
   logoHasText: boolean;
   children: React.ReactNode;
 }) {
+  // 语言包里的 {brand} 占位符也换成站点名(渲染子组件前同步设置)
+  setI18nBrand(name);
   const value = useMemo<Ctx>(
     () => ({ name, logo, logoHasText }),
     [name, logo, logoHasText]
