@@ -72,7 +72,7 @@ import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { cdnUrl } from "@/lib/cdn";
 import { ImageLightbox } from "@/components/image-lightbox";
-import { BRAND, BRAND_CANVAS_LOGO } from "@/lib/brand";
+import { BRAND_CANVAS_LOGO } from "@/lib/brand";
 import { TemplatesClient } from "@/components/templates/templates-client";
 import { CreditPacks } from "@/components/credits/credit-packs";
 import { PayQrModal } from "@/components/credits/pay-qr-modal";
@@ -87,6 +87,7 @@ import {
   resolutionCost,
   videoCost,
 } from "@/lib/mock-data";
+import { useBrand } from "@/lib/brand-context";
 
 // 横向链路布局(对齐原型 node-canvas-preview):深度→x 向右展开,同层兄弟→y 竖排。
 // 尺寸对齐定稿原型 fullsite-preview.html#canvas:NWID=170、PY=78、图片高 110
@@ -709,6 +710,7 @@ function layoutGraph(
 }
 
 export function CanvasClient() {
+  const { name: brandName } = useBrand(); // 运行时站点名(后台可改,白标客户站显示自己的名字)
   const { user, ready, persistMode, applyServerUser } = useAuth();
   const { openAuth } = useAuthModal();
   const { t } = useI18n();
@@ -3251,7 +3253,7 @@ export function CanvasClient() {
             {/* eslint-disable-next-line @next/next/no-img-element */}
             <img
               src={BRAND_CANVAS_LOGO}
-              alt={BRAND}
+              alt={brandName}
               className="h-9 w-auto max-w-[180px] object-contain"
             />
             {readOnly && (
@@ -3744,13 +3746,13 @@ export function CanvasClient() {
                   <button
                     type="button"
                     onClick={() => setSidebarOpen((v) => !v)}
-                    title={BRAND}
+                    title={brandName}
                     className="flex flex-none items-center gap-1 rounded-lg px-1 pr-0.5 transition-colors hover:bg-white/5"
                   >
                     {/* eslint-disable-next-line @next/next/no-img-element */}
                     <img
                       src={BRAND_CANVAS_LOGO}
-                      alt={BRAND}
+                      alt={brandName}
                       className="h-7 w-auto max-w-[140px] flex-none rounded-lg object-contain"
                     />
                     <ChevronDown

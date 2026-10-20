@@ -29,9 +29,10 @@ import { useRecharge } from "@/lib/recharge-modal-context";
 import { usePaymentConfig } from "@/lib/payment-context";
 import { browserSupabase } from "@/lib/supabase";
 import { supabaseEnabled } from "@/lib/auth-mode";
-import { BRAND, BRAND_SQUARE_LOGO } from "@/lib/brand";
+import { BRAND_SQUARE_LOGO } from "@/lib/brand";
 import { displayEmail } from "@/lib/account-identity";
 import { menuCategories, TOOL_COUNT_LABEL } from "@/lib/tool-meta";
+import { useBrand } from "@/lib/brand-context";
 
 type Item = { href: string; label: { zh: string; en: string }; Icon: typeof Home };
 
@@ -57,6 +58,7 @@ const MENU_COLS = [
 ].map((col) => col.filter(Boolean));
 
 export function AppRail() {
+  const { name: brandName } = useBrand(); // 运行时站点名(后台可改,白标客户站显示自己的名字)
   const { t, locale } = useI18n();
   const L = (zh: string, en: string) => (locale === "en" ? en : zh);
   const path = usePathname();
@@ -300,7 +302,7 @@ export function AppRail() {
         {/* 内容走和页面一致的居中容器,保证导航与下方内容左右对齐 */}
         <div className="flex h-full w-full items-center gap-1 px-5 sm:px-6 lg:px-8">
         {/* 品牌 */}
-        <Link href="/" title={BRAND} className="mr-2 flex items-center gap-2">
+        <Link href="/" title={brandName} className="mr-2 flex items-center gap-2">
           <span
             className={cn(
               "flex h-8 w-8 flex-none items-center justify-center overflow-hidden rounded-[9px]",
@@ -310,11 +312,11 @@ export function AppRail() {
             {/* eslint-disable-next-line @next/next/no-img-element */}
             <img
               src={BRAND_SQUARE_LOGO}
-              alt={BRAND}
+              alt={brandName}
               className="h-8 w-8 rounded-[9px] object-contain"
             />
           </span>
-          <span className="text-[15px] font-bold tracking-tight">{BRAND}</span>
+          <span className="text-[15px] font-bold tracking-tight">{brandName}</span>
         </Link>
 
         {/* 导航(设计顺序:首页 / 工作台 / 创作▾ / 模板 / 作品 / 画布) */}

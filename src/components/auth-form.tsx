@@ -10,8 +10,8 @@ import { Input } from "@/components/ui/input";
 import { useAuth, type SessionUser } from "@/lib/auth-context";
 import { usePaymentConfig } from "@/lib/payment-context";
 import { supabaseEnabled } from "@/lib/auth-mode";
-import { BRAND } from "@/lib/brand";
 import { OPERATOR_EMAIL } from "@/lib/operator";
+import { useBrand } from "@/lib/brand-context";
 
 function PageShell({
   compact,
@@ -43,6 +43,7 @@ export function AuthForm({
   noRedirect?: boolean;
   onSwitchMode?: (m: "sign-in" | "sign-up") => void;
 }) {
+  const { name: brandName } = useBrand(); // 运行时站点名(后台可改,白标客户站显示自己的名字)
   const router = useRouter();
   const params = useSearchParams();
   const { signIn, signUp, multiUser, applyServerUser } = useAuth();
@@ -329,7 +330,7 @@ export function AuthForm({
         {!compact && <Logo />}
         <div>
           <h1 className="text-2xl font-bold tracking-tight">
-            {isSignUp ? `创建你的 ${BRAND} 账号` : "欢迎回来"}
+            {isSignUp ? `创建你的 ${brandName} 账号` : "欢迎回来"}
           </h1>
           <p className="mt-1 text-sm text-muted-foreground">
             {isSignUp
