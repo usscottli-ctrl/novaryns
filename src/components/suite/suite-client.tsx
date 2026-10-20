@@ -130,6 +130,8 @@ export function SuiteClient() {
 
   // 清晰度:与生图页同一套档位与价格(按 GPT生图 计价),13 张 × 单价
   const [resolution, setResolution] = useStickyState("suite.res2", "2K", (v) => ["1K", "2K", "4K"].includes(v));
+  // 严格不编造参数(默认开):关掉则允许 AI 按品类常识补充参数,图更有"参数感"但可能与实物不符
+  const [strict, setStrict] = useStickyState<boolean>("suite.strict", true, (v) => typeof v === "boolean");
   const cost = 13 * resolutionCost(resolution, "medium", "gpt-image-2");
 
   useEffect(() => {
@@ -227,6 +229,7 @@ export function SuiteClient() {
       if (copy) fd.append("text", copy);
       fd.append("platform", platform);
       fd.append("resolution", resolution);
+      fd.append("strict", strict ? "1" : "0");
       const dir = directions && dirPick >= 0 ? directions[dirPick] : null;
       if (dir) fd.append("direction", `${dir.name}：${dir.desc}`);
       fd.append("email", user.email);
@@ -564,6 +567,30 @@ export function SuiteClient() {
             className="min-h-[64px] bg-secondary"
           />
           <p className="text-xs text-muted-foreground">{t("suite.textHint")}</p>
+          <label className="flex cursor-pointer items-start gap-2 rounded-[10px] border border-border px-3 py-2">
+            <input
+              type="checkbox"
+              checked={strict}
+              onChange={(e) => setStrict(e.target.checked)}
+              className="mt-0.5 h-4 w-4 accent-[var(--acc,#4F46E5)]"
+            />
+            <span className="text-[12px] leading-snug">
+              <span className="font-medium text-c-text">
+                {L("严格不编造参数", "No made-up specs")}
+              </span>
+              <span className="block text-muted-foreground">
+                {strict
+                  ? L(
+                      "图里只出现你在卖点里写的数字/参数，其余用定性描述(推荐，避免虚假宣传)。",
+                      "Only specs you typed appear; everything else stays qualitative."
+                    )
+                  : L(
+                      "已关闭：AI 会按品类常识补充参数和数据，可能与实物不符，上架前请务必核对。",
+                      "Off: AI may add typical specs that might not match your product — check before listing."
+                    )}
+              </span>
+            </span>
+          </label>
         </div>
 
         <div className="space-y-2">
