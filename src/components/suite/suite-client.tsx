@@ -126,7 +126,7 @@ export function SuiteClient() {
   } | null>(null);
 
   // 清晰度:与生图页同一套档位与价格(按 GPT生图 计价),13 张 × 单价
-  const [resolution, setResolution] = useStickyState("suite.res", "1K", (v) => ["1K", "2K", "4K"].includes(v));
+  const [resolution, setResolution] = useStickyState("suite.res2", "2K", (v) => ["1K", "2K", "4K"].includes(v));
   const cost = 13 * resolutionCost(resolution, "medium", "gpt-image-2");
 
   useEffect(() => {
