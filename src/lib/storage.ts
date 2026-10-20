@@ -1,6 +1,6 @@
 import "server-only";
 import { AwsClient } from "aws4fetch";
-import { mkdir, writeFile, unlink } from "fs/promises";
+import { mkdir, writeFile, unlink, readFile } from "fs/promises";
 import path from "path";
 
 // ---------------------------------------------------------------------------
@@ -153,4 +153,26 @@ export function dataUrlToBytes(
     contentType: m[1],
     bytes: new Uint8Array(Buffer.from(m[2], "base64")),
   };
+}
+
+/** 读自己存储里的图片字节(打包下载等服务端取图用)。不是我们的地址返回 null,调用方走公网。
+ *  - 本地盘:直接读 MEDIA_DIR 里的文件。
+ *  - 配了 S3_ENDPOINT(阿里云 OSS 等,通常是同地域内网端点):签名直读,
+ *    不绕 CDN —— 省 CDN 流量费,内网实测比走 CDN 快一倍(2026-10-21 客户站)。
+ *  - R2 不走这条:国内服务器连 R2 S3 端点不稳,保持原来走公网地址。 */
+export async function readOwnImage(url: string): Promise<Buffer | null> {
+  try {
+    if (storageDriver === "local") {
+      if (!url.startsWith(MEDIA_URL_PREFIX + "/")) return null;
+      const k = safeKey(url.slice(MEDIA_URL_PREFIX.length + 1).split("?")[0]);
+      return await readFile(path.join(MEDIA_DIR, k));
+    }
+    if (!hasR2 || !s3Endpoint || !url.startsWith(publicBase + "/")) return null;
+    const k = safeKey(decodeURIComponent(url.slice(publicBase.length + 1).split("?")[0]));
+    const res = await getClient().fetch(objectUrl(k), { method: "GET" });
+    if (!res.ok) return null;
+    return Buffer.from(await res.arrayBuffer());
+  } catch {
+    return null;
+  }
 }

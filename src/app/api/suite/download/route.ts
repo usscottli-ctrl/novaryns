@@ -1,4 +1,5 @@
 import JSZip from "jszip";
+import { readOwnImage } from "@/lib/storage";
 
 export const runtime = "nodejs";
 export const maxDuration = 120;
@@ -35,16 +36,20 @@ export async function POST(request: Request) {
   await Promise.all(
     items.map(async (it, i) => {
       try {
-        // 只允许我们自己的 R2 / CDN 域,防 SSRF
-        const u = new URL(it.url);
-        const allowed =
-          u.hostname.endsWith(".r2.dev") ||
-          u.hostname.endsWith("starzeco.com") ||
-          u.hostname.endsWith("novaryns.com");
-        if (!allowed) return;
-        const res = await fetch(it.url, { cache: "no-store" });
-        if (!res.ok) return;
-        const buf = Buffer.from(await res.arrayBuffer());
+        // 自己存储里的图直接读(OSS 内网/本地盘),不绕 CDN;读不到再走公网
+        let buf = await readOwnImage(it.url);
+        if (!buf) {
+          // 只允许我们自己的 R2 / CDN 域,防 SSRF
+          const u = new URL(it.url);
+          const allowed =
+            u.hostname.endsWith(".r2.dev") ||
+            u.hostname.endsWith("starzeco.com") ||
+            u.hostname.endsWith("novaryns.com");
+          if (!allowed) return;
+          const res = await fetch(it.url, { cache: "no-store" });
+          if (!res.ok) return;
+          buf = Buffer.from(await res.arrayBuffer());
+        }
         const ext = (it.url.match(/\.([a-z0-9]+)(?:\?|$)/i)?.[1] || "png").toLowerCase();
         zip.file(`${String(i + 1).padStart(2, "0")}-${safeName(it.name, i)}.${ext}`, buf);
         ok++;
