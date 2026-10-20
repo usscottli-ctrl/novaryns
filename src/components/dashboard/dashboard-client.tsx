@@ -43,6 +43,7 @@ import { downloadImage } from "@/lib/download";
 import { useI18n } from "@/lib/i18n/locale-context";
 import { formatDate, cn } from "@/lib/utils";
 import { useBrand } from "@/lib/brand-context";
+import { downloadZip } from "@/lib/zip-download";
 
 function fmt(s: string, vars: Record<string, string | number>): string {
   return Object.entries(vars).reduce(
@@ -836,23 +837,10 @@ function SuiteBatchCard({ items }: { items: Artwork[] }) {
     if (downloading || completed.length === 0) return;
     setDownloading(true);
     try {
-      const res = await fetch("/api/suite/download", {
-        method: "POST",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify({
-          items: completed.map((it) => ({ url: it.image, name: it.title })),
-        }),
-      });
-      if (!res.ok) throw new Error("download failed");
-      const blob = await res.blob();
-      const url = URL.createObjectURL(blob);
-      const link = document.createElement("a");
-      link.href = url;
-      link.download = `${brandName}-套图-${items[0]?.batchId ?? "batch"}.zip`;
-      document.body.appendChild(link);
-      link.click();
-      link.remove();
-      URL.revokeObjectURL(url);
+      await downloadZip(
+        completed.map((it) => ({ url: it.image, name: it.title })),
+        `${brandName}-套图-${items[0]?.batchId ?? "batch"}.zip`
+      );
     } catch {
       /* swallow; user can retry */
     } finally {

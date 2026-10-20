@@ -1,5 +1,8 @@
-// Triggers a real file download. Cross-origin (R2) URLs go through the
-// same-origin /api/download proxy so the browser saves instead of navigating;
+import { fetchImageDirect, saveBlob } from "@/lib/zip-download";
+
+// Triggers a real file download. Cross-origin URLs are fetched straight from the
+// image CDN when it allows CORS, otherwise via the same-origin /api/download
+// proxy so the browser saves instead of navigating;
 // data: URLs download directly. Credits are NOT touched — this only retrieves
 // an already-generated, already-stored image.
 //
@@ -23,13 +26,21 @@ export function downloadImage(url: string, _baseName?: string, ext = "png") {
   const a = document.createElement("a");
   if (url.startsWith("data:")) {
     a.href = url;
-  } else {
+    a.download = name;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    return;
+  }
+  // 先浏览器直取 CDN(省服务器公网流量);跨域不通再走同源代理
+  void fetchImageDirect(url).then((blob) => {
+    if (blob) return saveBlob(blob, name);
     a.href = `/api/download?u=${encodeURIComponent(
       url
     )}&n=${encodeURIComponent(name)}`;
-  }
-  a.download = name;
-  document.body.appendChild(a);
-  a.click();
-  a.remove();
+    a.download = name;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+  });
 }

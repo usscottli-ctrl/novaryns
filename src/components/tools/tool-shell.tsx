@@ -23,6 +23,7 @@ import { useI18n } from "@/lib/i18n/locale-context";
 import { downloadImage } from "@/lib/download";
 import { cn } from "@/lib/utils";
 import { isUserOutput } from "@/lib/artwork-filter";
+import { downloadZip } from "@/lib/zip-download";
 
 /**
  * 通用工具页外壳(spec C.4 三列):
@@ -181,21 +182,7 @@ export function ToolShell({
     if (!items.length) return;
     setZipping(true);
     try {
-      const res = await fetch("/api/suite/download", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ items }),
-      });
-      if (!res.ok) throw new Error("zip failed");
-      const blob = await res.blob();
-      const url = URL.createObjectURL(blob);
-      const a = document.createElement("a");
-      a.href = url;
-      a.download = `${name}-${items.length}张.zip`;
-      document.body.appendChild(a);
-      a.click();
-      a.remove();
-      URL.revokeObjectURL(url);
+      await downloadZip(items, `${name}-${items.length}张.zip`);
     } catch {
       items.forEach((it, i) =>
         setTimeout(() => downloadImage(it.url, it.name), i * 350)

@@ -88,6 +88,7 @@ import {
   videoCost,
 } from "@/lib/mock-data";
 import { useBrand } from "@/lib/brand-context";
+import { downloadZip } from "@/lib/zip-download";
 
 // 横向链路布局(对齐原型 node-canvas-preview):深度→x 向右展开,同层兄弟→y 竖排。
 // 尺寸对齐定稿原型 fullsite-preview.html#canvas:NWID=170、PY=78、图片高 110
@@ -2372,21 +2373,7 @@ export function CanvasClient() {
         .filter((m) => /^https?:\/\//.test(m.image))
         .slice(0, 30)
         .map((m, i) => ({ url: m.image, name: m.title || `img-${i + 1}` }));
-      const res = await fetch("/api/suite/download", {
-        method: "POST",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify({ items }),
-      });
-      if (!res.ok) throw new Error();
-      const blob = await res.blob();
-      const url = URL.createObjectURL(blob);
-      const a = document.createElement("a");
-      a.href = url;
-      a.download = `${active.name || "project"}.zip`;
-      document.body.appendChild(a);
-      a.click();
-      a.remove();
-      URL.revokeObjectURL(url);
+      await downloadZip(items, `${active.name || "project"}.zip`);
     } catch {
       /* ignore */
     } finally {

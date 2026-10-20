@@ -59,6 +59,7 @@ import { cn } from "@/lib/utils";
 import { isUserOutput } from "@/lib/artwork-filter";
 import { PromptPanel } from "@/components/ui/prompt-panel";
 import { useBrand } from "@/lib/brand-context";
+import { downloadZip } from "@/lib/zip-download";
 
 function fmt(s: string, vars: Record<string, string | number>): string {
   return Object.entries(vars).reduce(
@@ -558,21 +559,7 @@ export function GenerateClient({
     if (!items.length) return;
     setRecZipping(true);
     try {
-      const res = await fetch("/api/suite/download", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ items }),
-      });
-      if (!res.ok) throw new Error("zip failed");
-      const blob = await res.blob();
-      const url = URL.createObjectURL(blob);
-      const a = document.createElement("a");
-      a.href = url;
-      a.download = `生图-${items.length}张.zip`;
-      document.body.appendChild(a);
-      a.click();
-      a.remove();
-      URL.revokeObjectURL(url);
+      await downloadZip(items, `生图-${items.length}张.zip`);
     } catch {
       items.forEach((it, i) =>
         setTimeout(() => downloadImage(it.url, it.name), i * 350)

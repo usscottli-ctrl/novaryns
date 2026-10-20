@@ -37,6 +37,7 @@ import { downloadImage } from "@/lib/download";
 import { SUITE_PLATFORMS, resolutionCost } from "@/lib/mock-data";
 import { cn } from "@/lib/utils";
 import { useBrand } from "@/lib/brand-context";
+import { downloadZip } from "@/lib/zip-download";
 
 function fmt(s: string, vars: Record<string, string | number>): string {
   return Object.entries(vars).reduce(
@@ -278,7 +279,7 @@ export function SuiteClient() {
     }
   }
 
-  // 打包 ZIP 下载:把图片 URL 交给服务端拉取+压缩(避免浏览器跨域 R2)
+  // 打包 ZIP 下载:浏览器直取 CDN 打包,跨域不通再交给服务端(lib/zip-download)
   async function downloadAll() {
     const items = shots
       .filter((s) => s.status === "done" && s.url)
@@ -286,21 +287,7 @@ export function SuiteClient() {
     if (items.length === 0) return;
     setZipping(true);
     try {
-      const res = await fetch("/api/suite/download", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ items }),
-      });
-      if (!res.ok) throw new Error("zip failed");
-      const blob = await res.blob();
-      const url = URL.createObjectURL(blob);
-      const a = document.createElement("a");
-      a.href = url;
-      a.download = `${brandName}-套图-${Date.now()}.zip`;
-      document.body.appendChild(a);
-      a.click();
-      a.remove();
-      URL.revokeObjectURL(url);
+      await downloadZip(items, `${brandName}-套图-${Date.now()}.zip`);
     } catch {
       // 服务端打包失败时,退化为逐张下载
       shots
@@ -383,21 +370,7 @@ export function SuiteClient() {
     if (!items.length) return;
     setRecZip(true);
     try {
-      const res = await fetch("/api/suite/download", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ items }),
-      });
-      if (!res.ok) throw new Error("zip failed");
-      const blob = await res.blob();
-      const url = URL.createObjectURL(blob);
-      const a = document.createElement("a");
-      a.href = url;
-      a.download = `${brandName}-套图记录-${items.length}张.zip`;
-      document.body.appendChild(a);
-      a.click();
-      a.remove();
-      URL.revokeObjectURL(url);
+      await downloadZip(items, `${brandName}-套图记录-${items.length}张.zip`);
     } catch {
       items.forEach((it, i) =>
         setTimeout(() => downloadImage(it.url, it.name), i * 350)
