@@ -1,7 +1,8 @@
 import { NextResponse } from "next/server";
 import { toVisionDataUrl } from "@/lib/vision-image";
 import OpenAI, { toFile } from "openai";
-import { POINTS_PER_IMAGE } from "@/lib/mock-data";
+import { resolutionCost, resolutionLongSide } from "@/lib/mock-data";
+import { sizeFor as nativeSizeFor } from "@/lib/image-size";
 import { safeError } from "@/lib/api-error";
 import {
   dbEnabled,
@@ -25,10 +26,14 @@ import { fetchRemoteImage } from "@/lib/remote-image";
 import {
   getSuiteSystem,
   getSuitePlatformHint,
-  DEFAULT_SUITE_DIRECTIONS_SYSTEM,
+  getSuiteDirectionsSystem,
+  getStyleInspirations,
+  getSuiteShotTexts,
   FALLBACK_SUITE_DIRECTIONS,
 } from "@/lib/prompt-config";
 import { getChatLLM, parseJsonLoose } from "@/lib/chat-llm";
+import { corePromptsAvailable } from "@/lib/core-prompts";
+import { loadPriceOverrides } from "@/lib/price-overrides";
 
 // ---------------------------------------------------------------------------
 // 一键电商套图：上传产品图(+可选文字) → 自动出 1 主图 + 4 副图 + 8 详情页图。
@@ -62,7 +67,12 @@ type ShotResult = ShotSpec & {
   gradient: string;
 };
 
-const CONCURRENCY = 2; // 降并发避免 gpt-image 频率限制导致整片失败
+// 并发出图数。2→3(2026-10-20):边规划边出图后瓶颈全在出图,客户嫌慢;
+// 单张失败有指数退避重试兜底,限频时会自己熬过去。
+const CONCURRENCY = 3;
+const SHOT_COUNT = 13;
+// 套图可选清晰度(与生图页同一套档位与价格表;按 GPT生图 计价)
+const SUITE_RESOLUTIONS = ["1K", "2K", "4K"];
 const SHOT_RETRIES = 3; // 每张失败后最多再重试 3 次(指数退避,扛住尾部限频)
 
 const GRADIENTS = [
@@ -127,47 +137,183 @@ function fallbackBlueprint(extra: string, direction: string, platform: string): 
   ];
 }
 
-// 第0层:识图模型读产品图 + 所选方向 → 输出统一视觉基调 + 13 张定制提示词。
-// 失败回退蓝图(planned=false,前端会提示"本次未能智能规划")。
-async function planShots(
+// 每张出图的固定开头、「严格不编造参数」约束、允许补参数的覆盖段、产品事实红线
+// 都是核心提示词,由授权服务器下发(lib/prompt-config.ts getSuiteShotTexts),不在源码里。
+
+// 第0层:识图模型读产品图 + 所选方向 → 流式输出统一视觉基调 + 13 张定制提示词。
+// **边规划边出图**:每解析出一张就回调 onShot,调用方立刻开始出这张;
+// 规划整段要 70~110 秒,流式后第一张 10~20 秒就能开始画(2026-10-20 客户嫌慢)。
+// 返回模型实际规划出的张数(<13 说明中途失败/不合格,剩下的由调用方用兜底模板补齐)。
+async function planShotsStream(
   firstImage: { buf: Buffer; type: string },
   extra: string,
   platform: string,
-  direction: string
-): Promise<{ shots: ShotSpec[]; planned: boolean }> {
-  const fallback = () => ({ shots: fallbackBlueprint(extra, direction, platform), planned: false });
-  const llm = await getChatLLM({ timeout: 120_000 });
-  if (!llm) return fallback();
+  direction: string,
+  strict: boolean,
+  onShot: (spec: ShotSpec) => void
+): Promise<number> {
+  const llm = await getChatLLM({ timeout: 180_000 });
+  if (!llm) return 0;
+  let emitted = 0;
   try {
     const dataUrl = await toVisionDataUrl(firstImage.buf, firstImage.type);
+    const texts = await getSuiteShotTexts(); // 核心提示词(授权服务器下发)
     const base = await getSuiteSystem(); // 后台可编辑的套图规划 system 指令
     const platHint = await getSuitePlatformHint(platform); // 平台风格覆盖段(后台可编辑)
-    const sys = platHint ? `${base}
+    const sys0 = platHint ? `${base}
 
 ${platHint}` : base;
+    const sys = strict ? sys0 : `${sys0}\n\n${texts.looseClaimsOverride}`;
     const user =
       (extra ? `补充信息：${extra}\n` : "") +
       `本套设计方向：${direction}\n` +
-      "请按这个方向规划这套产品的电商套图。";
-    const raw = await chatJson(llm, sys, user, dataUrl, 0.9, 6000);
-    const parsed = parseJsonLoose<{ style?: string; shots?: ShotSpec[] }>(raw) ?? {};
-    const style = (parsed.style ?? "").toString().trim().slice(0, 300);
-    const shots = (parsed.shots ?? [])
-      .filter((s) => s && s.prompt && s.role && s.ratio)
-      .map((s) => ({
-        ...s,
-        ratio: s.role === "detail" ? "3:4" : "1:1",
+      "请按这个方向规划这套产品的电商套图。" +
+      // 产品事实红线(严格模式;放在最后,模型对最后看到的约束最重视)
+      (strict ? `\n${texts.redLine(extra)}` : "");
+    const scan = shotScanner((raw, style) => {
+      if (emitted >= SHOT_COUNT) return;
+      const sp = raw as Partial<ShotSpec>;
+      if (!sp || !sp.prompt || !sp.role) return;
+      const role: ShotRole = sp.role === "main" || sp.role === "sub" ? sp.role : "detail";
+      emitted++;
+      // 严格模式下硬过滤用户没提供的参数;用户选择允许补充时原样保留
+      const scrub = (t: string) => (strict ? scrubClaims(t, extra) : t);
+      const prompt = scrub(String(sp.prompt));
+      onShot({
+        role,
+        label: String(sp.label ?? "").slice(0, 40) || "套图",
+        ratio: role === "detail" ? "3:4" : "1:1",
+        text: sp.text ? scrub(String(sp.text)) : undefined,
         // 统一视觉基调拼进每张,保证整套像一个设计师做的
-        prompt: style ? `${s.prompt}\n【整套统一视觉基调】${style}` : s.prompt,
-      }));
-    // 校验数量与角色构成;不达标就回退,保证总是 13 张可控
-    const mains = shots.filter((s) => s.role === "main").length;
-    if (shots.length >= 13 && mains >= 1) return { shots: shots.slice(0, 13), planned: true };
-    console.warn("[suite] 规划结果不合格,回退模板:", shots.length, "张");
-    return fallback();
+        prompt: `${texts.shotLead}${strict ? texts.shotLeadStrict : "："}${prompt}${style ? `\n【整套统一视觉基调】${scrub(style)}` : ""}`,
+      });
+    });
+    await streamChatJson(llm, sys, user, dataUrl, 0.9, 6000, scan);
+    if (emitted < SHOT_COUNT) console.warn("[suite] 规划只给出", emitted, "张,其余用模板补齐");
   } catch (e) {
-    console.warn("[suite] 规划失败,回退模板:", e instanceof Error ? e.message : e);
-    return fallback();
+    console.warn("[suite] 规划失败(已出", emitted, "张),其余用模板补齐:", e instanceof Error ? e.message : e);
+  }
+  return emitted;
+}
+
+// 规划结果的「编造参数」硬过滤(2026-10-20):提示词里已经三令五申不许编数字,
+// 千问仍会写出「92%用户说」「3.2kg」「USB-C 供电」「通过电气安全测试」——出图模型照着画,
+// 客户店铺就有虚假宣传风险。这里用规则把**用户卖点里没出现过**的数字参数/认证类说法直接删掉,
+// 并给出图模型补一句不许画数字。用户自己填了的(如「20Bar」)原样保留。
+const CLAIM_RE = new RegExp(
+  [
+    // 数字 + 单位(含 24×20×28cm 这类尺寸串)
+    "(?:[<>≤≥≈~约仅只]\\s*)?\\d+(?:\\.\\d+)?\\s*(?:[×xX*]\\s*\\d+(?:\\.\\d+)?\\s*)*(?:%|％|kg|KG|公斤|千克|克|cm|CM|厘米|mm|毫米|W|瓦|[Bb]ar|BAR|ml|ML|毫升|升|L|℃|°C|分钟|秒钟?|小时|个月|年|万\\+?|人|倍|档|级)",
+    "USB-?C|Type-?C",
+    "(?:SUS\\s?)?\\d{3}\\s*(?=不锈钢)", // 304/316 不锈钢等材质牌号
+    "通过[^，。,;；、]{0,8}(?:认证|测试|检测)",
+    "[A-Z]{2,5}认证",
+    "(?:CCC|CE|FDA|ISO\\s?\\d*)(?:认证|标志)?",
+  ].join("|"),
+  "g"
+);
+
+function scrubClaims(text: string, extra: string): string {
+  let hit = false;
+  const out = text.replace(CLAIM_RE, (m) => {
+    if (extra && extra.includes(m.replace(/\s+/g, ""))) return m; // 用户自己给的事实保留
+    hit = true;
+    return "";
+  });
+  return hit ? `${out}（画面中不要出现任何具体数字参数、百分比或认证标志）` : out;
+}
+
+// 从流式到来的 JSON 文本里增量取出 style 和 shots 数组里每个完整的对象。
+// 只认我们约定的结构 {"style":"…","shots":[{…},{…}]};字符串里的括号/转义会正确跳过。
+function shotScanner(onObj: (obj: unknown, style: string) => void) {
+  let buf = "";
+  let style = "";
+  let pos = -1; // shots 数组里下一个待扫描的位置;-1 = 还没看到 "shots":[
+  return (delta: string) => {
+    buf += delta;
+    if (!style) {
+      const m = buf.match(/"style"\s*:\s*"((?:[^"\\]|\\.)*)"/);
+      if (m) {
+        try {
+          style = (JSON.parse(`"${m[1]}"`) as string).trim().slice(0, 300);
+        } catch {
+          /* 等更多文本 */
+        }
+      }
+    }
+    if (pos < 0) {
+      const m = /"shots"\s*:\s*\[/.exec(buf);
+      if (!m) return;
+      pos = m.index + m[0].length;
+    }
+    for (;;) {
+      const open = buf.indexOf("{", pos);
+      if (open < 0) return;
+      let depth = 0;
+      let inStr = false;
+      let close = -1;
+      for (let i = open; i < buf.length; i++) {
+        const c = buf[i];
+        if (inStr) {
+          if (c === "\\") i++;
+          else if (c === '"') inStr = false;
+        } else if (c === '"') inStr = true;
+        else if (c === "{") depth++;
+        else if (c === "}" && --depth === 0) {
+          close = i;
+          break;
+        }
+      }
+      if (close < 0) return; // 这个对象还没收全
+      pos = close + 1;
+      try {
+        onObj(JSON.parse(buf.slice(open, close + 1)), style);
+      } catch {
+        /* 坏对象跳过 */
+      }
+    }
+  };
+}
+
+// 流式版 chatJson:每来一段文本就交给 onDelta。接口不支持 json_object(400)时去掉再试。
+async function streamChatJson(
+  llm: { client: OpenAI; model: string },
+  sys: string,
+  user: string,
+  dataUrl: string,
+  temperature: number,
+  maxTokens: number,
+  onDelta: (t: string) => void
+): Promise<void> {
+  const body = {
+    model: llm.model,
+    stream: true as const,
+    messages: [
+      { role: "system" as const, content: sys },
+      {
+        role: "user" as const,
+        content: [
+          { type: "text" as const, text: user },
+          { type: "image_url" as const, image_url: { url: dataUrl } },
+        ],
+      },
+    ],
+    temperature,
+    max_tokens: maxTokens,
+  };
+  let stream;
+  try {
+    stream = await llm.client.chat.completions.create({
+      ...body,
+      response_format: { type: "json_object" },
+    });
+  } catch (e) {
+    if ((e as { status?: number }).status !== 400) throw e;
+    stream = await llm.client.chat.completions.create(body);
+  }
+  for await (const chunk of stream) {
+    const t = chunk.choices[0]?.delta?.content;
+    if (t) onDelta(t);
   }
 }
 
@@ -227,7 +373,8 @@ const SUITE_PLATFORM_NAMES: Record<string, string> = {
 async function suggestDirections(
   image: { buf: Buffer; type: string },
   extra: string,
-  platform: string
+  platform: string,
+  exclude: string[]
 ): Promise<{ directions: Direction[]; fallback: boolean }> {
   const llm = await getChatLLM({ timeout: 60_000 });
   if (!llm) return { directions: randomDirections(4), fallback: true };
@@ -237,9 +384,12 @@ async function suggestDirections(
     const user =
       `目标平台：${plat}\n` +
       (extra ? `补充信息：${extra}\n` : "") +
+      // 每次随机几个灵感词 + 排除已经给过的,保证"换一批"真的换
+      `本次风格灵感(可借用/混搭/不用)：${[...(await getStyleInspirations())].sort(() => Math.random() - 0.5).slice(0, 6).join("、")}\n` +
+      (exclude.length ? `这些方向已经给过了，不要再给相同或相近的：${exclude.join("、")}\n` : "") +
       "请给出 4 个设计方向。";
     // 温度拉高:同一产品每次给的方向都不一样
-    const raw = await chatJson(llm, DEFAULT_SUITE_DIRECTIONS_SYSTEM, user, dataUrl, 1.0, 800);
+    const raw = await chatJson(llm, await getSuiteDirectionsSystem(), user, dataUrl, 1.0, 800);
     const parsed = parseJsonLoose<{ directions?: Direction[] }>(raw);
     const list = (parsed?.directions ?? [])
       .filter((d) => d && typeof d.name === "string" && d.name.trim())
@@ -327,6 +477,8 @@ async function runSuite(
   extra: string,
   platform: string,
   direction: string,
+  resolution: string,
+  strict: boolean,
   email: string,
   apiKey: string,
   model: string,
@@ -338,27 +490,50 @@ async function runSuite(
     if (cur) JOBS.set(jobId, { ...cur, ...patch });
   };
   try {
-    // 第0层:规划 13 张
-    const { shots: specs, planned } = await planShots(productImages[0], extra, platform, direction);
-    const shots: ShotResult[] = specs.map((s, i) => ({
-      ...s,
-      id: `suite-${Date.now()}-${i}`,
-      status: "pending",
-      gradient: GRADIENTS[i % GRADIENTS.length],
-    }));
-    set({ shots, total: shots.length, planFallback: !planned });
+    // 规划(流式)与出图同时进行:规划每吐出一张就进队列,出图 worker 立刻领走。
+    const shots: ShotResult[] = [];
+    let planning = true;
+    let waiters: (() => void)[] = [];
+    const wakeAll = () => {
+      const w = waiters;
+      waiters = [];
+      w.forEach((f) => f());
+    };
+    const addShot = (spec: ShotSpec) => {
+      if (shots.length >= SHOT_COUNT) return;
+      const i = shots.length;
+      shots.push({
+        ...spec,
+        id: `suite-${Date.now()}-${i}`,
+        status: "pending",
+        gradient: GRADIENTS[i % GRADIENTS.length],
+      });
+      set({ shots: [...shots] });
+      wakeAll();
+    };
+    const planDone = planShotsStream(productImages[0], extra, platform, direction, strict, addShot)
+      .then((n) => {
+        // 规划不足 13 张(失败/不合格):按序用兜底模板补齐,并告诉前端
+        if (shots.length < SHOT_COUNT) {
+          fallbackBlueprint(extra, direction, platform).slice(shots.length).forEach(addShot);
+        }
+        if (n < SHOT_COUNT) set({ planFallback: true });
+      })
+      .finally(() => {
+        planning = false;
+        wakeAll();
+      });
 
-    const productFiles = await Promise.all(
-      productImages.map((im, i) =>
-        toFile(im.buf, `product-${i}.png`, { type: im.type || "image/png" })
-      )
-    );
-
-    // 第1-13层:并发限流逐张生成,完成一张更新一张
+    const size = (ratio: string) => nativeSizeFor(ratio, model, resolutionLongSide(resolution));
     let cursor = 0;
     let doneCount = 0;
     const worker = async (): Promise<void> => {
-      while (cursor < shots.length) {
+      for (;;) {
+        if (cursor >= shots.length) {
+          if (!planning) return;
+          await new Promise<void>((r) => waiters.push(r));
+          continue;
+        }
         const idx = cursor++;
         const shot = shots[idx];
         let ok = false;
@@ -371,7 +546,7 @@ async function runSuite(
                 prompt: shot.prompt,
                 images: productImages.map((im) => ({ buf: im.buf, type: im.type })),
                 model,
-                size: sizeFor(shot.ratio),
+                size: size(shot.ratio),
                 quality: (process.env.OPENAI_IMAGE_QUALITY || "medium") as
                   | "low"
                   | "medium"
@@ -382,7 +557,11 @@ async function runSuite(
             );
             shots[idx] = { ...shot, status: "done", url };
             ok = true;
-          } catch {
+          } catch (e) {
+            console.warn(
+              `[suite] 第${idx + 1}张第${attempt + 1}次失败:`,
+              e instanceof Error ? e.message.slice(0, 200) : e
+            );
             // 频率限制/超时等:指数退避 + 抖动后重试,熬过限频窗口(2.5s→5s→10s,封顶18s)
             if (attempt < SHOT_RETRIES) {
               const wait =
@@ -397,9 +576,8 @@ async function runSuite(
         set({ shots: [...shots], done: doneCount });
       }
     };
-    await Promise.all(
-      Array.from({ length: Math.min(CONCURRENCY, shots.length) }, worker)
-    );
+    await Promise.all(Array.from({ length: CONCURRENCY }, worker));
+    await planDone;
 
     const okShots = shots.filter((s) => s.status === "done" && s.url);
 
@@ -420,7 +598,7 @@ async function runSuite(
             gradient: s.gradient,
             style: null,
             ratio: s.ratio,
-            resolution: "1K",
+            resolution,
             // 把 role(main/sub/detail)存进 source(原本为 null;非 URL 不会被
             // regenHref 当作源图带走),作品页据此排序/标注主图/副图/详情。
             source: s.role,
@@ -483,6 +661,16 @@ async function parseInput(request: Request) {
     platform: (f.get("platform") ?? "taobao").toString().trim().slice(0, 20),
     // 用户选的设计方向(「风格名：描述」);空 = 随机挑一个
     direction: (f.get("direction") ?? "").toString().trim().slice(0, 120),
+    // 「换一批」时前端带上已经给过的方向名,让模型避开
+    exclude: (f.get("exclude") ?? "")
+      .toString()
+      .split("|")
+      .map((x) => x.trim().slice(0, 16))
+      .filter(Boolean)
+      .slice(0, 16),
+    resolution: (f.get("resolution") ?? "2K").toString().trim(),
+    // 「严格不编造参数」开关:默认关(用户定),前端传 "1" 才开
+    strict: (f.get("strict") ?? "0").toString() === "1",
     action: (f.get("action") ?? "").toString().trim(),
     email: (f.get("email") ?? "").toString().trim(),
   };
@@ -522,12 +710,18 @@ export async function POST(request: Request) {
     }
     input.email = tokenEmail;
   }
+  if (!(await corePromptsAvailable())) {
+    return NextResponse.json(
+      { error: "一键套图需要商业授权，或暂时无法连接授权服务，请联系站长" },
+      { status: 403 }
+    );
+  }
   if (input.action === "directions") {
     // 免费,单独限流(防脚本刷识图模型)
     if (!rateLimit(`suite-dir:${ip}`, 30, 600_000)) {
       return NextResponse.json({ error: "请求过于频繁，请稍后再试" }, { status: 429 });
     }
-    return NextResponse.json(await suggestDirections(input.images[0], input.extra, input.platform));
+    return NextResponse.json(await suggestDirections(input.images[0], input.extra, input.platform, input.exclude));
   }
   if (!input.direction) {
     const d = randomDirections(1)[0];
@@ -536,8 +730,10 @@ export async function POST(request: Request) {
   const useDb = dbEnabled && input.email.length > 0;
   // 产品图上限统一 5 张(月度会员已下线)。超出部分静默截断(防绕过前端多传图)。
   if (input.images.length > 5) input.images = input.images.slice(0, 5);
-  const SHOT_COUNT = 13;
-  const cost = SHOT_COUNT * POINTS_PER_IMAGE; // 1K 档:13×6 = 78 积分
+  if (!SUITE_RESOLUTIONS.includes(input.resolution)) input.resolution = "2K";
+  // 按 GPT生图 的价格表:1K 13×6=78、2K 13×12=156、4K 13×23=299
+  await loadPriceOverrides(); // 站长在后台改的板块价
+  const cost = SHOT_COUNT * resolutionCost(input.resolution, "medium", "gpt-image-2", "suite");
 
   if (dbEnabled && (await isBanned(input.email, ip))) {
     return NextResponse.json(
@@ -572,6 +768,8 @@ export async function POST(request: Request) {
     input.extra,
     input.platform,
     input.direction,
+    input.resolution,
+    input.strict,
     input.email,
     apiKey,
     model,

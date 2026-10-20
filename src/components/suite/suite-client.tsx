@@ -34,7 +34,7 @@ import { RecordPager, RECORDS_PER_PAGE } from "@/components/tools/record-pager";
 import { ToolDemo, getDemo } from "@/components/tools/tool-demo";
 import { GenLoader } from "@/components/gen-loader";
 import { downloadImage } from "@/lib/download";
-import { SUITE_PLATFORMS } from "@/lib/mock-data";
+import { SUITE_PLATFORMS, resolutionCost } from "@/lib/mock-data";
 import { cn } from "@/lib/utils";
 
 function fmt(s: string, vars: Record<string, string | number>): string {
@@ -125,7 +125,9 @@ export function SuiteClient() {
     prompt?: string;
   } | null>(null);
 
-  const cost = 78; // 13 × 6 积分(1K 档)
+  // 清晰度:与生图页同一套档位与价格(按 GPT生图 计价),13 张 × 单价
+  const [resolution, setResolution] = useStickyState("suite.res", "1K", (v) => ["1K", "2K", "4K"].includes(v));
+  const cost = 13 * resolutionCost(resolution, "medium", "gpt-image-2");
 
   useEffect(() => {
     return () => {
@@ -219,6 +221,7 @@ export function SuiteClient() {
       const copy = copyText();
       if (copy) fd.append("text", copy);
       fd.append("platform", platform);
+      fd.append("resolution", resolution);
       const dir = directions && dirPick >= 0 ? directions[dirPick] : null;
       if (dir) fd.append("direction", `${dir.name}：${dir.desc}`);
       fd.append("email", user.email);
@@ -628,6 +631,34 @@ export function SuiteClient() {
               "All 13 images follow the chosen direction. Skip to pick one at random."
             )}
           </p>
+        </div>
+
+        <div className="space-y-2">
+          <label className="text-sm font-medium">{L("清晰度", "Resolution")}</label>
+          <div className="grid grid-cols-3 gap-2">
+            {[
+              { id: "1K", label: L("1K 标准", "1K") },
+              { id: "2K", label: L("2K 高清", "2K") },
+              { id: "4K", label: L("4K 超清", "4K") },
+            ].map((r) => (
+              <button
+                key={r.id}
+                type="button"
+                onClick={() => setResolution(r.id)}
+                className={cn(
+                  "rounded-[10px] border px-2 py-1.5 text-[12.5px] font-medium transition-colors",
+                  resolution === r.id
+                    ? "border-primary bg-primary/10 text-primary"
+                    : "border-border text-muted-foreground hover:bg-secondary"
+                )}
+              >
+                {r.label}
+                <span className="block text-[10.5px] font-normal opacity-70">
+                  {13 * resolutionCost(r.id, "medium", "gpt-image-2")} {L("积分", "credits")}
+                </span>
+              </button>
+            ))}
+          </div>
         </div>
 
         <div className="rounded-xl bg-secondary/50 px-4 py-3 text-sm">
