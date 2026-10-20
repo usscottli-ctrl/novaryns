@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { toVisionDataUrl } from "@/lib/vision-image";
 import { getChatLLM, parseJsonLoose } from "@/lib/chat-llm";
+import { corePromptsAvailable } from "@/lib/core-prompts";
 import { getTitleSystem } from "@/lib/prompt-config";
 import { resolveUserEmail } from "@/lib/admin-auth";
 import { dbEnabled, addArtworks } from "@/lib/db";
@@ -79,6 +80,13 @@ export async function POST(req: Request) {
     );
   }
 
+  // 核心提示词由授权服务器下发;没授权直接不可用(产品决定:不给简化版)
+  if (!(await corePromptsAvailable())) {
+    return NextResponse.json(
+      { error: "该功能需要商业授权，或暂时无法连接授权服务，请联系站长" },
+      { status: 403 }
+    );
+  }
   const llm = await getChatLLM();
   if (!llm) {
     const base = idea || "热销好物";

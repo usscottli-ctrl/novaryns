@@ -1,10 +1,11 @@
 import { NextResponse } from "next/server";
 import { toVisionDataUrl } from "@/lib/vision-image";
 import { getChatLLM } from "@/lib/chat-llm";
+import { corePromptsAvailable } from "@/lib/core-prompts";
 import {
   getAssistSystem,
   getOptimizeSystem,
-  ASSIST_TOOL_HINTS,
+  getAssistToolHint,
 } from "@/lib/prompt-config";
 import { resolveUserEmail } from "@/lib/admin-auth";
 import { dbEnabled } from "@/lib/db";
@@ -70,6 +71,13 @@ export async function POST(req: Request) {
   }
   const hasImage = !!imageDataUrl;
 
+  // 核心提示词由授权服务器下发;没授权直接不可用(产品决定:不给简化版)
+  if (!(await corePromptsAvailable())) {
+    return NextResponse.json(
+      { error: "该功能需要商业授权，或暂时无法连接授权服务，请联系站长" },
+      { status: 403 }
+    );
+  }
   // 帮写用识图/文案模型(看图写,需视觉能力):后台配了用它,没配用主 Key + gpt-4o-mini。
   const llm = await getChatLLM();
   if (!llm) {
@@ -85,7 +93,7 @@ export async function POST(req: Request) {
     // 关键:帮写(write)时,若有功能页专用指令,**不叠加通用「写整图大片」系统**
     // ——否则那段又长又强势的通用系统会盖过功能页语义(印花提取被写成整图模特大片)。
     // 直接以功能页要求为唯一系统。优化(optimize)只是润色,不冲突,追加即可。
-    const hint = ASSIST_TOOL_HINTS[tool];
+    const hint = await getAssistToolHint(tool);
     let sys: string;
     if (optimize) {
       const optBase = await getOptimizeSystem();

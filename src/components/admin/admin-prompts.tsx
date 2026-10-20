@@ -194,14 +194,18 @@ export function AdminPrompts() {
         <Textarea
           value={suiteVal}
           onChange={(e) => setSuiteVal(e.target.value)}
+          placeholder="留空 = 使用官方云端规划指令（不公开，随官方更新）。填写后用你的内容替换官方指令（仍需商业授权）。"
           className="min-h-[180px] text-xs"
         />
-        <details className="text-[11px] text-muted-foreground">
-          <summary className="cursor-pointer">看代码默认</summary>
-          <p className="mt-1 whitespace-pre-wrap rounded bg-secondary/50 p-2">
-            {view.suiteSystem.default}
-          </p>
-        </details>
+        {/* 官方核心提示词由授权服务器下发,后台不显示原文(default 为空) */}
+        {view.suiteSystem.default && (
+          <details className="text-[11px] text-muted-foreground">
+            <summary className="cursor-pointer">看代码默认</summary>
+            <p className="mt-1 whitespace-pre-wrap rounded bg-secondary/50 p-2">
+              {view.suiteSystem.default}
+            </p>
+          </details>
+        )}
       </div>
 
       {/* 一键套图 · 各平台风格覆盖段(选平台时追加在上面 system 之后) */}
@@ -210,7 +214,7 @@ export function AdminPrompts() {
           一键套图 · 平台风格覆盖段（用户选对应平台时，追加在上面规划指令之后，覆盖风格与文案语言）
         </h3>
         <p className="text-xs text-muted-foreground">
-          淘宝/天猫 = 默认（无覆盖，走上面的规划指令）；其余平台各一段，可编辑，留空=恢复默认。
+          淘宝/天猫 = 默认（无覆盖，走上面的规划指令）；其余平台各一段，可编辑，留空 = 使用官方版本。
         </p>
         {view.suitePlatforms.map((pf) => (
           <div key={pf.id} className="rounded-xl border border-border p-4">
@@ -234,6 +238,7 @@ export function AdminPrompts() {
             <Textarea
               value={platVals[pf.id] ?? ""}
               onChange={(e) => setPlatVals((v) => ({ ...v, [pf.id]: e.target.value }))}
+              placeholder="留空 = 使用官方云端该平台风格（不公开，随官方更新）"
               className="min-h-[90px] text-xs"
             />
           </div>

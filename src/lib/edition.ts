@@ -30,6 +30,15 @@ async function proLicenseKeyFromDb(): Promise<string> {
   }
 }
 
+/** 本站向授权服务器证明身份用的凭据(License Key + 部署标识 host),与 validateProLicense 同口径。 */
+export async function licenseCredentials(): Promise<{ server: string; key: string; host: string }> {
+  return {
+    server: (process.env.LICENSE_SERVER_URL || "https://ai.starzeco.com").replace(/\/$/, ""),
+    key: (process.env.PRO_LICENSE_KEY || "").trim() || (await proLicenseKeyFromDb()),
+    host: (process.env.LICENSE_HOST || process.env.PRO_HOST || "self-host").toString().trim(),
+  };
+}
+
 let cache: { pro: boolean; at: number } | null = null;
 const TTL = 6 * 60 * 60 * 1000; // 6h,减少对 license 服务器的调用
 
