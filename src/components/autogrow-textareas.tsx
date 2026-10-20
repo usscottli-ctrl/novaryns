@@ -19,7 +19,8 @@ function fit(el: HTMLTextAreaElement) {
   const base = Number(el.dataset.baseH) || el.offsetHeight;
   const cs = getComputedStyle(el);
   const border = parseFloat(cs.borderTopWidth) + parseFloat(cs.borderBottomWidth);
-  const max = Math.round(window.innerHeight * MAX_RATIO);
+  // 上限半屏,但至少 320px(窗口高度读不到/很矮时不至于把框压扁)
+  const max = Math.max(320, Math.round(window.innerHeight * MAX_RATIO));
   const prev = el.style.height;
   el.style.height = "auto";
   const want = Math.min(max, Math.max(base, el.scrollHeight + border));
