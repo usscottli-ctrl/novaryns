@@ -19,7 +19,7 @@ import { useI18n } from "@/lib/i18n/locale-context";
 import { useAuth } from "@/lib/auth-context";
 import { useAuthModal } from "@/lib/auth-modal-context";
 import { usePaymentConfig } from "@/lib/payment-context";
-import { BRAND } from "@/lib/brand";
+import { useBrand } from "@/lib/brand-context";
 import { cn } from "@/lib/utils";
 import type { PickedTemplate } from "@/lib/homepage-picks";
 
@@ -39,6 +39,8 @@ export function Landing({ hot }: { hot: PickedTemplate[] }) {
   // 仅官方站(NOVARYNS_EDITION=cloud)显示"我们的"销售内容(三档定价 / 开通云端 /
   // 指向我们的 GitHub);自部署实例一律不显示——那是我们的获客漏斗,不该出现在别人的站上。
   const { official } = usePaymentConfig();
+  // 运行时站点名(白标客户站显示自己的名字,不露 Novaryns)
+  const { name: brandName } = useBrand();
   const L = (zh: string, en: string) => (locale === "en" ? en : zh);
 
   const start = () => {
@@ -113,10 +115,13 @@ export function Landing({ hot }: { hot: PickedTemplate[] }) {
         <div className="mx-auto w-full max-w-5xl px-4 pb-10 pt-16 text-center sm:px-6 sm:pt-24">
           <span className="inline-flex items-center gap-2 rounded-full border border-border bg-card px-4 py-1.5 text-[13px] font-medium text-muted-foreground shadow-[var(--shadow-card)]">
             <span className="h-1.5 w-1.5 rounded-full bg-primary" />
-            {L(
-              "开源 · 可自部署的电商 AI 出图工作站",
-              "Open-source · self-hostable e-commerce AI image studio"
-            )}
+            {/* 「开源/可自部署」是官网卖点;白标客户站(商业版/云端)不提 */}
+            {official
+              ? L(
+                  "开源 · 可自部署的电商 AI 出图工作站",
+                  "Open-source · self-hostable e-commerce AI image studio"
+                )
+              : L("一站式电商 AI 出图工作站", "All-in-one e-commerce AI image studio")}
           </span>
           <h1 className="mx-auto mt-6 max-w-3xl text-4xl font-black leading-[1.12] tracking-tight text-foreground sm:text-6xl">
             {L("电商商品图", "E-commerce shots,")}
@@ -125,9 +130,10 @@ export function Landing({ hot }: { hot: PickedTemplate[] }) {
           </h1>
           <p className="mx-auto mt-5 max-w-2xl text-base leading-relaxed text-muted-foreground sm:text-lg">
             {L(
-              `从生图、套图到抠图改图与节点式画布工作流，${BRAND} 覆盖电商出图全流程。开源免费，亦可一键私有部署。`,
-              `From generation and suites to editing and a node-based canvas workflow, ${BRAND} covers the whole e-commerce imaging pipeline. Free & open-source, or self-host in one click.`
+              `从生图、套图到抠图改图与节点式画布工作流，${brandName} 覆盖电商出图全流程。`,
+              `From generation and suites to editing and a node-based canvas workflow, ${brandName} covers the whole e-commerce imaging pipeline.`
             )}
+            {official && L("开源免费，亦可一键私有部署。", " Free & open-source, or self-host in one click.")}
           </p>
           <div className="mt-8 flex flex-wrap items-center justify-center gap-3">
             <button
