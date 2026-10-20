@@ -174,6 +174,8 @@ export function GenerateClient({
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [images, setImages] = useState<GeneratedImage[]>([]);
+  // 生成中已经出好的图(出一张显示一张;完成后并入 images)
+  const [liveImages, setLiveImages] = useState<GeneratedImage[]>([]);
   const [viewing, setViewing] = useState<GeneratedImage | null>(null);
   const [baseNotice, setBaseNotice] = useState(false);
   // 右栏「本工具记录」折叠态;结果筛选(全部/已完成)。
@@ -686,6 +688,7 @@ export function GenerateClient({
       const jobId: string | undefined = start.jobId;
       if (!jobId) throw new Error(t("gen.errNoJob"));
 
+      setLiveImages([]);
       const deadline = Date.now() + 6 * 60 * 1000;
       let data: {
         images: GeneratedImage[];
@@ -698,7 +701,8 @@ export function GenerateClient({
         if (s.status === "done") data = s;
         else if (s.status === "error")
           throw new Error(s.error ?? t("gen.errFail"));
-        // status === "pending" -> keep polling
+        // 生成中:已出好的几张先显示(服务端出一张推一张)
+        else if (Array.isArray(s.partial)) setLiveImages(s.partial);
       }
 
       if (data.user) applyServerUser(data.user);
@@ -717,6 +721,7 @@ export function GenerateClient({
       toast(msg, "error");
     } finally {
       setLoading(false);
+      setLiveImages([]);
     }
   }
 
@@ -1341,7 +1346,16 @@ export function GenerateClient({
                       RATIO_ASPECT[ratio] ?? "aspect-square"
                     )}
                   >
-                    <GenLoader />
+                    {liveImages[i] ? (
+                      // eslint-disable-next-line @next/next/no-img-element
+                      <img
+                        src={cdnUrl(liveImages[i].url)}
+                        alt=""
+                        className="h-full w-full object-cover"
+                      />
+                    ) : (
+                      <GenLoader />
+                    )}
                   </div>
                 ))}
               </div>

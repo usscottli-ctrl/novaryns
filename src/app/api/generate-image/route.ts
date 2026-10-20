@@ -218,9 +218,55 @@ async function cropToRatio(buf: Buffer, ratio: string): Promise<Buffer> {
 
 // 一次出多张:拆成 count 个 n=1 的请求**同时**发(2026-10-20 客户要求并发不排队)。
 // 原来是一个 n=count 的请求,第三方中转常常在内部一张张串行出,4 张要等 4 倍时间。
+// 每张完成立刻回调 onEach(前端「出一张显示一张」)。
+// 掉队补发:实测中转同时 4 张时 3 张 ~41s、1 张 159s(偶发慢线路)。某张超过 GEN_HEDGE_MS
+// (默认 60s;12 并发实测正常 32~46s)还没回来就再发一个同样的请求,谁先回来用谁。补发那张中转照样计费
+// (客户中转成本),**不额外扣用户积分**。原请求在补发前就报错 → 立刻报错,不多等。
 // 部分失败:返回成功的那几张(调用方按实际张数退积分);全部失败才抛第一个错误。
-async function fanOut<T>(count: number, once: () => Promise<T>): Promise<T[]> {
-  const settled = await Promise.allSettled(Array.from({ length: Math.max(1, count) }, () => once()));
+const GEN_HEDGE_MS = Math.max(10_000, Number(process.env.GEN_HEDGE_MS) || 60_000);
+function hedged<T>(once: () => Promise<T>, slot: number): Promise<T> {
+  return new Promise<T>((resolve, reject) => {
+    let settled = false;
+    let inflight = 1;
+    let hedgeFired = false;
+    const done = (r: T) => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timer);
+      resolve(r);
+    };
+    const fail = (e: unknown) => {
+      inflight--;
+      if (settled) return;
+      // 还没补发就失败 → 直接报错;补发后要等两路都失败才算失败
+      if (!hedgeFired || inflight === 0) {
+        settled = true;
+        clearTimeout(timer);
+        reject(e);
+      }
+    };
+    once().then(done, fail);
+    const timer = setTimeout(() => {
+      if (settled) return;
+      hedgeFired = true;
+      inflight++;
+      console.warn(`[generate-image] 第${slot + 1}张超过 ${GEN_HEDGE_MS / 1000}s 未返回,补发一次`);
+      once().then(done, fail);
+    }, GEN_HEDGE_MS);
+  });
+}
+async function fanOut<T>(
+  count: number,
+  once: () => Promise<T>,
+  onEach?: (r: T) => void | Promise<void>
+): Promise<T[]> {
+  const settled = await Promise.allSettled(
+    Array.from({ length: Math.max(1, count) }, async (_, i) => {
+      const r = await hedged(once, i);
+      if (onEach) await onEach(r);
+      return r;
+    })
+  );
   const ok = settled.flatMap((x) => (x.status === "fulfilled" ? [x.value] : []));
   if (ok.length === 0) throw (settled[0] as PromiseRejectedResult).reason;
   if (ok.length < settled.length) console.warn(`[generate-image] ${settled.length} 张里有 ${settled.length - ok.length} 张失败,按实际张数计费`);
@@ -231,7 +277,9 @@ async function openaiImages(
   p: GenParams,
   apiKey: string,
   modelIn: string,
-  cutoutModel: string
+  cutoutModel: string,
+  // 出一张就回调一次(已组装好的图片对象),供 runJob 立刻转存并推给前端
+  onPartial?: (imgs: GeneratedImage[]) => Promise<void>
 ): Promise<GeneratedImage[]> {
   // 透明底只 gpt-image-1 支持(gpt-image-2 实测不支持 background:transparent),走抠图模型;
   // 其余生图走默认模型(gpt-image-2)。普通生图的兜底已统一 v2,不再落 v1。
@@ -373,6 +421,31 @@ async function openaiImages(
   let data: { b64_json?: string; url?: string }[] = [];
   // 本批实际消耗的 output tokens。各分支都要累加 —— 漏一个分支就会把成本记成 0。
   let usedTokens = 0;
+  // 并发逐张模式下边出边组装(id 按出图先后编号),最后直接返回它,不再从 data 重新映射
+  const streamed: GeneratedImage[] = [];
+  const stamp = Date.now();
+  const onEach = async (r: {
+    data?: { b64_json?: string | null; url?: string | null }[] | null;
+    usage?: { output_tokens?: number } | null;
+  }) => {
+    const ds = r.data ?? [];
+    const tok = ds.length ? Math.round((r.usage?.output_tokens ?? 0) / ds.length) : 0;
+    const imgs = ds.map((d) => {
+      const i = streamed.length;
+      const img: GeneratedImage = {
+        id: `gen-${stamp}-${i}`,
+        url: d.b64_json ? `data:image/png;base64,${d.b64_json}` : (d.url ?? ""),
+        gradient: GRADIENTS[i % GRADIENTS.length],
+        prompt: publicPrompt(p),
+        ratio: p.ratio,
+        createdAt: new Date().toISOString(),
+        tokens: tok,
+      };
+      streamed.push(img);
+      return img;
+    });
+    if (onPartial && imgs.length) await onPartial(imgs);
+  };
 
   // 改比例(ChatGPT 式重生成):拿节点自身提示词 + 原图当参考,按目标比例重画一张,
   // 出图后裁切到精确比例。同主体/风格/配色,自然重构图 —— 无接缝、无羽化、不限于 3 种形状。
@@ -432,7 +505,7 @@ async function openaiImages(
         throw e;
       }
     };
-    const rs = await fanOut(p.count, editOnce);
+    const rs = await fanOut(p.count, editOnce, onEach);
     usedTokens += rs.reduce((n, r) => n + (r.usage?.output_tokens ?? 0), 0);
     data = rs.flatMap((r) => r.data ?? []);
   } else if (model === "dall-e-3") {
@@ -459,11 +532,12 @@ async function openaiImages(
         throw e;
       }
     };
-    const rs = await fanOut(p.count, genOnce);
+    const rs = await fanOut(p.count, genOnce, onEach);
     usedTokens += rs.reduce((n, r) => n + (r.usage?.output_tokens ?? 0), 0);
     data = rs.flatMap((r) => r.data ?? []);
   }
 
+  if (streamed.length) return streamed; // 并发逐张模式:已按出图先后组装好
   const perImageTokens = data.length ? Math.round(usedTokens / data.length) : 0;
   const images = data.map((d, i) => ({
     id: `gen-${Date.now()}-${i}`,
@@ -676,6 +750,8 @@ async function parseParams(request: Request): Promise<GenParams | null> {
 type Job = {
   status: "pending" | "done" | "error";
   images?: GeneratedImage[];
+  /** 生成中已经出好的图(出一张推一张,前端轮询时先显示) */
+  partial?: GeneratedImage[];
   user?: Awaited<ReturnType<typeof getUser>>;
   creditsUsed?: number;
   mock?: boolean;
@@ -735,9 +811,21 @@ async function runJob(
       !p.customModel && p.model && modelProvider(p.model) === "openai" && model && modelProvider(model) === "openai"
         ? model
         : p.model || model;
+    // 出一张就转存一张并写进任务进度,前端轮询能先看到已完成的图
+    const partial: GeneratedImage[] = [];
+    const onPartial = async (imgs: GeneratedImage[]) => {
+      const saved = await persistToStorage(imgs);
+      partial.push(...saved);
+      const cur = JOBS.get(jobId);
+      if (cur && cur.status === "pending") JOBS.set(jobId, { ...cur, partial: [...partial] });
+    };
     let images = apiKey
-      ? await openaiImages(p, apiKey, callModel, cutoutModel)
+      ? await openaiImages(p, apiKey, callModel, cutoutModel, onPartial)
       : mockImages(p);
+    if (partial.length) {
+      const saved = new Map(partial.map((x) => [x.id, x]));
+      images = images.map((im) => saved.get(im.id) ?? im);
+    }
     const _tOpenai = Date.now() - _t0;
     const _t1 = Date.now();
     // gpt-image-2 已按分辨率档**直出真实尺寸**,不能再插值放大(那只会重编码一次、
@@ -1026,7 +1114,7 @@ export async function GET(request: Request) {
     if (job.status === "error") {
       return NextResponse.json({ status: "error", error: job.error });
     }
-    return NextResponse.json({ status: "pending" });
+    return NextResponse.json({ status: "pending", partial: job.partial ?? [] });
   }
 
   // 健康检查:绝不暴露模型名/上游供应商/密钥来源(铁律:绝不泄露所用模型)。
