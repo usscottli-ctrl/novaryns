@@ -130,8 +130,9 @@ export function SuiteClient() {
 
   // 清晰度:与生图页同一套档位与价格(按 GPT生图 计价),13 张 × 单价
   const [resolution, setResolution] = useStickyState("suite.res2", "2K", (v) => ["1K", "2K", "4K"].includes(v));
-  // 严格不编造参数(默认开):关掉则允许 AI 按品类常识补充参数,图更有"参数感"但可能与实物不符
-  const [strict, setStrict] = useStickyState<boolean>("suite.strict", true, (v) => typeof v === "boolean");
+  // 严格不编造参数(默认关,2026-10-20 用户定):关着时 AI 按品类常识补充参数,图更有"参数感"但可能与实物不符;
+  // 打开则只用用户自己写的参数
+  const [strict, setStrict] = useStickyState<boolean>("suite.strict2", false, (v) => typeof v === "boolean");
   const cost = 13 * resolutionCost(resolution, "medium", "gpt-image-2");
 
   useEffect(() => {
