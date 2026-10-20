@@ -99,10 +99,13 @@ export function SuiteClient() {
   const [dirLoading, setDirLoading] = useState(false);
   const [dirPick, setDirPick] = useState(-1); // -1 = 随机
   const [planFallback, setPlanFallback] = useState(false);
+  // 本产品+平台已经给过的方向名,「换一批」时让模型避开
+  const shownDirs = useRef<string[]>([]);
   // 换图/换平台后,之前的方向不再适用
   useEffect(() => {
     setDirections(null);
     setDirPick(-1);
+    shownDirs.current = [];
   }, [files, platform]);
   const [done, setDone] = useState(0);
   const [total, setTotal] = useState(13);
@@ -182,6 +185,7 @@ export function SuiteClient() {
       if (copy) fd.append("text", copy);
       fd.append("platform", platform);
       fd.append("action", "directions");
+      if (shownDirs.current.length) fd.append("exclude", shownDirs.current.slice(-16).join("|"));
       const res = await fetch("/api/suite", {
         method: "POST",
         headers: await authHeader(),
@@ -190,6 +194,7 @@ export function SuiteClient() {
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || L("获取设计方向失败", "Failed to get directions"));
       setDirections(data.directions ?? []);
+      shownDirs.current.push(...(data.directions ?? []).map((d: { name: string }) => d.name));
       setDirFallback(!!data.fallback);
       setDirPick(0);
     } catch (e) {
