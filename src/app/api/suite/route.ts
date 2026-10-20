@@ -67,9 +67,9 @@ type ShotResult = ShotSpec & {
   gradient: string;
 };
 
-// 并发出图数。2→3(2026-10-20):边规划边出图后瓶颈全在出图,客户嫌慢;
-// 单张失败有指数退避重试兜底,限频时会自己熬过去。
-const CONCURRENCY = 3;
+// 并发出图数 = 张数:13 张同时出(2026-10-20 客户要求并发不排队;原来 3 张一批)。
+// 规划是流式的,各张本来就错开十几秒陆续开工;单张失败有指数退避重试兜底,限频时会自己熬过去。
+const CONCURRENCY = 13;
 const SHOT_COUNT = 13;
 // 套图可选清晰度(与生图页同一套档位与价格表;按 GPT生图 计价)
 const SUITE_RESOLUTIONS = ["1K", "2K", "4K"];

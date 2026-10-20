@@ -216,6 +216,17 @@ async function cropToRatio(buf: Buffer, ratio: string): Promise<Buffer> {
   }
 }
 
+// 一次出多张:拆成 count 个 n=1 的请求**同时**发(2026-10-20 客户要求并发不排队)。
+// 原来是一个 n=count 的请求,第三方中转常常在内部一张张串行出,4 张要等 4 倍时间。
+// 部分失败:返回成功的那几张(调用方按实际张数退积分);全部失败才抛第一个错误。
+async function fanOut<T>(count: number, once: () => Promise<T>): Promise<T[]> {
+  const settled = await Promise.allSettled(Array.from({ length: Math.max(1, count) }, () => once()));
+  const ok = settled.flatMap((x) => (x.status === "fulfilled" ? [x.value] : []));
+  if (ok.length === 0) throw (settled[0] as PromiseRejectedResult).reason;
+  if (ok.length < settled.length) console.warn(`[generate-image] ${settled.length} 张里有 ${settled.length - ok.length} 张失败,按实际张数计费`);
+  return ok;
+}
+
 async function openaiImages(
   p: GenParams,
   apiKey: string,
@@ -404,23 +415,26 @@ async function openaiImages(
       model,
       image: files,
       prompt,
-      n: p.count,
+      n: 1,
       size: size as never,
       quality: q,
     };
-    let r;
-    try {
-      r = await client.images.edit({
-        ...editParams,
-        ...(p.transparent ? { background: "transparent" as const } : {}),
-      });
-    } catch (e) {
-      if (p.transparent && transparentUnsupported(e)) {
-        r = await client.images.edit(editParams); // 退回不透明底重试
-      } else throw e;
-    }
-    usedTokens += r.usage?.output_tokens ?? 0;
-    data = r.data ?? [];
+    const editOnce = async () => {
+      try {
+        return await client.images.edit({
+          ...editParams,
+          ...(p.transparent ? { background: "transparent" as const } : {}),
+        });
+      } catch (e) {
+        if (p.transparent && transparentUnsupported(e)) {
+          return client.images.edit(editParams); // 退回不透明底重试
+        }
+        throw e;
+      }
+    };
+    const rs = await fanOut(p.count, editOnce);
+    usedTokens += rs.reduce((n, r) => n + (r.usage?.output_tokens ?? 0), 0);
+    data = rs.flatMap((r) => r.data ?? []);
   } else if (model === "dall-e-3") {
     // dall-e-3: n=1 only, no edit -> fan out parallel text-to-image.
     const batches = await Promise.all(
@@ -431,20 +445,23 @@ async function openaiImages(
     usedTokens += batches.reduce((n, b) => n + (b.usage?.output_tokens ?? 0), 0);
     data = batches.flatMap((b) => b.data ?? []);
   } else {
-    const genParams = { model, prompt, n: p.count, size: size as never, quality: q };
-    let r;
-    try {
-      r = await client.images.generate({
-        ...genParams,
-        ...(p.transparent ? { background: "transparent" as const } : {}),
-      });
-    } catch (e) {
-      if (p.transparent && transparentUnsupported(e)) {
-        r = await client.images.generate(genParams); // 退回不透明底重试
-      } else throw e;
-    }
-    usedTokens += r.usage?.output_tokens ?? 0;
-    data = r.data ?? [];
+    const genParams = { model, prompt, n: 1, size: size as never, quality: q };
+    const genOnce = async () => {
+      try {
+        return await client.images.generate({
+          ...genParams,
+          ...(p.transparent ? { background: "transparent" as const } : {}),
+        });
+      } catch (e) {
+        if (p.transparent && transparentUnsupported(e)) {
+          return client.images.generate(genParams); // 退回不透明底重试
+        }
+        throw e;
+      }
+    };
+    const rs = await fanOut(p.count, genOnce);
+    usedTokens += rs.reduce((n, r) => n + (r.usage?.output_tokens ?? 0), 0);
+    data = rs.flatMap((r) => r.data ?? []);
   }
 
   const perImageTokens = data.length ? Math.round(usedTokens / data.length) : 0;
@@ -677,8 +694,8 @@ function gcJobs() {
 
 // 生成并发闸:同时最多 GEN_MAX_CONCURRENT 个请求真正打 OpenAI,超出的排队等待。
 // 防止瞬时高并发一次性打爆 OpenAI 速率限额(429)。单 fork 实例,模块级状态即可。
-// gpt-image ~30-40s/张,默认 4 并发 ≈ 7 张/分钟,留足余量;可用 env 调大。
-const GEN_MAX_CONCURRENT = Math.max(1, Number(process.env.GEN_MAX_CONCURRENT) || 4);
+// 默认 20(2026-10-20 由 4 调大:客户站多人同时生图排队明显,客户要求并发);可用 env 调。
+const GEN_MAX_CONCURRENT = Math.max(1, Number(process.env.GEN_MAX_CONCURRENT) || 20);
 let genActive = 0;
 const genWaiters: Array<() => void> = [];
 function acquireGenSlot(): Promise<void> {
@@ -760,6 +777,10 @@ async function runJob(
       }
     }
 
+    // 多张并发时可能部分失败:按实际出图张数计费,差额退回
+    const delivered = Math.min(images.length, p.count);
+    const charged = delivered >= p.count ? cost : Math.round((cost * delivered) / Math.max(1, p.count));
+    if (useDb && charged < cost) await refundCredits(p.email, cost - charged).catch(() => {});
     let user: Awaited<ReturnType<typeof getUser>> = null;
     if (useDb) {
       const disp = publicPrompt(p);
@@ -811,8 +832,8 @@ async function runJob(
       }
       await addLedgerEntry(
         p.email,
-        -cost,
-        `生成 ${p.count} 张图`,
+        -charged,
+        `生成 ${delivered} 张图`,
         batchId // 关联本批作品,账户明细能点回图片
       ).catch(() => {});
       user = await getUser(p.email).catch(() => null);
@@ -823,7 +844,7 @@ async function runJob(
       status: "done",
       images,
       user,
-      creditsUsed: cost,
+      creditsUsed: charged,
       mock: !apiKey,
       mode: p.images.length > 0 ? "edit" : "generate",
       persisted: useDb,

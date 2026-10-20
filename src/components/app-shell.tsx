@@ -4,6 +4,7 @@ import { usePathname } from "next/navigation";
 import { AppRail } from "@/components/app-rail";
 import { SiteFooter } from "@/components/site-footer";
 import { cn } from "@/lib/utils";
+import { AutogrowTextareas } from "@/components/autogrow-textareas";
 
 /**
  * 全站工作台壳:左侧图标导航栏(手机为底部 tab)+ 右侧内容区。
@@ -22,6 +23,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
 
   return (
     <>
+      <AutogrowTextareas />
       <AppRail />
       <div
         className={cn(
