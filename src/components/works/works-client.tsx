@@ -24,6 +24,7 @@ import { cn } from "@/lib/utils";
 import { WorkLightbox, type LightboxWork } from "@/components/works/work-lightbox";
 import { isUserOutput } from "@/lib/artwork-filter";
 import { useBrand } from "@/lib/brand-context";
+import { useArtworkKeepDays } from "@/lib/use-keep-days";
 
 // ---------------------------------------------------------------------------
 // 作品库(设计 screen==='works',星泽商图.dc.html 1247–1328)。
@@ -116,6 +117,7 @@ function isToday(iso?: string): boolean {
 export function WorksClient() {
   const { name: brandName } = useBrand(); // 下载文件名用站点名(白标)
   const { user, ready } = useAuth();
+  const keepDays = useArtworkKeepDays(); // 各站实际保留天数(客户站 OSS 10 天自动删)
   const { toast } = useToast();
 
   const [works, setWorks] = useState<Artwork[] | null>(null);
@@ -397,7 +399,10 @@ export function WorksClient() {
             作品库
           </h1>
           <p className="mt-1 text-[13.5px] text-c-text3">
-            {count} 张作品 · 生成结果自动保留 180 天 · 删除后进回收站可恢复
+            {count} 张作品
+            {keepDays != null &&
+              ` · 生成结果自动保留 ${keepDays} 天${keepDays <= 30 ? "(到期图片自动删除,请及时下载)" : ""}`}
+            {" · 删除后进回收站可恢复"}
           </p>
         </div>
         <div className="flex items-center gap-2.5">
