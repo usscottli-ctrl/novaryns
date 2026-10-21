@@ -16,6 +16,7 @@ import {
   Printer,
   Eraser,
   ShieldCheck,
+  LayoutTemplate,
   type LucideIcon,
 } from "lucide-react";
 
@@ -73,6 +74,11 @@ export const TOOLS: ToolMeta[] = [
     key: "一键套图", en: "Image suite", slug: "suite", href: "/suite", category: "生成创作",
     Icon: Layers, desc: "上传产品图,自动出主图+详情页全套电商图",
     action: "生成套图", cost: 20, ctrls: [], workspace: true, live: true, inMenu: true,
+  },
+  {
+    key: "A+详情", en: "A+ Content", slug: "aplus", href: "/aplus", category: "生成创作",
+    Icon: LayoutTemplate, desc: "上传产品图,自动出亚马逊 A+ 页面横版模块图",
+    action: "生成 A+", cost: 30, ctrls: [], workspace: true, live: true, inMenu: true,
   },
   {
     key: "图裂变", en: "Variations", slug: "variations", href: "/variations", category: "生成创作",

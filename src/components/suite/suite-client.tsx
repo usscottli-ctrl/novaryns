@@ -50,7 +50,8 @@ const MAX_UPLOAD = 12 * 1024 * 1024;
 const RATIO_ASPECT: Record<string, string> = {
   "1:1": "aspect-square",
   "3:4": "aspect-[3/4]",
-  "97:60": "aspect-[97/60]", // 亚马逊 A+ 模块 970×600
+  "97:60": "aspect-[97/60]", // 亚马逊 A+ 标准模块 970×600
+  "61:25": "aspect-[61/25]", // 亚马逊高级 A+ 模块 1464×600
 };
 
 type Shot = {
@@ -63,7 +64,9 @@ type Shot = {
   gradient: string;
 };
 
-export function SuiteClient() {
+// mode="aplus":独立的「A+详情」功能复用本页流程(上传→设计方向→出图→记录),只出亚马逊 A+ 横版模块
+export function SuiteClient({ mode = "suite" }: { mode?: "suite" | "aplus" } = {}) {
+  const isAplus = mode === "aplus";
   const { name: brandName } = useBrand(); // 下载文件名用站点名(白标)
   const keepDays = useArtworkKeepDays();
   const { user, ready, remaining, applyServerUser } = useAuth();
@@ -132,12 +135,18 @@ export function SuiteClient() {
     prompt?: string;
   } | null>(null);
 
-  // 清晰度:与生图页同一套档位与价格(按 GPT生图 计价),13 张 × 单价
+  // 清晰度:与生图页同一套档位与价格(按 GPT生图 计价),张数 × 单价
   const [resolution, setResolution] = useStickyState("suite.res2", "2K", (v) => ["1K", "2K", "4K"].includes(v));
+  // A+ 档位:标准 5 张 970×600 / 高级 7 张 1464×600(高级需亚马逊开通资格)
+  const [aplusTier, setAplusTier] = useStickyState("aplus.tier", "standard", (v) => v === "standard" || v === "premium");
+  // 本次张数与实际出图档位(与服务端 layoutFor 一致):套图 13 / 亚马逊套图 9 / A+ 5 或 7
+  const shotCount = isAplus ? (aplusTier === "premium" ? 7 : 5) : platform === "amazon" ? 9 : 13;
+  const effRes = isAplus ? (aplusTier === "premium" ? "2K" : "1K") : resolution;
+  const sendPlatform = isAplus ? "amazon" : platform;
   // 严格不编造参数(默认关,2026-10-20 用户定):关着时 AI 按品类常识补充参数,图更有"参数感"但可能与实物不符;
   // 打开则只用用户自己写的参数
   const [strict, setStrict] = useStickyState<boolean>("suite.strict2", false, (v) => typeof v === "boolean");
-  const cost = 13 * resolutionCost(resolution, "medium", "gpt-image-2", "suite");
+  const cost = shotCount * resolutionCost(effRes, "medium", "gpt-image-2", "suite");
 
   useEffect(() => {
     return () => {
@@ -190,7 +199,8 @@ export function SuiteClient() {
       fd.append("image", files[0]);
       const copy = copyText();
       if (copy) fd.append("text", copy);
-      fd.append("platform", platform);
+      fd.append("platform", sendPlatform);
+      if (isAplus) fd.append("mode", "aplus");
       fd.append("action", "directions");
       if (shownDirs.current.length) fd.append("exclude", shownDirs.current.slice(-16).join("|"));
       const res = await fetch("/api/suite", {
@@ -232,8 +242,12 @@ export function SuiteClient() {
       files.forEach((f) => fd.append("image", f));
       const copy = copyText();
       if (copy) fd.append("text", copy);
-      fd.append("platform", platform);
-      fd.append("resolution", resolution);
+      fd.append("platform", sendPlatform);
+      fd.append("resolution", effRes);
+      if (isAplus) {
+        fd.append("mode", "aplus");
+        fd.append("aplusTier", aplusTier);
+      }
       fd.append("strict", strict ? "1" : "0");
       const dir = directions && dirPick >= 0 ? directions[dirPick] : null;
       if (dir) fd.append("direction", `${dir.name}：${dir.desc}`);
@@ -288,7 +302,7 @@ export function SuiteClient() {
     if (items.length === 0) return;
     setZipping(true);
     try {
-      await downloadZip(items, `${brandName}-套图-${Date.now()}.zip`);
+      await downloadZip(items, `${brandName}-${isAplus ? "A+详情" : "套图"}-${Date.now()}.zip`);
     } catch {
       // 服务端打包失败时,退化为逐张下载
       shots
@@ -334,7 +348,8 @@ export function SuiteClient() {
               (a) =>
                 a.image &&
                 a.status !== "failed" &&
-                (a.batchId ?? "").startsWith("suite-")
+                (a.batchId ?? "").startsWith("suite-") &&
+                (a.batchId ?? "").startsWith("suite-aplus-") === isAplus
             )
             .slice(0, 60)
             .map((a) => ({
@@ -393,7 +408,7 @@ export function SuiteClient() {
               创作工具
             </Link>
             <ChevronRight className="h-3.5 w-3.5 text-c-text4" />
-            <span className="font-semibold text-c-text">{t("suite.title")}</span>
+            <span className="font-semibold text-c-text">{isAplus ? L("A+详情", "A+ Content") : t("suite.title")}</span>
           </nav>
         </div>
     <div className="grid gap-5 lg:h-[890px] lg:grid-cols-[320px_1fr] xl:grid-cols-[320px_1fr_280px]">
@@ -409,10 +424,14 @@ export function SuiteClient() {
           </span>
           <div className="min-w-0">
             <h1 className="text-[16px] font-bold text-c-text">
-              {t("suite.title")}
+              {isAplus ? L("A+详情", "A+ Content") : t("suite.title")}
             </h1>
             <p className="text-[12px] text-c-text3">
-              上传产品图,自动出 1 主图 + 4 副图 + 8 详情页图
+              {isAplus
+                ? L("上传产品图,自动出亚马逊 A+ 页面横版模块图(英文)", "Upload product photos to get Amazon A+ banner modules")
+                : platform === "amazon"
+                  ? L("上传产品图,自动出亚马逊 1 主图 + 8 副图", "Upload product photos to get 1 main + 8 Amazon listing images")
+                  : "上传产品图,自动出 1 主图 + 4 副图 + 8 详情页图"}
             </p>
           </div>
         </div>
@@ -463,6 +482,38 @@ export function SuiteClient() {
           </div>
         </div>
 
+        {isAplus ? (
+        <div className="space-y-2">
+          <label className="text-sm font-medium">{L("A+ 类型", "A+ type")}</label>
+          <div className="grid grid-cols-2 gap-2">
+            {[
+              { id: "standard", label: L("标准 A+", "Standard A+"), sub: L("5 张 · 970×600", "5 × 970×600") },
+              { id: "premium", label: L("高级 A+", "Premium A+"), sub: L("7 张 · 1464×600", "7 × 1464×600") },
+            ].map((o) => (
+              <button
+                key={o.id}
+                type="button"
+                onClick={() => setAplusTier(o.id)}
+                className={cn(
+                  "rounded-[10px] border px-2 py-1.5 text-[12.5px] font-medium transition-colors",
+                  aplusTier === o.id
+                    ? "border-primary bg-primary/10 text-primary"
+                    : "border-border text-muted-foreground hover:bg-secondary"
+                )}
+              >
+                {o.label}
+                <span className="block text-[10.5px] font-normal opacity-70">{o.sub}</span>
+              </button>
+            ))}
+          </div>
+          <p className="text-[11.5px] text-muted-foreground">
+            {L(
+              "A+ 是亚马逊商品页下方的图文详情区,需完成亚马逊品牌备案才能使用;高级 A+ 需亚马逊开通资格。图片按 A+ 后台要求的精确尺寸交付,全英文。",
+              "A+ is the rich content area below the Amazon listing (Brand Registry required; Premium A+ needs eligibility). Images are delivered at the exact sizes A+ requires."
+            )}
+          </p>
+        </div>
+        ) : (
         <div className="space-y-2">
           <label className="text-sm font-medium">
             {L("目标平台", "Target platform")}
@@ -485,12 +536,18 @@ export function SuiteClient() {
             ))}
           </div>
           <p className="text-[11.5px] text-muted-foreground">
-            {L(
-              "国内平台出中文风格图,亚马逊/跨境出简约英文风格图。",
-              "China platforms → Chinese style; Amazon/cross-border → minimal English."
-            )}
+            {platform === "amazon"
+              ? L(
+                  "亚马逊出 1 张纯白底主图 + 8 张副图(商品页图片上限)。商品页下方的 A+ 详情请用「A+详情」功能。",
+                  "Amazon: 1 white-background main + 8 listing images. For A+ content use the A+ Content tool."
+                )
+              : L(
+                  "国内平台出中文风格图,亚马逊/跨境出简约英文风格图。",
+                  "China platforms → Chinese style; Amazon/cross-border → minimal English."
+                )}
           </p>
         </div>
+        )}
 
         <div className="space-y-2">
           <label className="text-sm font-medium">{t("suite.titleLabel")}</label>
@@ -642,12 +699,13 @@ export function SuiteClient() {
           )}
           <p className="text-[11.5px] text-muted-foreground">
             {L(
-              "整套 13 张统一按所选方向出图;想要不同风格就换个方向。不选则随机。",
-              "All 13 images follow the chosen direction. Skip to pick one at random."
+              `整套 ${shotCount} 张统一按所选方向出图;想要不同风格就换个方向。不选则随机。`,
+              `All ${shotCount} images follow the chosen direction. Skip to pick one at random.`
             )}
           </p>
         </div>
 
+        {!isAplus && (
         <div className="space-y-2">
           <label className="text-sm font-medium">{L("清晰度", "Resolution")}</label>
           <div className="grid grid-cols-3 gap-2">
@@ -669,17 +727,26 @@ export function SuiteClient() {
               >
                 {r.label}
                 <span className="block text-[10.5px] font-normal opacity-70">
-                  {13 * resolutionCost(r.id, "medium", "gpt-image-2", "suite")} {L("积分", "credits")}
+                  {shotCount * resolutionCost(r.id, "medium", "gpt-image-2", "suite")} {L("积分", "credits")}
                 </span>
               </button>
             ))}
           </div>
         </div>
+        )}
 
         <div className="rounded-xl bg-secondary/50 px-4 py-3 text-sm">
           <div className="flex items-center justify-between">
             <span className="text-muted-foreground">{t("suite.output")}</span>
-            <span className="font-medium">{t("suite.outputDetail")}</span>
+            <span className="font-medium">
+              {isAplus
+                ? aplusTier === "premium"
+                  ? L("7 张 A+ 模块 · 1464×600", "7 A+ modules · 1464×600")
+                  : L("5 张 A+ 模块 · 970×600", "5 A+ modules · 970×600")
+                : platform === "amazon"
+                  ? L("1 主图 + 8 副图", "1 main + 8 listing")
+                  : t("suite.outputDetail")}
+            </span>
           </div>
           <div className="mt-2 flex items-center justify-between">
             <span className="text-muted-foreground">{t("suite.costLabel")}</span>
@@ -827,7 +894,8 @@ export function SuiteClient() {
               const list = group(role);
               if (list.length === 0 && !loading) return null;
               // 亚马逊没有竖版详情(换成 A+ 模块),其他平台没有 A+:生成中也别显示空分组
-              if (list.length === 0 && (role === "aplus" ? platform !== "amazon" : role === "detail" && platform === "amazon")) return null;
+              const expected = isAplus ? ["aplus"] : platform === "amazon" ? ["main", "sub"] : ["main", "sub", "detail"];
+              if (list.length === 0 && !expected.includes(role)) return null;
               return (
                 <div key={role} className="space-y-2">
                   <p className="text-xs font-medium text-muted-foreground">

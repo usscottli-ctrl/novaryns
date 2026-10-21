@@ -26,6 +26,7 @@ import { fetchRemoteImage } from "@/lib/remote-image";
 import {
   getSuiteSystem,
   getSuitePlatformHint,
+  getAplusHint,
   getSuiteDirectionsSystem,
   getStyleInspirations,
   getSuiteShotTexts,
@@ -70,26 +71,44 @@ type ShotResult = ShotSpec & {
 // 并发出图数 = 张数:13 张同时出(2026-10-20 客户要求并发不排队;原来 3 张一批)。
 // 规划是流式的,各张本来就错开十几秒陆续开工;单张失败有指数退避重试兜底,限频时会自己熬过去。
 const CONCURRENCY = 13;
-const SHOT_COUNT = 13;
 // 套图可选清晰度(与生图页同一套档位与价格表;按 GPT生图 计价)
 const SUITE_RESOLUTIONS = ["1K", "2K", "4K"];
 const SHOT_RETRIES = 3; // 每张失败后最多再重试 3 次(指数退避,扛住尾部限频)
 
-// 亚马逊图位(2026-10-21 客户反馈尺寸不符):listing 主图/副图都是方图,
-// 没有国内那种竖版长详情 → 详情换成 A+ 页面标准模块图,交付**精确 970×600**
-// (A+ 后台对非标尺寸会自动缩放,图里的字会糊)。出图按同比例原生尺寸,再裁缩到 970×600。
-const APLUS_RATIO = "97:60";
-const APLUS_W = 970;
-const APLUS_H = 600;
+// 一次生成的图位布局(2026-10-21 客户反馈亚马逊尺寸不符后拆开):
+//   · 套图(国内平台/独立站):1 主图 + 4 副图 + 8 竖版详情 = 13 张;
+//   · 套图(亚马逊):亚马逊没有竖版详情页,listing 只放图片 → 1 主图 + 8 副图 = 9 张(listing 上限);
+//   · A+详情(独立功能):只出亚马逊 A+ 页面横版模块,交付**精确尺寸**(A+ 后台对非标尺寸自动缩放,图里的字会糊):
+//       标准 A+ 5 张 970×600(标准版每页最多 5 个模块)/ 高级 A+ 7 张 1464×600(需亚马逊开通资格)。
+type Layout = {
+  mode: "suite" | "aplus";
+  platform: string;
+  count: number;
+  aplusW: number;
+  aplusH: number;
+  aplusRatio: string;
+};
+const APLUS_TIERS = {
+  standard: { count: 5, w: 970, h: 600, ratio: "97:60" },
+  premium: { count: 7, w: 1464, h: 600, ratio: "61:25" },
+} as const;
 
-function ratioOf(role: ShotRole): string {
-  return role === "aplus" ? APLUS_RATIO : role === "detail" ? "3:4" : "1:1";
+function layoutFor(mode: string, platform: string, tier: string): Layout {
+  const t = tier === "premium" ? APLUS_TIERS.premium : APLUS_TIERS.standard;
+  const base = { aplusW: t.w, aplusH: t.h, aplusRatio: t.ratio };
+  if (mode === "aplus") return { mode: "aplus", platform: "amazon", count: t.count, ...base };
+  return { mode: "suite", platform, count: platform === "amazon" ? 9 : 13, ...base };
 }
 
-/** 把规划/兜底给的 role 落到该平台实际有的图位上。 */
-function platformRole(role: string, platform: string): ShotRole {
+function ratioOf(role: ShotRole, lay: Layout): string {
+  return role === "aplus" ? lay.aplusRatio : role === "detail" ? "3:4" : "1:1";
+}
+
+/** 把规划/兜底给的 role 落到这次布局实际有的图位上。 */
+function layoutRole(role: string, lay: Layout): ShotRole {
+  if (lay.mode === "aplus") return "aplus";
   if (role === "main" || role === "sub") return role;
-  return platform === "amazon" ? "aplus" : "detail";
+  return lay.platform === "amazon" ? "sub" : "detail";
 }
 
 // 亚马逊主图硬规则,放在该张提示词**最末尾**并且不拼整套风格段:
@@ -100,18 +119,45 @@ const AMAZON_MAIN_TAIL =
   "不要任何桌面、墙面、厨房、窗户、植物、道具,也不要沿用参考图里的背景;画面中不得出现任何文字、logo、水印、边框、图标;" +
   "只有产品本身,居中,约占画面 85%,可有极轻的自然落地阴影。";
 
-/** 兜底模板(1 主 + 4 副 + 8 详情)按平台改图位:亚马逊 = 1 主 + 6 副 + 6 A+。 */
-function forPlatform(list: ShotSpec[], platform: string): ShotSpec[] {
-  if (platform !== "amazon") return list;
-  let extraSub = 2;
+/** 规划失败时的兜底模板,按布局改图位(调用方再按张数截断)。 */
+function fallbackFor(lay: Layout, extra: string, direction: string): ShotSpec[] {
+  if (lay.mode === "aplus") return fallbackAplus(lay, extra, direction);
+  const list = fallbackBlueprint(extra, direction, lay.platform);
+  if (lay.platform !== "amazon") return list;
+  // 亚马逊套图:主图换成纯白合规图,详情全部改成方形副图
   return list.map((sp) => {
     if (sp.role === "main") {
       return { ...sp, text: "", prompt: `Keep the uploaded product exactly as it is.\n${AMAZON_MAIN_TAIL}` };
     }
     if (sp.role !== "detail") return sp;
-    const role: ShotRole = extraSub-- > 0 ? "sub" : "aplus";
-    return { ...sp, role, ratio: ratioOf(role) };
+    return { ...sp, role: "sub", ratio: "1:1" };
   });
+}
+
+/** A+ 兜底模块(英文,横版)。 */
+function fallbackAplus(lay: Layout, extra: string, direction: string): ShotSpec[] {
+  const base =
+    "Keep the uploaded product exactly unchanged (shape, colours, printed text, details). " +
+    `Design a wide horizontal Amazon A+ content module banner (${lay.aplusW}x${lay.aplusH}), premium minimal brand look, ` +
+    "product on one side and short crisp English copy in the open space on the other side, no Chinese text." +
+    (direction ? ` Overall design direction: ${direction}.` : "") +
+    (extra ? ` Product facts provided by the seller: ${extra}.` : "");
+  const mods = [
+    ["Brand banner", "hero brand banner, product large, an elegant English brand tagline"],
+    ["Key benefits", "three icon + short phrase feature callouts next to the product"],
+    ["Lifestyle", "the product in a real, aspirational use scene"],
+    ["Details", "a close-up of the product's real details with short labels"],
+    ["Use cases", "two or three small scenes showing where and how it is used"],
+    ["Why choose us", "clean grid of quality / care / gifting reasons with icons"],
+    ["Brand story", "warm closing banner with a short brand promise line"],
+  ];
+  return mods.map(([label, desc]) => ({
+    role: "aplus" as const,
+    label,
+    ratio: lay.aplusRatio,
+    text: "",
+    prompt: `${base} This module: ${desc}.`,
+  }));
 }
 
 const GRADIENTS = [
@@ -186,11 +232,12 @@ function fallbackBlueprint(extra: string, direction: string, platform: string): 
 async function planShotsStream(
   images: { buf: Buffer; type: string }[],
   extra: string,
-  platform: string,
+  lay: Layout,
   direction: string,
   strict: boolean,
   onShot: (spec: ShotSpec) => void
 ): Promise<number> {
+  const platform = lay.platform;
   const llm = await getChatLLM({ timeout: 180_000 });
   if (!llm) return 0;
   let emitted = 0;
@@ -200,7 +247,12 @@ async function planShotsStream(
     const dataUrls = await Promise.all(images.slice(0, 4).map((im) => toVisionDataUrl(im.buf, im.type)));
     const texts = await getSuiteShotTexts(); // 核心提示词(授权服务器下发)
     const base = await getSuiteSystem(); // 后台可编辑的套图规划 system 指令
-    const platHint = await getSuitePlatformHint(platform); // 平台风格覆盖段(后台可编辑)
+    // 平台风格覆盖段(后台可编辑);A+详情用授权服务器下发的 A+ 专用段
+    const platHint =
+      lay.mode === "aplus"
+        ? await getAplusHint(lay.count, lay.aplusW, lay.aplusH)
+        : await getSuitePlatformHint(platform);
+    if (lay.mode === "aplus" && !platHint) return 0; // 授权服务器还没有 A+ 指令 → 走兜底模板
     const sys0 = platHint ? `${base}
 
 ${platHint}` : base;
@@ -209,14 +261,16 @@ ${platHint}` : base;
       (extra ? `补充信息：${extra}\n` : "") +
       `本套设计方向：${direction}\n` +
       (dataUrls.length > 1 ? `下面 ${dataUrls.length} 张图是同一个产品的不同角度/局部。\n` : "") +
-      "请按这个方向规划这套产品的电商套图。" +
+      (lay.mode === "aplus"
+        ? `请按这个方向规划这个产品的亚马逊 A+ 页面模块,正好 ${lay.count} 张。`
+        : `请按这个方向规划这套产品的电商套图,共 ${lay.count} 张。`) +
       // 产品事实红线(严格模式;放在最后,模型对最后看到的约束最重视)
       (strict ? `\n${texts.redLine(extra)}` : "");
     const scan = shotScanner((raw, style, look) => {
-      if (emitted >= SHOT_COUNT) return;
+      if (emitted >= lay.count) return;
       const sp = raw as Partial<ShotSpec>;
       if (!sp || !sp.prompt || !sp.role) return;
-      const role = platformRole(String(sp.role), platform);
+      const role = layoutRole(String(sp.role), lay);
       const amazonMain = platform === "amazon" && role === "main";
       emitted++;
       // 严格模式下硬过滤用户没提供的参数;用户选择允许补充时原样保留
@@ -225,7 +279,7 @@ ${platHint}` : base;
       onShot({
         role,
         label: String(sp.label ?? "").slice(0, 40) || "套图",
-        ratio: ratioOf(role),
+        ratio: ratioOf(role, lay),
         text: sp.text ? scrub(String(sp.text)) : undefined,
         // 统一视觉基调拼进每张,保证整套像一个设计师做的;
         // 产品外观锁定放在**最末尾**(模型最看重最后的约束),防止场景描述把产品带跑
@@ -237,7 +291,7 @@ ${platHint}` : base;
       });
     });
     await streamChatJson(llm, sys, user, dataUrls, 0.9, 6000, scan);
-    if (emitted < SHOT_COUNT) console.warn("[suite] 规划只给出", emitted, "张,其余用模板补齐");
+    if (emitted < lay.count) console.warn("[suite] 规划只给出", emitted, "张,其余用模板补齐");
   } catch (e) {
     console.warn("[suite] 规划失败(已出", emitted, "张),其余用模板补齐:", e instanceof Error ? e.message : e);
   }
@@ -534,7 +588,7 @@ async function runSuite(
   jobId: string,
   productImages: { buf: Buffer; type: string }[],
   extra: string,
-  platform: string,
+  lay: Layout,
   direction: string,
   resolution: string,
   strict: boolean,
@@ -544,6 +598,7 @@ async function runSuite(
   useDb: boolean,
   cost: number
 ) {
+  const platform = lay.platform;
   const set = (patch: Partial<Job>) => {
     const cur = JOBS.get(jobId);
     if (cur) JOBS.set(jobId, { ...cur, ...patch });
@@ -559,7 +614,7 @@ async function runSuite(
       w.forEach((f) => f());
     };
     const addShot = (spec: ShotSpec) => {
-      if (shots.length >= SHOT_COUNT) return;
+      if (shots.length >= lay.count) return;
       const i = shots.length;
       shots.push({
         ...spec,
@@ -570,15 +625,13 @@ async function runSuite(
       set({ shots: [...shots] });
       wakeAll();
     };
-    const planDone = planShotsStream(productImages, extra, platform, direction, strict, addShot)
+    const planDone = planShotsStream(productImages, extra, lay, direction, strict, addShot)
       .then((n) => {
-        // 规划不足 13 张(失败/不合格):按序用兜底模板补齐,并告诉前端
-        if (shots.length < SHOT_COUNT) {
-          forPlatform(fallbackBlueprint(extra, direction, platform), platform)
-            .slice(shots.length)
-            .forEach(addShot);
+        // 规划张数不足(失败/不合格):按序用兜底模板补齐,并告诉前端
+        if (shots.length < lay.count) {
+          fallbackFor(lay, extra, direction).slice(shots.length).forEach(addShot);
         }
-        if (n < SHOT_COUNT) set({ planFallback: true });
+        if (n < lay.count) set({ planFallback: true });
       })
       .finally(() => {
         planning = false;
@@ -615,10 +668,10 @@ async function runSuite(
             };
             let url: string;
             if (shot.role === "aplus") {
-              // 亚马逊 A+ 模块要精确 970×600:同比例出图后裁缩
+              // 亚马逊 A+ 模块要精确尺寸(970×600 / 1464×600):同比例出图后裁缩
               const sharp = (await import("sharp")).default;
               const raw = await generateBuffer(params);
-              const fitted = await sharp(raw).resize(APLUS_W, APLUS_H, { fit: "cover" }).png().toBuffer();
+              const fitted = await sharp(raw).resize(lay.aplusW, lay.aplusH, { fit: "cover" }).png().toBuffer();
               url = await persistOne(fitted, shot.id);
             } else if (platform === "amazon" && shot.role === "main") {
               // 亚马逊主图要求背景正好 RGB 255:模型出的「白」常是 252~254,接近白的像素统一拉到 255
@@ -668,13 +721,14 @@ async function runSuite(
     // 归档作品库(一个套图 = 一个 batch)
     let user: Awaited<ReturnType<typeof getUser>> = null;
     if (useDb && okShots.length > 0) {
-      const batchId = `suite-${Date.now()}-${Math.floor(Math.random() * 1e4)}`;
+      // A+ 批次带 aplus 前缀:仍以 suite- 开头(画布/作品页按套图批次处理),A+ 页面据此只显示自己的记录
+      const batchId = `suite-${lay.mode === "aplus" ? "aplus-" : ""}${Date.now()}-${Math.floor(Math.random() * 1e4)}`;
       try {
         await addArtworks(
           email,
           okShots.map((s) => ({
             id: s.id,
-            title: `套图·${s.label}`,
+            title: `${lay.mode === "aplus" ? "A+详情" : "套图"}·${s.label}`,
             category: s.role === "detail" || s.role === "aplus" ? "detail" : "main",
             prompt: "",
             status: "completed",
@@ -701,7 +755,7 @@ async function runSuite(
       await addLedgerEntry(
         email,
         -(cost - Math.round((cost / shots.length) * (shots.length - okShots.length))),
-        `一键套图 ${okShots.length} 张`
+        `${lay.mode === "aplus" ? "A+详情" : "一键套图"} ${okShots.length} 张`
       ).catch(() => {});
       user = await getUser(email).catch(() => null);
     }
@@ -757,6 +811,9 @@ async function parseInput(request: Request) {
     strict: (f.get("strict") ?? "0").toString() === "1",
     action: (f.get("action") ?? "").toString().trim(),
     email: (f.get("email") ?? "").toString().trim(),
+    // 「A+详情」功能复用本接口:mode=aplus,档位 standard(5×970×600)/ premium(7×1464×600)
+    mode: (f.get("mode") ?? "").toString() === "aplus" ? "aplus" : "suite",
+    aplusTier: (f.get("aplusTier") ?? "").toString() === "premium" ? "premium" : "standard",
   };
 }
 
@@ -805,8 +862,12 @@ export async function POST(request: Request) {
     if (!rateLimit(`suite-dir:${ip}`, 30, 600_000)) {
       return NextResponse.json({ error: "请求过于频繁，请稍后再试" }, { status: 429 });
     }
-    return NextResponse.json(await suggestDirections(input.images[0], input.extra, input.platform, input.exclude));
+    const dirPlatform = input.mode === "aplus" ? "amazon" : input.platform;
+    return NextResponse.json(await suggestDirections(input.images[0], input.extra, dirPlatform, input.exclude));
   }
+  const lay = layoutFor(input.mode, input.platform, input.aplusTier);
+  // A+ 出图档位跟着模块尺寸走:970 宽 1K 够用,1464 宽要 2K 才不是放大糊图
+  if (lay.mode === "aplus") input.resolution = lay.aplusW > 1024 ? "2K" : "1K";
   if (!input.direction) {
     const d = randomDirections(1)[0];
     input.direction = `${d.name}：${d.desc}`;
@@ -815,9 +876,9 @@ export async function POST(request: Request) {
   // 产品图上限统一 5 张(月度会员已下线)。超出部分静默截断(防绕过前端多传图)。
   if (input.images.length > 5) input.images = input.images.slice(0, 5);
   if (!SUITE_RESOLUTIONS.includes(input.resolution)) input.resolution = "2K";
-  // 按 GPT生图 的价格表:1K 13×6=78、2K 13×12=156、4K 13×23=299
+  // 按 GPT生图 的价格表 × 张数(套图 13 / 亚马逊套图 9 / A+ 5 或 7)
   await loadPriceOverrides(); // 站长在后台改的板块价
-  const cost = SHOT_COUNT * resolutionCost(input.resolution, "medium", "gpt-image-2", "suite");
+  const cost = lay.count * resolutionCost(input.resolution, "medium", "gpt-image-2", "suite");
 
   if (dbEnabled && (await isBanned(input.email, ip))) {
     return NextResponse.json(
@@ -841,7 +902,7 @@ export async function POST(request: Request) {
     status: "pending",
     shots: [],
     done: 0,
-    total: SHOT_COUNT,
+    total: lay.count,
     createdAt: Date.now(),
   });
   if (useDb) await addReservation(jobId, input.email, cost);
@@ -850,7 +911,7 @@ export async function POST(request: Request) {
     jobId,
     input.images,
     input.extra,
-    input.platform,
+    lay,
     input.direction,
     input.resolution,
     input.strict,
@@ -861,7 +922,7 @@ export async function POST(request: Request) {
     cost
   );
 
-  return NextResponse.json({ jobId, total: SHOT_COUNT, cost });
+  return NextResponse.json({ jobId, total: lay.count, cost });
 }
 
 export async function GET(request: Request) {

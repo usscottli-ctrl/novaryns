@@ -86,6 +86,12 @@ export async function getSuitePlatformHint(platform: string): Promise<string> {
   return core.suitePlatformHints[key] || "";
 }
 
+// 「A+详情」规划覆盖段(只来自授权服务器):{n} 张、{w}×{h}。老授权服务器没有 → 空串(走兜底模板)。
+export async function getAplusHint(n: number, w: number, h: number): Promise<string> {
+  const raw = (await getCorePrompts()).suitePlatformHints.aplus || "";
+  return raw.split("{n}").join(String(n)).split("{w}").join(String(w)).split("{h}").join(String(h));
+}
+
 // 套图「设计方向」指令 / 风格灵感库 / 每张出图的固定开头与防编造约束 / 帮写分工具指令:
 // 只来自授权服务器,后台不可改(改动要在授权服务器上改)。
 export async function getSuiteDirectionsSystem(): Promise<string> {
