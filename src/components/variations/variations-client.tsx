@@ -27,9 +27,49 @@ const ACCENT = "#6D5BF6";
 const TINT = "rgba(109,91,246,.12)";
 const ACC_SOFT = "rgba(109,91,246,.08)";
 
-// 中性基底:具体保什么/改什么由「裂变设置」决定,这里只定调"成系列的电商大片"。
+// 中性基底:只管"出一张完整的图、别拼图"。保什么/改什么由「裂变设置」决定。
 const DEFAULT_VARY =
-  "Create a single fresh creative variation of the uploaded product/design image, rendered as ONE standalone full-frame image that fills the entire canvas. Output a polished, high-end e-commerce visual. Critically: the result must be exactly ONE scene — never a grid, collage, montage, multi-panel, split-screen, tiled or contact-sheet layout, and never place several versions side by side. No borders, no watermark, and do not add text that isn't in the source.";
+  "Create a single fresh creative variation of the uploaded image, rendered as ONE standalone full-frame image that fills the entire canvas. Critically: the result must be exactly ONE scene — never a grid, collage, montage, multi-panel, split-screen, tiled or contact-sheet layout, and never place several versions side by side. No borders, no watermark, and do not add text that isn't in the source.";
+// 产品类裂变(换背景/换主体等)才要"电商大片"调性;平面印花不要(会被画成产品摄影)
+const ECOM_LOOK = "Output a polished, high-end e-commerce visual.";
+
+// 平面印花裂变(2026-10-21 按客户给的提示词改写):原图只当风格参考,出**新设计**而不是
+// 换色/近似复制 —— 原来默认相似度 95% 发的是"只做细微改动",和"重新设计"互相打架,
+// 出来基本是原图换个颜色。{N} 由相似度滑块决定要改几项。
+const PRINT_BRIEF =
+  "Use the uploaded image only as a visual style reference for a print / graphic design — do not copy it. " +
+  "Create ONE new original design that keeps the reference's overall art direction so it clearly belongs to the same collection: " +
+  "mood, colour family, illustration language, line and shading style, level of detail, visual cleanliness, and its cute or decorative charm. " +
+  "At the same time make it a genuinely new design, not a recolour or near-duplicate: change {N} of these — main subject shape or silhouette, " +
+  "composition structure, size proportions, number of elements, decorative marks, facial expression or pose, accent placement, " +
+  "secondary shape details, internal pattern details. Do not reuse the same silhouette. " +
+  "Design goals: commercially attractive, clean, balanced composition, suitable for printing on products. " +
+  "Output one finished flat artwork only: no text, no logo, no watermark, no product mockup, no collage; " +
+  "plain clean background (keep it a seamless repeat if the reference is a repeating pattern); crisp, print-ready edges.";
+
+// 印花模式下相似度 → 要改几项(滑块越低改得越多)
+function printChangeCount(v: number): string {
+  if (v >= 90) return "2 to 3";
+  if (v >= 75) return "3 to 5";
+  if (v >= 60) return "5 or more";
+  return "most";
+}
+
+// 一次出多张时每张各往不同方向变(同一提示词出的几张会大同小异)
+const PRINT_FOCUS = [
+  "For this output, put most of the change into the main subject's silhouette and shape.",
+  "For this output, put most of the change into the composition and the number / arrangement of elements.",
+  "For this output, put most of the change into decorative marks, accents and internal pattern details.",
+  "For this output, put most of the change into proportions, pose or expression, and secondary shape details.",
+];
+function variantHints(mode: string, n: number): string[] | null {
+  if (n <= 1) return null;
+  return Array.from({ length: n }, (_, i) =>
+    mode === "print"
+      ? `${PRINT_FOCUS[i % PRINT_FOCUS.length]} It must also look clearly different from the other ${n - 1} designs generated in this batch.`
+      : `This is output ${i + 1} of ${n}: take a concept clearly different from the other outputs in this batch, not a minor tweak of them.`
+  );
+}
 
 // 裂变设置(对标参考站,按电商「主体 / 背景 / 印花」组合):每项拼一段指令进 prompt。
 const SPLIT_MODES: { key: string; zh: string; en: string; hint: string }[] = [
@@ -37,7 +77,7 @@ const SPLIT_MODES: { key: string; zh: string; en: string; hint: string }[] = [
     key: "print",
     zh: "平面印花创意裂变",
     en: "Flat print variations",
-    hint: "Treat the image as a flat print / graphic design asset. Redesign the artwork itself with one fresh theme, season, motif and colour story for this single output, keeping it a clean flat graphic.",
+    hint: PRINT_BRIEF, // {N} 在生成时按相似度替换
   },
   {
     key: "bg",
@@ -88,7 +128,8 @@ export function VariationsClient() {
   const fileRef = useRef<HTMLInputElement>(null);
   const [slot, setSlot] = useState<Slot | null>(null);
   const [splitMode, setSplitMode] = useState("print");
-  const [similarity, setSimilarity] = useState(95);
+  // 默认 80:原来 95 = "只做细微改动",出来和原图几乎一样(客户投诉裂变没变化)
+  const [similarity, setSimilarity] = useState(80);
   const [prompt, setPrompt] = useState("");
   const [count, setCount] = useStickyState("variations.count", 1, (v) => [1, 2, 4].includes(v));
   const [loading, setLoading] = useState(false);
@@ -217,14 +258,18 @@ export function VariationsClient() {
     setLoading(true);
     try {
       const mode = SPLIT_MODES.find((m) => m.key === splitMode);
+      const isPrint = splitMode === "print";
       const finalPrompt = [
         DEFAULT_VARY,
-        mode?.hint ?? "",
-        similarityHint(similarity),
+        isPrint ? "" : ECOM_LOOK,
+        isPrint ? PRINT_BRIEF.replace("{N}", printChangeCount(similarity)) : mode?.hint ?? "",
+        // 印花模式的改动幅度已体现在 {N} 里;通用相似度措辞说的是"同一个产品",不适用
+        isPrint ? "" : similarityHint(similarity),
         prompt.trim(),
       ]
         .filter(Boolean)
         .join(" ");
+      const variants = variantHints(splitMode, count);
 
       const fd = new FormData();
       fd.append("prompt", finalPrompt);
@@ -236,6 +281,7 @@ export function VariationsClient() {
       fd.append("resolution", RESOLUTION);
       fd.append("quality", "medium");
       fd.append("count", String(count));
+      if (variants) fd.append("variants", JSON.stringify(variants));
       fd.append("email", user.email);
       fd.append("image", slot.file);
 

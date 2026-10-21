@@ -86,6 +86,9 @@ type GenParams = {
   // 专业客户按项目挑模型(不同调性用不同平台优势),所以这是每次请求可变的。
   model: string;
   count: number;
+  // 一次出多张时**每张各自追加**的一句指令(图裂变用:让同一批里每张往不同方向变,
+  // 不然同一提示词出的几张大同小异)。第 i 张用 variants[i],没有就只用公共提示词。
+  variants?: string[];
   // 客户端是否**显式带了** userPrompt 字段(哪怕是空串)。图裂变/融图/生图页会把系统词
   // 拼进 prompt 再单独传 userPrompt,所以「传了但为空」= 用户没写描述 → 对外一律不展示,
   // 绝不能退回完整 prompt(那会把系统提示词泄漏给用户/同行)。canvas、genchat 不传该字段,
@@ -255,14 +258,35 @@ function hedged<T>(once: () => Promise<T>, slot: number): Promise<T> {
     }, GEN_HEDGE_MS);
   });
 }
+function safeJson(raw: string): unknown {
+  try {
+    return JSON.parse(raw);
+  } catch {
+    return undefined;
+  }
+}
+
+/** 每张专属指令:只收字符串数组,每条截 300 字、最多 8 条。 */
+function cleanVariants(v: unknown): string[] | undefined {
+  if (!Array.isArray(v)) return undefined;
+  const out = v.slice(0, 8).map((x) => String(x ?? "").trim().slice(0, 300));
+  return out.some(Boolean) ? out : undefined;
+}
+
+/** 第 i 张的提示词 = 公共提示词 + 该张专属指令(有的话)。 */
+function withVariant(prompt: string, p: GenParams, i: number): string {
+  const v = p.variants?.[i];
+  return v ? `${prompt}\n${v}` : prompt;
+}
+
 async function fanOut<T>(
   count: number,
-  once: () => Promise<T>,
+  once: (i: number) => Promise<T>,
   onEach?: (r: T) => void | Promise<void>
 ): Promise<T[]> {
   const settled = await Promise.allSettled(
     Array.from({ length: Math.max(1, count) }, async (_, i) => {
-      const r = await hedged(once, i);
+      const r = await hedged(() => once(i), i);
       if (onEach) await onEach(r);
       return r;
     })
@@ -296,32 +320,52 @@ async function openaiImages(
     const nativeLong = model.startsWith("gpt-image-2")
       ? resolutionLongSide(p.resolution) || 0
       : 0;
-    const r = await fetch(proxyUrl, {
-      method: "POST",
-      headers: proxyHeaders(), // 含 x-relay-token(云端租户的配额身份)
-      body: JSON.stringify({
-        prompt,
-        model,
-        size: sizeFor(p.ratio, model, nativeLong),
-        quality: ["low", "medium", "high", "auto"].includes(p.quality) ? p.quality : IMG_QUALITY,
-        n: p.count,
-        images: p.images.map((im) => ({
-          b64: Buffer.from(im.buf).toString("base64"),
-          type: im.type,
-        })),
-      }),
-      cache: "no-store",
-    });
-    const j = (await r.json().catch(() => ({}))) as {
-      images?: { url?: string; b64?: string }[];
-      tokens?: number; // 美国机回传的整批 output tokens(见 internal/openai-image)
-      error?: string;
+    const callProxy = async (promptX: string, n: number) => {
+      const r = await fetch(proxyUrl, {
+        method: "POST",
+        headers: proxyHeaders(), // 含 x-relay-token(云端租户的配额身份)
+        body: JSON.stringify({
+          prompt: promptX,
+          model,
+          size: sizeFor(p.ratio, model, nativeLong),
+          quality: ["low", "medium", "high", "auto"].includes(p.quality) ? p.quality : IMG_QUALITY,
+          n,
+          images: p.images.map((im) => ({
+            b64: Buffer.from(im.buf).toString("base64"),
+            type: im.type,
+          })),
+        }),
+        cache: "no-store",
+      });
+      const j = (await r.json().catch(() => ({}))) as {
+        images?: { url?: string; b64?: string }[];
+        tokens?: number; // 美国机回传的整批 output tokens(见 internal/openai-image)
+        error?: string;
+      };
+      if (!r.ok) throw new Error(j.error || `境外生图服务 ${r.status}`);
+      return j;
     };
-    if (!r.ok) throw new Error(j.error || `境外生图服务 ${r.status}`);
-    const list = j.images || [];
+    // 每张有专属指令(图裂变)→ 拆成 n 个单张请求并发,各带各的提示词;否则一次 n 张
+    let list: { url?: string; b64?: string }[] = [];
+    let tokens = 0;
+    if (p.variants && p.count > 1) {
+      const settled = await Promise.allSettled(
+        Array.from({ length: p.count }, (_, i) => callProxy(withVariant(prompt, p, i), 1))
+      );
+      for (const s of settled) {
+        if (s.status !== "fulfilled") continue;
+        list.push(...(s.value.images || []));
+        tokens += s.value.tokens || 0;
+      }
+      if (!list.length) throw (settled[0] as PromiseRejectedResult).reason;
+    } else {
+      const j = await callProxy(prompt, p.count);
+      list = j.images || [];
+      tokens = j.tokens || 0;
+    }
     if (!list.length) throw new Error("境外生图服务未返回图片");
     // 整批 token 摊到每张(与直连分支的 perImageTokens 口径一致)
-    const proxyPerImage = j.tokens ? Math.round(j.tokens / list.length) : 0;
+    const proxyPerImage = tokens ? Math.round(tokens / list.length) : 0;
     return list.map((im, i) => ({
       id: `gen-${Date.now()}-${i}`,
       url: im.url ? im.url : `data:image/png;base64,${im.b64}`,
@@ -492,15 +536,16 @@ async function openaiImages(
       size: size as never,
       quality: q,
     };
-    const editOnce = async () => {
+    const editOnce = async (i: number) => {
+      const params = { ...editParams, prompt: withVariant(prompt, p, i) };
       try {
         return await client.images.edit({
-          ...editParams,
+          ...params,
           ...(p.transparent ? { background: "transparent" as const } : {}),
         });
       } catch (e) {
         if (p.transparent && transparentUnsupported(e)) {
-          return client.images.edit(editParams); // 退回不透明底重试
+          return client.images.edit(params); // 退回不透明底重试
         }
         throw e;
       }
@@ -519,15 +564,16 @@ async function openaiImages(
     data = batches.flatMap((b) => b.data ?? []);
   } else {
     const genParams = { model, prompt, n: 1, size: size as never, quality: q };
-    const genOnce = async () => {
+    const genOnce = async (i: number) => {
+      const params = { ...genParams, prompt: withVariant(prompt, p, i) };
       try {
         return await client.images.generate({
-          ...genParams,
+          ...params,
           ...(p.transparent ? { background: "transparent" as const } : {}),
         });
       } catch (e) {
         if (p.transparent && transparentUnsupported(e)) {
-          return client.images.generate(genParams); // 退回不透明底重试
+          return client.images.generate(params); // 退回不透明底重试
         }
         throw e;
       }
@@ -705,6 +751,7 @@ async function parseParams(request: Request): Promise<GenParams | null> {
       // 内置模型或形如模型名的字符串都先收下;是否在本站自定义列表里,POST 里再核对
       model: /^[A-Za-z0-9._:\/-]{1,80}$/.test(s("model").trim()) ? s("model").trim() : "",
       count: Math.min(Math.max(Number(s("count")) || 4, 1), 8),
+      variants: cleanVariants(s("variants") ? safeJson(s("variants")) : undefined),
       transparent: s("transparent") === "1",
       ratiogen: s("ratiogen") === "1",
       email: s("email").trim(),
@@ -729,6 +776,7 @@ async function parseParams(request: Request): Promise<GenParams | null> {
     style: j.style ?? "",
     quality: j.quality ?? "",
     count: Math.min(Math.max(Number(j.count) || 4, 1), 8),
+    variants: cleanVariants(j.variants),
     transparent: !!j.transparent,
     ratiogen: !!j.ratiogen,
     email: (j.email ?? "").trim(),
