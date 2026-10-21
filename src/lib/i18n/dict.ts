@@ -510,6 +510,7 @@ const zh: Dict = {
     groupMain: "主图",
     groupSub: "副图",
     groupDetail: "详情页图",
+    groupAplus: "亚马逊 A+ 模块(970×600)",
     download: "下载",
     remakeFromThis: "以此图再做",
     downloadAll: "下载全部",
@@ -647,6 +648,7 @@ const zh: Dict = {
     roleMain: "主图",
     roleSub: "副图",
     roleDetail: "详情页",
+    roleAplus: "A+模块",
   },
   acct: {
     loading: "加载账户信息…",
@@ -1378,6 +1380,7 @@ const en: Dict = {
     groupMain: "Hero",
     groupSub: "Sub images",
     groupDetail: "Detail pages",
+    groupAplus: "Amazon A+ modules (970×600)",
     download: "Download",
     remakeFromThis: "Remake from this",
     downloadAll: "Download all",
@@ -1533,6 +1536,7 @@ const en: Dict = {
     roleMain: "Main",
     roleSub: "Sub",
     roleDetail: "Detail",
+    roleAplus: "A+ module",
   },
   acct: {
     loading: "Loading account…",

@@ -101,6 +101,8 @@ export async function getSuiteShotTexts() {
     shotLeadStrict: c.shotLeadStrict,
     looseClaimsOverride: c.looseClaimsOverride,
     redLine: (extra: string) => c.redLine.split("{extra}").join(extra || "无"),
+    productLock: (look: string) =>
+      look && c.productLockTail ? c.productLockTail.split("{look}").join(look) : "",
   };
 }
 export async function getAssistToolHint(tool: string): Promise<string> {

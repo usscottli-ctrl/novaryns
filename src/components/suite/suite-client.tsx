@@ -50,11 +50,12 @@ const MAX_UPLOAD = 12 * 1024 * 1024;
 const RATIO_ASPECT: Record<string, string> = {
   "1:1": "aspect-square",
   "3:4": "aspect-[3/4]",
+  "97:60": "aspect-[97/60]", // 亚马逊 A+ 模块 970×600
 };
 
 type Shot = {
   id: string;
-  role: "main" | "sub" | "detail";
+  role: "main" | "sub" | "detail" | "aplus";
   label: string;
   ratio: string;
   status: "pending" | "done" | "error";
@@ -822,9 +823,11 @@ export function SuiteClient() {
               </div>
             )}
 
-            {(["main", "sub", "detail"] as const).map((role) => {
+            {(["main", "sub", "detail", "aplus"] as const).map((role) => {
               const list = group(role);
               if (list.length === 0 && !loading) return null;
+              // 亚马逊没有竖版详情(换成 A+ 模块),其他平台没有 A+:生成中也别显示空分组
+              if (list.length === 0 && (role === "aplus" ? platform !== "amazon" : role === "detail" && platform === "amazon")) return null;
               return (
                 <div key={role} className="space-y-2">
                   <p className="text-xs font-medium text-muted-foreground">
@@ -832,15 +835,17 @@ export function SuiteClient() {
                       ? t("suite.groupMain")
                       : role === "sub"
                         ? t("suite.groupSub")
-                        : t("suite.groupDetail")}
+                        : role === "aplus"
+                          ? t("suite.groupAplus")
+                          : t("suite.groupDetail")}
                   </p>
                   <div
                     className={cn(
                       "grid gap-3",
                       role === "main"
                         ? "grid-cols-2 sm:grid-cols-3"
-                        : role === "sub"
-                          ? "grid-cols-2 sm:grid-cols-4"
+                        : role === "aplus"
+                          ? "grid-cols-1 sm:grid-cols-2"
                           : "grid-cols-2 sm:grid-cols-4"
                     )}
                   >

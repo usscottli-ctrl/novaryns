@@ -20,7 +20,7 @@ import { clientIp } from "@/lib/ip";
 import { rateLimit } from "@/lib/rate-limit";
 import { resolveUserEmail } from "@/lib/admin-auth";
 import { storageEnabled, uploadImage } from "@/lib/storage";
-import { generateToR2 } from "@/lib/image-gen";
+import { generateBuffer, generateToR2 } from "@/lib/image-gen";
 import { getOpenAISettings } from "@/lib/settings";
 import { fetchRemoteImage } from "@/lib/remote-image";
 import {
@@ -52,11 +52,11 @@ import { loadPriceOverrides } from "@/lib/price-overrides";
 export const runtime = "nodejs";
 export const maxDuration = 300;
 
-type ShotRole = "main" | "sub" | "detail";
+type ShotRole = "main" | "sub" | "detail" | "aplus";
 type ShotSpec = {
   role: ShotRole;
   label: string;
-  ratio: string; // "1:1" | "3:4"
+  ratio: string; // "1:1" | "3:4" | "97:60"(亚马逊 A+ 模块)
   prompt: string; // 含中文营销文案的完整出图提示词(模型直出整图)
   text?: string; // 该张主标题(展示/归档用)
 };
@@ -74,6 +74,34 @@ const SHOT_COUNT = 13;
 // 套图可选清晰度(与生图页同一套档位与价格表;按 GPT生图 计价)
 const SUITE_RESOLUTIONS = ["1K", "2K", "4K"];
 const SHOT_RETRIES = 3; // 每张失败后最多再重试 3 次(指数退避,扛住尾部限频)
+
+// 亚马逊图位(2026-10-21 客户反馈尺寸不符):listing 主图/副图都是方图,
+// 没有国内那种竖版长详情 → 详情换成 A+ 页面标准模块图,交付**精确 970×600**
+// (A+ 后台对非标尺寸会自动缩放,图里的字会糊)。出图按同比例原生尺寸,再裁缩到 970×600。
+const APLUS_RATIO = "97:60";
+const APLUS_W = 970;
+const APLUS_H = 600;
+
+function ratioOf(role: ShotRole): string {
+  return role === "aplus" ? APLUS_RATIO : role === "detail" ? "3:4" : "1:1";
+}
+
+/** 把规划/兜底给的 role 落到该平台实际有的图位上。 */
+function platformRole(role: string, platform: string): ShotRole {
+  if (role === "main" || role === "sub") return role;
+  return platform === "amazon" ? "aplus" : "detail";
+}
+
+/** 兜底模板(1 主 + 4 副 + 8 详情)按平台改图位:亚马逊 = 1 主 + 6 副 + 6 A+。 */
+function forPlatform(list: ShotSpec[], platform: string): ShotSpec[] {
+  if (platform !== "amazon") return list;
+  let extraSub = 2;
+  return list.map((sp) => {
+    if (sp.role !== "detail") return sp;
+    const role: ShotRole = extraSub-- > 0 ? "sub" : "aplus";
+    return { ...sp, role, ratio: ratioOf(role) };
+  });
+}
 
 const GRADIENTS = [
   "from-rose-100 to-slate-100",
@@ -145,7 +173,7 @@ function fallbackBlueprint(extra: string, direction: string, platform: string): 
 // 规划整段要 70~110 秒,流式后第一张 10~20 秒就能开始画(2026-10-20 客户嫌慢)。
 // 返回模型实际规划出的张数(<13 说明中途失败/不合格,剩下的由调用方用兜底模板补齐)。
 async function planShotsStream(
-  firstImage: { buf: Buffer; type: string },
+  images: { buf: Buffer; type: string }[],
   extra: string,
   platform: string,
   direction: string,
@@ -156,7 +184,9 @@ async function planShotsStream(
   if (!llm) return 0;
   let emitted = 0;
   try {
-    const dataUrl = await toVisionDataUrl(firstImage.buf, firstImage.type);
+    // 全部产品图都给识图模型看(原来只看第 1 张:客户传了正面+内页+局部,
+    // 模型只凭一个角度理解产品,写进提示词的外观描述就跑偏 —— 2026-10-21 客户反馈)
+    const dataUrls = await Promise.all(images.slice(0, 4).map((im) => toVisionDataUrl(im.buf, im.type)));
     const texts = await getSuiteShotTexts(); // 核心提示词(授权服务器下发)
     const base = await getSuiteSystem(); // 后台可编辑的套图规划 system 指令
     const platHint = await getSuitePlatformHint(platform); // 平台风格覆盖段(后台可编辑)
@@ -167,14 +197,15 @@ ${platHint}` : base;
     const user =
       (extra ? `补充信息：${extra}\n` : "") +
       `本套设计方向：${direction}\n` +
+      (dataUrls.length > 1 ? `下面 ${dataUrls.length} 张图是同一个产品的不同角度/局部。\n` : "") +
       "请按这个方向规划这套产品的电商套图。" +
       // 产品事实红线(严格模式;放在最后,模型对最后看到的约束最重视)
       (strict ? `\n${texts.redLine(extra)}` : "");
-    const scan = shotScanner((raw, style) => {
+    const scan = shotScanner((raw, style, look) => {
       if (emitted >= SHOT_COUNT) return;
       const sp = raw as Partial<ShotSpec>;
       if (!sp || !sp.prompt || !sp.role) return;
-      const role: ShotRole = sp.role === "main" || sp.role === "sub" ? sp.role : "detail";
+      const role = platformRole(String(sp.role), platform);
       emitted++;
       // 严格模式下硬过滤用户没提供的参数;用户选择允许补充时原样保留
       const scrub = (t: string) => (strict ? scrubClaims(t, extra) : t);
@@ -182,13 +213,17 @@ ${platHint}` : base;
       onShot({
         role,
         label: String(sp.label ?? "").slice(0, 40) || "套图",
-        ratio: role === "detail" ? "3:4" : "1:1",
+        ratio: ratioOf(role),
         text: sp.text ? scrub(String(sp.text)) : undefined,
-        // 统一视觉基调拼进每张,保证整套像一个设计师做的
-        prompt: `${texts.shotLead}${strict ? texts.shotLeadStrict : "："}${prompt}${style ? `\n【整套统一视觉基调】${scrub(style)}` : ""}`,
+        // 统一视觉基调拼进每张,保证整套像一个设计师做的;
+        // 产品外观锁定放在**最末尾**(模型最看重最后的约束),防止场景描述把产品带跑
+        prompt:
+          `${texts.shotLead}${strict ? texts.shotLeadStrict : "："}${prompt}` +
+          (style ? `\n【整套统一视觉基调】${scrub(style)}` : "") +
+          (look ? `\n${texts.productLock(look)}` : ""),
       });
     });
-    await streamChatJson(llm, sys, user, dataUrl, 0.9, 6000, scan);
+    await streamChatJson(llm, sys, user, dataUrls, 0.9, 6000, scan);
     if (emitted < SHOT_COUNT) console.warn("[suite] 规划只给出", emitted, "张,其余用模板补齐");
   } catch (e) {
     console.warn("[suite] 规划失败(已出", emitted, "张),其余用模板补齐:", e instanceof Error ? e.message : e);
@@ -225,9 +260,10 @@ function scrubClaims(text: string, extra: string): string {
 
 // 从流式到来的 JSON 文本里增量取出 style 和 shots 数组里每个完整的对象。
 // 只认我们约定的结构 {"style":"…","shots":[{…},{…}]};字符串里的括号/转义会正确跳过。
-function shotScanner(onObj: (obj: unknown, style: string) => void) {
+function shotScanner(onObj: (obj: unknown, style: string, look: string) => void) {
   let buf = "";
   let style = "";
+  let look = "";
   let pos = -1; // shots 数组里下一个待扫描的位置;-1 = 还没看到 "shots":[
   return (delta: string) => {
     buf += delta;
@@ -236,6 +272,16 @@ function shotScanner(onObj: (obj: unknown, style: string) => void) {
       if (m) {
         try {
           style = (JSON.parse(`"${m[1]}"`) as string).trim().slice(0, 300);
+        } catch {
+          /* 等更多文本 */
+        }
+      }
+    }
+    if (!look) {
+      const m = buf.match(/"productLook"\s*:\s*"((?:[^"\\]|\\.)*)"/);
+      if (m) {
+        try {
+          look = (JSON.parse(`"${m[1]}"`) as string).trim().slice(0, 400);
         } catch {
           /* 等更多文本 */
         }
@@ -267,7 +313,7 @@ function shotScanner(onObj: (obj: unknown, style: string) => void) {
       if (close < 0) return; // 这个对象还没收全
       pos = close + 1;
       try {
-        onObj(JSON.parse(buf.slice(open, close + 1)), style);
+        onObj(JSON.parse(buf.slice(open, close + 1)), style, look);
       } catch {
         /* 坏对象跳过 */
       }
@@ -280,7 +326,7 @@ async function streamChatJson(
   llm: { client: OpenAI; model: string },
   sys: string,
   user: string,
-  dataUrl: string,
+  dataUrls: string[],
   temperature: number,
   maxTokens: number,
   onDelta: (t: string) => void
@@ -294,7 +340,7 @@ async function streamChatJson(
         role: "user" as const,
         content: [
           { type: "text" as const, text: user },
-          { type: "image_url" as const, image_url: { url: dataUrl } },
+          ...dataUrls.map((url) => ({ type: "image_url" as const, image_url: { url } })),
         ],
       },
     ],
@@ -511,11 +557,13 @@ async function runSuite(
       set({ shots: [...shots] });
       wakeAll();
     };
-    const planDone = planShotsStream(productImages[0], extra, platform, direction, strict, addShot)
+    const planDone = planShotsStream(productImages, extra, platform, direction, strict, addShot)
       .then((n) => {
         // 规划不足 13 张(失败/不合格):按序用兜底模板补齐,并告诉前端
         if (shots.length < SHOT_COUNT) {
-          fallbackBlueprint(extra, direction, platform).slice(shots.length).forEach(addShot);
+          forPlatform(fallbackBlueprint(extra, direction, platform), platform)
+            .slice(shots.length)
+            .forEach(addShot);
         }
         if (n < SHOT_COUNT) set({ planFallback: true });
       })
@@ -541,20 +589,27 @@ async function runSuite(
           try {
             // 走统一层:国内站自动切「境外代跑」(美国机出图+直传 R2,只回 URL),
             // 海外站/自部署仍是本地直调。**图片字节不再跨境**(套图 13 张,这里省最多)。
-            const url = await generateToR2(
-              {
-                prompt: shot.prompt,
-                images: productImages.map((im) => ({ buf: im.buf, type: im.type })),
-                model,
-                size: size(shot.ratio),
-                quality: (process.env.OPENAI_IMAGE_QUALITY || "medium") as
-                  | "low"
-                  | "medium"
-                  | "high"
-                  | "auto",
-              },
-              `suite/${shot.id}.png`
-            );
+            const params = {
+              prompt: shot.prompt,
+              images: productImages.map((im) => ({ buf: im.buf, type: im.type })),
+              model,
+              size: size(shot.ratio),
+              quality: (process.env.OPENAI_IMAGE_QUALITY || "medium") as
+                | "low"
+                | "medium"
+                | "high"
+                | "auto",
+            };
+            let url: string;
+            if (shot.role === "aplus") {
+              // 亚马逊 A+ 模块要精确 970×600:同比例出图后裁缩
+              const sharp = (await import("sharp")).default;
+              const raw = await generateBuffer(params);
+              const fitted = await sharp(raw).resize(APLUS_W, APLUS_H, { fit: "cover" }).png().toBuffer();
+              url = await persistOne(fitted, shot.id);
+            } else {
+              url = await generateToR2(params, `suite/${shot.id}.png`);
+            }
             shots[idx] = { ...shot, status: "done", url };
             ok = true;
           } catch (e) {
@@ -591,7 +646,7 @@ async function runSuite(
           okShots.map((s) => ({
             id: s.id,
             title: `套图·${s.label}`,
-            category: s.role === "detail" ? "detail" : "main",
+            category: s.role === "detail" || s.role === "aplus" ? "detail" : "main",
             prompt: "",
             status: "completed",
             image: s.url!,
@@ -599,7 +654,7 @@ async function runSuite(
             style: null,
             ratio: s.ratio,
             resolution,
-            // 把 role(main/sub/detail)存进 source(原本为 null;非 URL 不会被
+            // 把 role(main/sub/detail/aplus)存进 source(原本为 null;非 URL 不会被
             // regenHref 当作源图带走),作品页据此排序/标注主图/副图/详情。
             source: s.role,
           })),

@@ -142,8 +142,8 @@ const STATUS_KEY: Record<Artwork["status"], string> = {
   failed: "dash.statusFailed",
 };
 
-type SuiteRole = "main" | "sub" | "detail";
-const ROLE_ORDER: Record<SuiteRole, number> = { main: 0, sub: 1, detail: 2 };
+type SuiteRole = "main" | "sub" | "detail" | "aplus";
+const ROLE_ORDER: Record<SuiteRole, number> = { main: 0, sub: 1, detail: 2, aplus: 3 };
 
 // 末尾序号:套图每张 id = `suite-<ts>-<i>`,i 是该张在规划里的次序(主图0,副图1-4,详情5-12)。
 function tailIndex(id: string): number {
@@ -154,7 +154,7 @@ function tailIndex(id: string): number {
 // 老数据兜底——category 已标 detail,其余按 id 末尾序号,再不行看标题。
 function suiteRole(a: Artwork): SuiteRole {
   const r = a.source;
-  if (r === "main" || r === "sub" || r === "detail") return r;
+  if (r === "main" || r === "sub" || r === "detail" || r === "aplus") return r;
   if (a.category === "detail") return "detail";
   const idx = tailIndex(a.id);
   if (idx === 0) return "main";
@@ -178,6 +178,7 @@ const SUITE_ORDER: Record<SuiteRole, string[][]> = {
     ["规格", "包装", "参数"],
     ["信任", "售后", "保障"],
   ],
+  aplus: [],
 };
 function standardRank(a: Artwork, role: SuiteRole): number {
   const groups = SUITE_ORDER[role];
@@ -812,7 +813,7 @@ function SuiteBatchCard({ items }: { items: Artwork[] }) {
 
   // 给每个角色内的图编号(主图1 / 副图1,2… / 详情页1,2…),按排好的顺序连续编。
   const seqOf = new Map<string, number>();
-  const counters: Record<SuiteRole, number> = { main: 0, sub: 0, detail: 0 };
+  const counters: Record<SuiteRole, number> = { main: 0, sub: 0, detail: 0, aplus: 0 };
   for (const it of ordered) {
     const r = suiteRole(it);
     counters[r] += 1;
@@ -821,7 +822,9 @@ function SuiteBatchCard({ items }: { items: Artwork[] }) {
 
   const roleZh = (a: Artwork): string => {
     const r = suiteRole(a);
-    return t(r === "main" ? "dash.roleMain" : r === "sub" ? "dash.roleSub" : "dash.roleDetail");
+    return t(
+      r === "main" ? "dash.roleMain" : r === "sub" ? "dash.roleSub" : r === "aplus" ? "dash.roleAplus" : "dash.roleDetail"
+    );
   };
   // 左下角名字:套图 · 主图1/副图2/详情页3 · 原始小标题(去掉重复的"套图·"前缀)
   const labelOf = (a: Artwork): string => {

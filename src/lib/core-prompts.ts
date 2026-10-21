@@ -29,6 +29,8 @@ export type CorePrompts = {
   looseClaimsOverride: string;
   /** 产品事实红线模板,{extra} = 用户填的卖点 */
   redLine: string;
+  /** 每张套图提示词末尾的产品外观锁定段,{look} = 规划给的产品外观描述(老授权服务器没有) */
+  productLockTail?: string;
 };
 
 export class CorePromptsUnavailable extends Error {
