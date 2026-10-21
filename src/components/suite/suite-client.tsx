@@ -493,11 +493,17 @@ export function SuiteClient() {
 
         <div className="space-y-2">
           <label className="text-sm font-medium">{t("suite.titleLabel")}</label>
-          <input
+          {/* 多行框只为字多时自动长高(全站 AutogrowTextareas);标题本身仍是一行,回车不换行 */}
+          <textarea
+            rows={1}
             value={title2}
-            onChange={(e) => setTitle2(e.target.value)}
+            onChange={(e) => setTitle2(e.target.value.replace(/\n/g, " "))}
+            onKeyDown={(e) => {
+              // 输入法组字中的回车是上屏,不拦
+              if (e.key === "Enter" && !e.nativeEvent.isComposing) e.preventDefault();
+            }}
             placeholder={t("suite.titlePlaceholder")}
-            className="w-full rounded-[10px] border border-border bg-secondary px-3 py-2 text-sm outline-none focus:ring-1 focus:ring-primary"
+            className="block w-full resize-none rounded-[10px] border border-border bg-secondary px-3 py-2 text-sm outline-none focus:ring-1 focus:ring-primary"
           />
         </div>
         <div className="space-y-2">

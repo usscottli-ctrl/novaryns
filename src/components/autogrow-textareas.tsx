@@ -20,7 +20,12 @@ function fit(el: HTMLTextAreaElement) {
   const cs = getComputedStyle(el);
   const border = parseFloat(cs.borderTopWidth) + parseFloat(cs.borderBottomWidth);
   // 上限半屏,但至少 320px(窗口高度读不到/很矮时不至于把框压扁)
-  const max = Math.max(320, Math.round(window.innerHeight * MAX_RATIO));
+  // 组件自己用 CSS 写了 max-height(画布底栏、帮写弹窗的对话框)就以它为上限,
+  // 否则内联高度被 CSS 截住、又被设成 overflow:hidden,多出的字会看不见
+  const cssMax = parseFloat(cs.maxHeight);
+  const max = Number.isFinite(cssMax)
+    ? cssMax
+    : Math.max(320, Math.round(window.innerHeight * MAX_RATIO));
   const prev = el.style.height;
   el.style.height = "auto";
   const want = Math.min(max, Math.max(base, el.scrollHeight + border));
