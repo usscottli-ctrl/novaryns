@@ -92,11 +92,22 @@ function platformRole(role: string, platform: string): ShotRole {
   return platform === "amazon" ? "aplus" : "detail";
 }
 
+// 亚马逊主图硬规则,放在该张提示词**最末尾**并且不拼整套风格段:
+// 实测(2026-10-21)规划写了纯白底,但程序给每张拼上的「大理石台面/厨房」统一风格
+// 加上参考图自带的背景,把主图画成了厨房场景 —— 主图违规会被亚马逊下架。
+const AMAZON_MAIN_TAIL =
+  "【亚马逊主图硬性规则 · 最高优先级,覆盖上文一切场景与风格描述】背景必须是纯白(RGB 255,255,255)," +
+  "不要任何桌面、墙面、厨房、窗户、植物、道具,也不要沿用参考图里的背景;画面中不得出现任何文字、logo、水印、边框、图标;" +
+  "只有产品本身,居中,约占画面 85%,可有极轻的自然落地阴影。";
+
 /** 兜底模板(1 主 + 4 副 + 8 详情)按平台改图位:亚马逊 = 1 主 + 6 副 + 6 A+。 */
 function forPlatform(list: ShotSpec[], platform: string): ShotSpec[] {
   if (platform !== "amazon") return list;
   let extraSub = 2;
   return list.map((sp) => {
+    if (sp.role === "main") {
+      return { ...sp, text: "", prompt: `Keep the uploaded product exactly as it is.\n${AMAZON_MAIN_TAIL}` };
+    }
     if (sp.role !== "detail") return sp;
     const role: ShotRole = extraSub-- > 0 ? "sub" : "aplus";
     return { ...sp, role, ratio: ratioOf(role) };
@@ -206,6 +217,7 @@ ${platHint}` : base;
       const sp = raw as Partial<ShotSpec>;
       if (!sp || !sp.prompt || !sp.role) return;
       const role = platformRole(String(sp.role), platform);
+      const amazonMain = platform === "amazon" && role === "main";
       emitted++;
       // 严格模式下硬过滤用户没提供的参数;用户选择允许补充时原样保留
       const scrub = (t: string) => (strict ? scrubClaims(t, extra) : t);
@@ -219,8 +231,9 @@ ${platHint}` : base;
         // 产品外观锁定放在**最末尾**(模型最看重最后的约束),防止场景描述把产品带跑
         prompt:
           `${texts.shotLead}${strict ? texts.shotLeadStrict : "："}${prompt}` +
-          (style ? `\n【整套统一视觉基调】${scrub(style)}` : "") +
-          (look ? `\n${texts.productLock(look)}` : ""),
+          (style && !amazonMain ? `\n【整套统一视觉基调】${scrub(style)}` : "") +
+          (look ? `\n${texts.productLock(look)}` : "") +
+          (amazonMain ? `\n${AMAZON_MAIN_TAIL}` : ""),
       });
     });
     await streamChatJson(llm, sys, user, dataUrls, 0.9, 6000, scan);
@@ -607,6 +620,22 @@ async function runSuite(
               const raw = await generateBuffer(params);
               const fitted = await sharp(raw).resize(APLUS_W, APLUS_H, { fit: "cover" }).png().toBuffer();
               url = await persistOne(fitted, shot.id);
+            } else if (platform === "amazon" && shot.role === "main") {
+              // 亚马逊主图要求背景正好 RGB 255:模型出的「白」常是 252~254,接近白的像素统一拉到 255
+              const sharp = (await import("sharp")).default;
+              const { data, info } = await sharp(await generateBuffer(params))
+                .removeAlpha()
+                .raw()
+                .toBuffer({ resolveWithObject: true });
+              for (let p = 0; p < data.length; p += 3) {
+                if (data[p] >= 248 && data[p + 1] >= 248 && data[p + 2] >= 248) {
+                  data[p] = data[p + 1] = data[p + 2] = 255;
+                }
+              }
+              const png = await sharp(data, { raw: { width: info.width, height: info.height, channels: 3 } })
+                .png()
+                .toBuffer();
+              url = await persistOne(png, shot.id);
             } else {
               url = await generateToR2(params, `suite/${shot.id}.png`);
             }
