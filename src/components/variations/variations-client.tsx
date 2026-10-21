@@ -119,6 +119,25 @@ function similarityHint(v: number): string {
 
 type Slot = { id: string; file: File; url: string };
 
+/** 原图宽高比,化简成 "w:h"(限制在 1:3 ~ 3:1 之间);读不到图时回退 auto。 */
+async function sourceRatio(url: string): Promise<string> {
+  try {
+    const img = new Image();
+    img.src = url;
+    await img.decode();
+    let w = img.naturalWidth;
+    let h = img.naturalHeight;
+    if (!w || !h) return "auto";
+    if (w / h > 3) h = Math.round(w / 3);
+    if (h / w > 3) w = Math.round(h / 3);
+    const gcd = (a: number, b: number): number => (b ? gcd(b, a % b) : a);
+    const g = gcd(w, h);
+    return `${w / g}:${h / g}`;
+  } catch {
+    return "auto";
+  }
+}
+
 export function VariationsClient() {
   const { user, remaining, consumeCredits, applyServerUser } = useAuth();
   const { openAuth } = useAuthModal();
@@ -280,8 +299,9 @@ export function VariationsClient() {
       // 落库只存用户原始补充描述(可能为空),不存拼接的系统提示词
       fd.append("userPrompt", prompt.trim());
       fd.append("category", "variation");
-      // 比例:默认 auto = 跟随原图;选了具体比例按该比例出图。出图模式固定标准档。
-      fd.append("ratio", ratio);
+      // 比例:选了具体比例按该比例出图;「默认」= 跟随原图 —— 读出原图宽高比按它出,
+      // 不再交给模型自选(自选时同一批会出 1254×1254 / 1230×1278 这种不一致的尺寸,客户反馈)。
+      fd.append("ratio", ratio === "auto" ? await sourceRatio(slot.url) : ratio);
       fd.append("resolution", RESOLUTION);
       fd.append("quality", "medium");
       fd.append("count", String(count));
