@@ -5,7 +5,8 @@ import {
   USER_COOKIE,
   USER_TTL_MS,
 } from "@/lib/native-auth";
-import { userExists, getOrCreateUser, setUserPassword } from "@/lib/db";
+import { userExists, getOrCreateUser, setUserPassword, getUser, bindInvite } from "@/lib/db";
+import { inviteCodeFrom, INVITE_COOKIE } from "@/lib/invite";
 import { hashPassword } from "@/lib/pw";
 import { rateLimit } from "@/lib/rate-limit";
 import { clientIp } from "@/lib/ip";
@@ -31,6 +32,7 @@ export async function POST(req: Request) {
     password?: string;
     name?: string;
     code?: string;
+    invite?: string;
   };
   try {
     body = await req.json();
@@ -63,9 +65,15 @@ export async function POST(req: Request) {
       );
     }
   }
-  const user = await getOrCreateUser(email, name || email.split("@")[0]);
+  let user = await getOrCreateUser(email, name || email.split("@")[0]);
   await setUserPassword(email, hashPassword(password));
+  // 邀请有奖:有邀请码(手填或邀请链接记下的)就绑定并发奖;功能没开/码无效时什么都不做
+  const code = inviteCodeFrom(req, body.invite);
+  if (code && (await bindInvite(email, code, ip).catch(() => 0)) > 0) {
+    user = (await getUser(email)) ?? user; // 余额里带上刚发的邀请奖励
+  }
   const res = NextResponse.json({ ok: true, user });
+  if (code) res.cookies.set(INVITE_COOKIE, "", { path: "/", maxAge: 0 });
   res.cookies.set(USER_COOKIE, signUserSession(email, Date.now()), {
     httpOnly: true,
     sameSite: "lax",

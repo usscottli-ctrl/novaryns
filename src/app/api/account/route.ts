@@ -6,7 +6,10 @@ import {
   changeUserPlan,
   listArtworks,
   recordLoginIp,
+  userExists,
+  bindInvite,
 } from "@/lib/db";
+import { inviteCodeFrom } from "@/lib/invite";
 import { clientIp } from "@/lib/ip";
 import type { PlanKey } from "@/lib/mock-data";
 import { resolveUserEmail } from "@/lib/admin-auth";
@@ -93,8 +96,16 @@ export async function POST(request: Request) {
     }
     // default: sync (upsert + return). This fires on every login/session
     // bootstrap, so it's where we capture the user's latest login IP.
-    const user = await getOrCreateUser(email, body.name ?? "");
+    const existed = await userExists(email);
+    let user = await getOrCreateUser(email, body.name ?? "");
     await recordLoginIp(email, clientIp(request));
+    // 邀请有奖:第一次建号时(Supabase 登录的站点在这里建号)按邀请链接记下的码绑定
+    // 本端点是信任模式(只凭请求体 email),发奖前必须确认是本人真实登录态,否则可被任意邮箱刷奖励
+    const invite = existed ? "" : inviteCodeFrom(request);
+    const self = invite ? (await resolveUserEmail(request).catch(() => null)) === email.toLowerCase() : false;
+    if (invite && self && (await bindInvite(email, invite, clientIp(request) || "").catch(() => 0)) > 0) {
+      user = (await getUser(email)) ?? user;
+    }
     return NextResponse.json({ persisted: true, user });
   } catch (e) {
     return NextResponse.json(

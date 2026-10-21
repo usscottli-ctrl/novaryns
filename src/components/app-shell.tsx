@@ -5,6 +5,7 @@ import { AppRail } from "@/components/app-rail";
 import { SiteFooter } from "@/components/site-footer";
 import { cn } from "@/lib/utils";
 import { AutogrowTextareas } from "@/components/autogrow-textareas";
+import { InviteCapture } from "@/components/invite-capture";
 
 /**
  * 全站工作台壳:左侧图标导航栏(手机为底部 tab)+ 右侧内容区。
@@ -19,11 +20,18 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   // 沉浸全屏(无页脚):画布 / 对话生成。生图/套图/工作台改成和工具页一致的自然流(带页脚)。
   const isImmersive = isCanvas || path.startsWith("/genchat");
 
-  if (noShell) return <main className="min-h-screen">{children}</main>;
+  if (noShell)
+    return (
+      <main className="min-h-screen">
+        <InviteCapture />
+        {children}
+      </main>
+    );
 
   return (
     <>
       <AutogrowTextareas />
+      <InviteCapture />
       <AppRail />
       <div
         className={cn(

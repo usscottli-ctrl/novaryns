@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { dbEnabled } from "@/lib/db";
+import { dbEnabled, getInviteConfig } from "@/lib/db";
 import { storageEnabled } from "@/lib/storage";
 import { authMode } from "@/lib/auth-mode";
 import { multiUserEnabled } from "@/lib/native-auth";
@@ -30,6 +30,8 @@ export async function GET() {
     cloudAdmin: provisionerConfigured(),
     // 作品保留天数(工具页底部提示用,与后台「存储治理」同一口径)
     artworkKeepDays: Number(process.env.ARTWORK_KEEP_DAYS || 180),
+    // 邀请有奖是否开启(站长后台开关):前端据此显示「邀请有奖」入口和注册页的邀请码输入框
+    inviteEnabled: dbEnabled ? (await getInviteConfig().catch(() => null))?.enabled === true : false,
     // 后台配了自定义生图模型就用它替换生图页的模型按钮(见 settings.getCustomImageModels)
     customImageModels: await (await import("@/lib/settings")).getCustomImageModels(),
     // 视频生成(火山引擎方舟 Seedance)是否可用 = 后台或 env 配了 Key。

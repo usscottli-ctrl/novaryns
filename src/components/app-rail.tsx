@@ -20,6 +20,7 @@ import {
   ShieldCheck,
   User as UserIcon,
   LogIn,
+  UserPlus,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useI18n } from "@/lib/i18n/locale-context";
@@ -33,6 +34,7 @@ import { BRAND_SQUARE_LOGO } from "@/lib/brand";
 import { displayEmail } from "@/lib/account-identity";
 import { menuCategories, TOOL_COUNT_LABEL } from "@/lib/tool-meta";
 import { useBrand } from "@/lib/brand-context";
+import { useInviteEnabled } from "@/lib/use-invite-enabled";
 
 type Item = { href: string; label: { zh: string; en: string }; Icon: typeof Home };
 
@@ -66,6 +68,7 @@ export function AppRail() {
   const { openAuth } = useAuthModal();
   const { openRecharge } = useRecharge();
   const { rechargeEnabled, pro } = usePaymentConfig();
+  const inviteOn = useInviteEnabled(); // 站长开了「邀请有奖」才显示入口
   const [acct, setAcct] = useState(false);
   // 头像菜单:桌面悬停打开,离开延迟关闭(留时间让鼠标移到菜单上)。
   const acctTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -256,6 +259,16 @@ export function AppRail() {
             <Gift className="h-4 w-4" />
             {L("兑换码", "Redeem code")}
           </button>
+        )}
+        {inviteOn && (
+          <Link
+            href="/invite"
+            onClick={() => setAcct(false)}
+            className="flex w-full items-center gap-2 rounded-lg px-2.5 py-2 text-[13px] text-foreground hover:bg-secondary"
+          >
+            <UserPlus className="h-4 w-4" />
+            {L("邀请有奖", "Invite friends")}
+          </Link>
         )}
         <Link
           href="/account/security"

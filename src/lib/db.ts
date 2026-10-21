@@ -265,6 +265,32 @@ async function ensureSchema(): Promise<void> {
         CREATE INDEX IF NOT EXISTS app_card_keys_status_idx
           ON app_card_keys (status, created_at DESC);
 
+        -- 邀请有奖(2026-10-21):每个用户一个邀请码 + 自定义推广语
+        CREATE TABLE IF NOT EXISTS app_invite_codes (
+          email      text PRIMARY KEY,
+          code       text NOT NULL UNIQUE,
+          slogan     text NOT NULL DEFAULT '',
+          created_at timestamptz NOT NULL DEFAULT now()
+        );
+        -- 邀请关系:一个被邀请人只能绑定一次;记录每笔奖励,便于后台核对/撤销
+        CREATE TABLE IF NOT EXISTS app_invites (
+          invitee          text PRIMARY KEY,
+          inviter          text NOT NULL,
+          code             text NOT NULL,
+          ip               text NOT NULL DEFAULT '',
+          invitee_reward   integer NOT NULL DEFAULT 0,
+          signup_reward    integer NOT NULL DEFAULT 0,
+          recharge_reward  integer NOT NULL DEFAULT 0,
+          recharged_at     timestamptz,
+          note             text NOT NULL DEFAULT '',
+          revoked          boolean NOT NULL DEFAULT false,
+          created_at       timestamptz NOT NULL DEFAULT now()
+        );
+        CREATE INDEX IF NOT EXISTS app_invites_inviter_idx
+          ON app_invites (inviter, created_at DESC);
+        CREATE INDEX IF NOT EXISTS app_invites_ip_idx
+          ON app_invites (ip, created_at DESC);
+
         -- 云端托管「开通码」:淘宝等渠道拍下后自动发码,买家自助到 /cloud/redeem
         -- 填子域名+管理员邮箱换实例。一码 = 一个套餐(月付/年付),核销后合成一张
         -- 金额为 0 的已付 cloud 订单,复用与线上支付完全相同的开通/续费/生命周期链路。
@@ -1837,6 +1863,8 @@ export async function fulfillOrder(
       void import("@/lib/credit-issue")
         .then((m) => m.reserveIssue(o.credits))
         .catch(() => {});
+      // 邀请有奖:被邀请人第一次在线充值 → 给邀请人发首充奖励(幂等;兑换码/后台加分不走这里)
+      void rewardInviteRecharge(o.email).catch(() => {});
     }
   } catch (e) {
     await client.query("ROLLBACK");
@@ -4040,4 +4068,311 @@ export async function settleVideoJob(
   );
   const row = r.rows[0];
   return row ? rowToVideoJob(row) : null;
+}
+
+// ============================================================================
+// 邀请有奖(2026-10-21 客户要求,参考同行「推广中心」,去掉了上级邀请人与月度梯度奖励)
+//   · 每个用户一个 6 位邀请码,专属链接 = 站点/?invite=码;好友注册时自动(或手填)绑定,一人只能绑一次;
+//   · 奖励数字全部后台可调(app_settings.invite_config),默认:好友注册得 50、邀请人得 50、
+//     好友首次充值(在线付款,兑换码/后台加分不算)邀请人再得 200;
+//   · 防刷:同 IP 24 小时内重复注册只绑关系不发奖;每个邀请人每月最多拿 N 个好友的奖励;
+//   · 所有奖励走「新人赠送」同一套发放口径(先从站点库存划拨,库存不足就不发)。
+// 功能默认关闭,站长在后台打开才生效。
+// ============================================================================
+export type InviteConfig = {
+  enabled: boolean;
+  inviteeBonus: number; // 被邀请人注册奖励
+  inviterSignup: number; // 邀请人:好友注册奖励
+  inviterRecharge: number; // 邀请人:好友首次充值奖励
+  monthlyCap: number; // 每个邀请人每月最多拿多少个好友的奖励(0 = 不限)
+  defaultSlogan: string; // 默认推广语(用户没自己改时用)
+};
+const INVITE_CONFIG_KEY = "invite_config";
+const INVITE_DEFAULTS: InviteConfig = {
+  enabled: false,
+  inviteeBonus: 50,
+  inviterSignup: 50,
+  inviterRecharge: 200,
+  monthlyCap: 50,
+  defaultSlogan: "",
+};
+const INVITEE_REWARD_DAYS = 30; // 与新人赠送一致
+const INVITER_REWARD_DAYS = 365;
+
+function inviteInt(v: unknown, fallback: number, max = 100000): number {
+  const n = Math.trunc(Number(v));
+  return Number.isFinite(n) && n >= 0 ? Math.min(n, max) : fallback;
+}
+
+function normalizeInviteConfig(c: Partial<InviteConfig>): InviteConfig {
+  return {
+    enabled: !!c.enabled,
+    inviteeBonus: inviteInt(c.inviteeBonus, INVITE_DEFAULTS.inviteeBonus),
+    inviterSignup: inviteInt(c.inviterSignup, INVITE_DEFAULTS.inviterSignup),
+    inviterRecharge: inviteInt(c.inviterRecharge, INVITE_DEFAULTS.inviterRecharge),
+    monthlyCap: inviteInt(c.monthlyCap, INVITE_DEFAULTS.monthlyCap, 10000),
+    defaultSlogan: String(c.defaultSlogan ?? "").trim().slice(0, 60),
+  };
+}
+
+export async function getInviteConfig(): Promise<InviteConfig> {
+  try {
+    const raw = await getSetting(INVITE_CONFIG_KEY);
+    if (raw) return normalizeInviteConfig({ ...INVITE_DEFAULTS, ...JSON.parse(raw) });
+  } catch {
+    /* 读失败回退默认 */
+  }
+  return { ...INVITE_DEFAULTS };
+}
+
+export async function saveInviteConfig(patch: Partial<InviteConfig>): Promise<InviteConfig> {
+  const next = normalizeInviteConfig({ ...(await getInviteConfig()), ...patch });
+  await setSetting(INVITE_CONFIG_KEY, JSON.stringify(next));
+  return next;
+}
+
+// 去掉 0/O/1/I/L 这类容易看错的字符
+const INVITE_CODE_CHARS = "ABCDEFGHJKMNPQRSTUVWXYZ23456789";
+
+/** 取用户的邀请码(没有就生成一个)。 */
+export async function getOrCreateInviteCode(
+  emailRaw: string
+): Promise<{ code: string; slogan: string }> {
+  await ensureSchema();
+  const email = emailRaw.toLowerCase();
+  const read = async () =>
+    (
+      await getPool().query<{ code: string; slogan: string }>(
+        `SELECT code, slogan FROM app_invite_codes WHERE email = $1`,
+        [email]
+      )
+    ).rows[0];
+  const have = await read();
+  if (have) return have;
+  const { randomInt } = await import("crypto");
+  for (let i = 0; i < 8; i++) {
+    const code = Array.from({ length: 6 }, () => INVITE_CODE_CHARS[randomInt(INVITE_CODE_CHARS.length)]).join("");
+    const { rows } = await getPool().query<{ code: string; slogan: string }>(
+      `INSERT INTO app_invite_codes (email, code) VALUES ($1, $2)
+       ON CONFLICT DO NOTHING RETURNING code, slogan`,
+      [email, code]
+    );
+    if (rows[0]) return rows[0];
+    const again = await read(); // 并发下别的请求已经建好了
+    if (again) return again;
+  }
+  throw new Error("邀请码生成失败,请重试");
+}
+
+export async function saveInviteSlogan(emailRaw: string, slogan: string): Promise<void> {
+  await getOrCreateInviteCode(emailRaw);
+  await getPool().query(`UPDATE app_invite_codes SET slogan = $2 WHERE email = $1`, [
+    emailRaw.toLowerCase(),
+    slogan.trim().slice(0, 60),
+  ]);
+}
+
+/** 发一笔邀请奖励(从站点库存划拨,库存不足返回 0 = 没发)。 */
+async function grantInviteCredits(
+  email: string,
+  amount: number,
+  reason: string,
+  days: number
+): Promise<number> {
+  if (amount <= 0) return 0;
+  const { reserveIssue } = await import("@/lib/credit-issue");
+  const stock = await reserveIssue(amount);
+  if (!stock.ok) return 0;
+  const d = new Date();
+  d.setDate(d.getDate() + days);
+  await addCreditBatch(email, amount, { source: "grant", reason, expiresAt: d, ledgerKind: "grant" });
+  return amount;
+}
+
+/** 该邀请人本月是否还没到奖励上限。 */
+async function inviterUnderCap(inviter: string, cap: number): Promise<boolean> {
+  if (cap <= 0) return true;
+  const { rows } = await getPool().query<{ n: string }>(
+    `SELECT count(*) AS n FROM app_invites
+      WHERE inviter = $1 AND NOT revoked
+        AND (signup_reward > 0 OR recharge_reward > 0)
+        AND created_at >= date_trunc('month', now())`,
+    [inviter]
+  );
+  return Number(rows[0]?.n ?? 0) < cap;
+}
+
+/**
+ * 新用户注册后绑定邀请关系并发奖。只在**新注册**时调用一次;
+ * 码无效/自己邀请自己/已绑定过/功能没开 → 什么都不做。返回被邀请人拿到的积分。
+ */
+export async function bindInvite(
+  inviteeRaw: string,
+  codeRaw: string,
+  ip: string
+): Promise<number> {
+  await ensureSchema();
+  const cfg = await getInviteConfig();
+  if (!cfg.enabled) return 0;
+  const invitee = inviteeRaw.toLowerCase();
+  const code = String(codeRaw || "").trim().toUpperCase();
+  if (!/^[A-Z0-9]{4,12}$/.test(code)) return 0;
+  const { rows } = await getPool().query<{ email: string }>(
+    `SELECT email FROM app_invite_codes WHERE code = $1`,
+    [code]
+  );
+  const inviter = rows[0]?.email;
+  if (!inviter || inviter === invitee) return 0;
+  // 同 IP 24 小时内已有人通过邀请注册 → 只记关系不发奖(挡批量注册小号)
+  const ipDup =
+    !!ip &&
+    (
+      await getPool().query(
+        `SELECT 1 FROM app_invites WHERE ip = $1 AND created_at > now() - interval '24 hours' LIMIT 1`,
+        [ip]
+      )
+    ).rows.length > 0;
+  const ins = await getPool().query(
+    `INSERT INTO app_invites (invitee, inviter, code, ip, note) VALUES ($1, $2, $3, $4, $5)
+     ON CONFLICT (invitee) DO NOTHING RETURNING invitee`,
+    [invitee, inviter, code, ip || "", ipDup ? "同 IP 24 小时内重复注册,未发奖励" : ""]
+  );
+  if (!ins.rows[0] || ipDup) return 0;
+  const inviteeReward = await grantInviteCredits(invitee, cfg.inviteeBonus, "邀请注册奖励", INVITEE_REWARD_DAYS);
+  const signupReward = (await inviterUnderCap(inviter, cfg.monthlyCap))
+    ? await grantInviteCredits(inviter, cfg.inviterSignup, "邀请好友注册奖励", INVITER_REWARD_DAYS)
+    : 0;
+  await getPool().query(
+    `UPDATE app_invites SET invitee_reward = $2, signup_reward = $3 WHERE invitee = $1`,
+    [invitee, inviteeReward, signupReward]
+  );
+  return inviteeReward;
+}
+
+/** 被邀请人第一次在线充值成功后,给邀请人发首充奖励(幂等,只发一次)。 */
+export async function rewardInviteRecharge(inviteeRaw: string): Promise<void> {
+  await ensureSchema();
+  const cfg = await getInviteConfig();
+  if (!cfg.enabled) return;
+  const { rows } = await getPool().query<{ inviter: string; note: string }>(
+    `UPDATE app_invites SET recharged_at = now()
+      WHERE invitee = $1 AND recharged_at IS NULL AND NOT revoked
+      RETURNING inviter, note`,
+    [inviteeRaw.toLowerCase()]
+  );
+  const r = rows[0];
+  if (!r || r.note) return; // 没有邀请关系 / 被标记为可疑(同 IP)
+  if (!(await inviterUnderCap(r.inviter, cfg.monthlyCap))) return;
+  const amt = await grantInviteCredits(r.inviter, cfg.inviterRecharge, "邀请好友首充奖励", INVITER_REWARD_DAYS);
+  if (amt > 0) {
+    await getPool().query(`UPDATE app_invites SET recharge_reward = $2 WHERE invitee = $1`, [
+      inviteeRaw.toLowerCase(),
+      amt,
+    ]);
+  }
+}
+
+/** 推广中心里显示好友账号:手机号 138****2210,邮箱 li***@qq.com。 */
+function maskInvitee(email: string): string {
+  const [local, domain = ""] = email.split("@");
+  if (/^\d{11}$/.test(local)) return `${local.slice(0, 3)}****${local.slice(7)}`;
+  return `${local.slice(0, 2)}***@${domain}`;
+}
+
+export type InviteRecord = {
+  who: string;
+  at: string;
+  recharged: boolean;
+  reward: number;
+  revoked: boolean;
+};
+
+/** 推广中心概览:邀请码、推广语、奖励规则、统计与邀请记录。 */
+export async function getInviteOverview(emailRaw: string) {
+  const email = emailRaw.toLowerCase();
+  const [{ code, slogan }, cfg] = await Promise.all([getOrCreateInviteCode(email), getInviteConfig()]);
+  const { rows } = await getPool().query<{
+    invitee: string;
+    created_at: Date;
+    recharged_at: Date | null;
+    signup_reward: number;
+    recharge_reward: number;
+    revoked: boolean;
+  }>(
+    `SELECT invitee, created_at, recharged_at, signup_reward, recharge_reward, revoked
+       FROM app_invites WHERE inviter = $1 ORDER BY created_at DESC LIMIT 200`,
+    [email]
+  );
+  const records: InviteRecord[] = rows.map((r) => ({
+    who: maskInvitee(r.invitee),
+    at: new Date(r.created_at).toISOString(),
+    recharged: !!r.recharged_at,
+    reward: r.revoked ? 0 : r.signup_reward + r.recharge_reward,
+    revoked: r.revoked,
+  }));
+  return {
+    code,
+    slogan: slogan || cfg.defaultSlogan,
+    rules: {
+      inviteeBonus: cfg.inviteeBonus,
+      inviterSignup: cfg.inviterSignup,
+      inviterRecharge: cfg.inviterRecharge,
+    },
+    invited: records.filter((r) => !r.revoked).length,
+    effective: records.filter((r) => r.recharged && !r.revoked).length,
+    earned: records.reduce((n, r) => n + r.reward, 0),
+    records,
+  };
+}
+
+/** 后台:邀请记录总表(可按邀请人/被邀请人搜索)。 */
+export async function listInvites(q = "", limit = 300) {
+  await ensureSchema();
+  const like = `%${q.trim().toLowerCase()}%`;
+  const { rows } = await getPool().query<{
+    invitee: string;
+    inviter: string;
+    code: string;
+    ip: string;
+    invitee_reward: number;
+    signup_reward: number;
+    recharge_reward: number;
+    recharged_at: Date | null;
+    note: string;
+    revoked: boolean;
+    created_at: Date;
+  }>(
+    `SELECT * FROM app_invites
+      WHERE ($1 = '%%' OR invitee LIKE $1 OR inviter LIKE $1 OR code LIKE upper($1))
+      ORDER BY created_at DESC LIMIT $2`,
+    [like, Math.min(Math.max(limit, 1), 1000)]
+  );
+  return rows.map((r) => ({
+    invitee: r.invitee,
+    inviter: r.inviter,
+    code: r.code,
+    ip: r.ip,
+    inviteeReward: r.invitee_reward,
+    inviterReward: r.signup_reward + r.recharge_reward,
+    recharged: !!r.recharged_at,
+    note: r.note,
+    revoked: r.revoked,
+    createdAt: new Date(r.created_at).toISOString(),
+  }));
+}
+
+/** 后台:撤销一条邀请(作弊等):标记撤销,并扣回已发给邀请人的奖励(余额不够扣到 0 为止)。 */
+export async function revokeInvite(inviteeRaw: string): Promise<{ deducted: number }> {
+  await ensureSchema();
+  const { rows } = await getPool().query<{ inviter: string; s: number; r: number }>(
+    `UPDATE app_invites SET revoked = true
+      WHERE invitee = $1 AND NOT revoked
+      RETURNING inviter, signup_reward AS s, recharge_reward AS r`,
+    [inviteeRaw.toLowerCase()]
+  );
+  const row = rows[0];
+  if (!row) return { deducted: 0 };
+  const amt = row.s + row.r;
+  if (amt > 0) await adjustUserCredits(row.inviter, -amt, "撤销邀请奖励").catch(() => {});
+  return { deducted: amt };
 }

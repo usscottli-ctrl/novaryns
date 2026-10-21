@@ -30,6 +30,7 @@ import {
   FileText,
   Sparkles,
   Ticket,
+  UserPlus,
   Cloud,
   BarChart3,
   HardDrive,
@@ -56,6 +57,7 @@ import { DeployCenter } from "@/components/operator/deploy-center";
 import { LicensesClient } from "@/components/operator/licenses-client";
 import { RelayTokensClient } from "@/components/operator/relay-tokens-client";
 import { CardkeysAdmin } from "@/components/operator/cardkeys-admin";
+import { AdminInvites } from "@/components/admin/admin-invites";
 
 type AdminUser = {
   email: string;
@@ -308,6 +310,7 @@ const SECTIONS = [
   { id: "storage", label: "存储治理", icon: HardDrive, pro: true },
   { id: "deploy", label: "部署与授权", icon: Server, pro: true },
   { id: "cardkeys", label: "兑换码", icon: Ticket, pro: true },
+  { id: "invites", label: "邀请奖励", icon: UserPlus, pro: true },
   // 仅在配了 provisioner 的官方购买站显示(cloudAdmin 门控),普通自托管 Pro 买家看不到。
   { id: "cloud", label: "云端租户", icon: Cloud, pro: true },
   { id: "cloudcodes", label: "云端开通码", icon: Ticket, pro: true },
@@ -444,6 +447,7 @@ export function AdminSettings({ localAdmin = false }: { localAdmin?: boolean }) 
     | "storage"
     | "deploy"
     | "cardkeys"
+    | "invites"
     | "cloud"
     | "cloudcodes"
     // 后台默认落在「访问统计」——它是只读概览,适合当管理后台的着陆页;
@@ -3121,6 +3125,8 @@ export function AdminSettings({ localAdmin = false }: { localAdmin?: boolean }) 
           <CardkeysAdmin embedded />
         </div>
       )}
+
+      {pro && section === "invites" && <AdminInvites />}
 
       {/* 积分流水(Pro:变现/运营) */}
       {pro && section === "ledger" && usersData && usersData.ledger.length > 0 && (

@@ -12,6 +12,7 @@ import { usePaymentConfig } from "@/lib/payment-context";
 import { supabaseEnabled } from "@/lib/auth-mode";
 import { OPERATOR_EMAIL } from "@/lib/operator";
 import { useBrand } from "@/lib/brand-context";
+import { readInviteCookie } from "@/components/invite-capture";
 
 function PageShell({
   compact,
@@ -75,6 +76,9 @@ export function AuthForm({
   const [password2, setPassword2] = useState("");
   const [codeCountdown, setCodeCountdown] = useState(0);
   const [codeSending, setCodeSending] = useState(false);
+  // 邀请有奖:站长开启时注册页显示「邀请码(选填)」,从邀请链接进来的自动预填
+  const [inviteEnabled, setInviteEnabled] = useState(false);
+  const [invite, setInvite] = useState("");
 
   useEffect(() => {
     let cancelled = false;
@@ -88,8 +92,12 @@ export function AuthForm({
       }
       try {
         const r = await fetch("/api/config");
-        const d = (await r.json()) as { emailCode?: boolean };
-        if (!cancelled) setEmailCodeRequired(!!d.emailCode);
+        const d = (await r.json()) as { emailCode?: boolean; inviteEnabled?: boolean };
+        if (!cancelled) {
+          setEmailCodeRequired(!!d.emailCode);
+          setInviteEnabled(!!d.inviteEnabled);
+          setInvite((v) => v || readInviteCookie());
+        }
       } catch {
         /* 拿不到就当不需要验证码(服务端仍会强校验) */
       }
@@ -171,7 +179,7 @@ export function AuthForm({
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify(
             isSignUp
-              ? { email, password, name, code: code.trim() }
+              ? { email, password, name, code: code.trim(), invite: invite.trim() }
               : { email, password }
           ),
         });
@@ -430,6 +438,21 @@ export function AuthForm({
                 {codeCountdown > 0 ? `${codeCountdown}s 后重发` : "发送验证码"}
               </Button>
             </div>
+          </div>
+        )}
+
+        {multiMode && isSignUp && inviteEnabled && (
+          <div className="space-y-1.5">
+            <label className="text-sm font-medium">
+              邀请码 <span className="text-xs font-normal text-muted-foreground">(选填)</span>
+            </label>
+            <Input
+              value={invite}
+              onChange={(e) =>
+                setInvite(e.target.value.replace(/[^A-Za-z0-9]/g, "").toUpperCase().slice(0, 12))
+              }
+              placeholder="好友给你的邀请码,填了双方都有奖励"
+            />
           </div>
         )}
 
