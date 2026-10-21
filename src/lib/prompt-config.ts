@@ -109,6 +109,7 @@ export async function getSuiteShotTexts() {
     redLine: (extra: string) => c.redLine.split("{extra}").join(extra || "无"),
     productLock: (look: string) =>
       look && c.productLockTail ? c.productLockTail.split("{look}").join(look) : "",
+    productAngleNote: c.productAngleNote || "",
   };
 }
 export async function getAssistToolHint(tool: string): Promise<string> {

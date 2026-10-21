@@ -287,6 +287,8 @@ ${platHint}` : base;
           `${texts.shotLead}${strict ? texts.shotLeadStrict : "："}${prompt}` +
           (style && !amazonMain ? `\n【整套统一视觉基调】${scrub(style)}` : "") +
           (look ? `\n${texts.productLock(look)}` : "") +
+          // 亚马逊/A+ 允许换机位、被人手持(国内套图保持原规则,2026-10-21 用户定)
+          (look && platform === "amazon" && texts.productAngleNote ? texts.productAngleNote : "") +
           (amazonMain ? `\n${AMAZON_MAIN_TAIL}` : ""),
       });
     });

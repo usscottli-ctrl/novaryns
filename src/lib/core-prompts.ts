@@ -31,6 +31,8 @@ export type CorePrompts = {
   redLine: string;
   /** 每张套图提示词末尾的产品外观锁定段,{look} = 规划给的产品外观描述(老授权服务器没有) */
   productLockTail?: string;
+  /** 只给亚马逊/A+ 拼在产品锁定段后:允许换机位、被人手持(一键套图不用) */
+  productAngleNote?: string;
 };
 
 export class CorePromptsUnavailable extends Error {
