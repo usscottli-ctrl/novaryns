@@ -782,7 +782,9 @@ export function SuiteClient({ mode = "suite" }: { mode?: "suite" | "aplus" } = {
             ? t("suite.loginToGen")
             : loading
               ? fmt(t("suite.generating"), { done, total })
-              : fmt(t("suite.genBtn"), { c: cost })}
+              : isAplus
+                ? L(`生成 A+（消耗 ${cost} 积分）`, `Generate A+ (${cost} credits)`)
+                : fmt(t("suite.genBtn"), { c: cost })}
         </Button>
 
         <p className="text-xs leading-relaxed text-muted-foreground">
