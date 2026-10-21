@@ -14,7 +14,8 @@ import { useAuthModal } from "@/lib/auth-modal-context";
 import { useI18n } from "@/lib/i18n/locale-context";
 import { authHeader } from "@/lib/supabase";
 import { downloadImage } from "@/lib/download";
-import { resolutionCost } from "@/lib/mock-data";
+import { resolutionCost, GENERATION_RATIOS } from "@/lib/mock-data";
+import { RatioTileGroup } from "@/components/ui/ratio-tile";
 import { cn } from "@/lib/utils";
 import { ToolShell } from "@/components/tools/tool-shell";
 import { ToolDemo, getDemo } from "@/components/tools/tool-demo";
@@ -132,6 +133,9 @@ export function VariationsClient() {
   const [similarity, setSimilarity] = useState(80);
   const [prompt, setPrompt] = useState("");
   const [count, setCount] = useStickyState("variations.count", 1, (v) => [1, 2, 4].includes(v));
+  const [ratio, setRatio] = useStickyState("variations.ratio", "auto", (v) =>
+    GENERATION_RATIOS.some((r) => r.id === v)
+  );
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [results, setResults] = useState<GeneratedImage[]>([]);
@@ -276,8 +280,8 @@ export function VariationsClient() {
       // 落库只存用户原始补充描述(可能为空),不存拼接的系统提示词
       fd.append("userPrompt", prompt.trim());
       fd.append("category", "variation");
-      // 比例/出图模式已从 UI 移除:比例走「自动」(跟随原图),模式固定标准档。
-      fd.append("ratio", "auto");
+      // 比例:默认 auto = 跟随原图;选了具体比例按该比例出图。出图模式固定标准档。
+      fd.append("ratio", ratio);
       fd.append("resolution", RESOLUTION);
       fd.append("quality", "medium");
       fd.append("count", String(count));
@@ -503,6 +507,22 @@ export function VariationsClient() {
                 "Higher = closer to the original; lower = bolder changes"
               )}
             </p>
+          </div>
+
+          {/* 比例(与生图页同一组件与选项;默认=跟随原图) */}
+          <div>
+            <p className="mb-2 text-[12.5px] font-medium text-c-text2">{L("比例", "Aspect ratio")}</p>
+            <RatioTileGroup
+              columns={4}
+              value={ratio}
+              onChange={setRatio}
+              tiles={GENERATION_RATIOS.map((r) => {
+                const max = 26;
+                const w = !r.w || !r.h ? 24 : r.w >= r.h ? max : Math.round((r.w / r.h) * max);
+                const h = !r.w || !r.h ? 18 : r.h >= r.w ? max : Math.round((r.h / r.w) * max);
+                return { id: r.id, label: r.id === "auto" ? L("默认", "Auto") : r.id, w, h };
+              })}
+            />
           </div>
 
           {/* 生成数量(默认 1,最多 8) */}

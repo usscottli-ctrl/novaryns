@@ -273,6 +273,12 @@ function cleanVariants(v: unknown): string[] | undefined {
   return out.some(Boolean) ? out : undefined;
 }
 
+/** 图裂变固定 1K 计费;选了具体比例时按该比例原生直出(长边 1536),
+ *  否则 1K 档只有方/横/竖三种固定尺寸,选 16:9 会出成 3:2(2026-10-21 加比例功能)。生图页不受影响。 */
+function variationLong(p: GenParams): number {
+  return p.category === "variation" && p.ratio !== "auto" ? 1536 : 0;
+}
+
 /** 第 i 张的提示词 = 公共提示词 + 该张专属指令(有的话)。 */
 function withVariant(prompt: string, p: GenParams, i: number): string {
   const v = p.variants?.[i];
@@ -318,7 +324,7 @@ async function openaiImages(
   if (proxyUrl && proxySecret && !p.transparent && !p.ratiogen && modelProvider(model) === "openai") {
     const prompt = buildPrompt(p, await getStyleGuide());
     const nativeLong = model.startsWith("gpt-image-2")
-      ? resolutionLongSide(p.resolution) || 0
+      ? resolutionLongSide(p.resolution) || variationLong(p)
       : 0;
     const callProxy = async (promptX: string, n: number) => {
       const r = await fetch(proxyUrl, {
@@ -451,7 +457,7 @@ async function openaiImages(
   const prompt = p.ratiogen ? ratioPrompt(p) : buildPrompt(p, await getStyleGuide());
   // v2 直出真实尺寸:把分辨率档的长边传进去(1K 档 longSide=0 → 走模型默认)
   const nativeLong = model.startsWith("gpt-image-2")
-    ? resolutionLongSide(p.resolution) || 0
+    ? resolutionLongSide(p.resolution) || variationLong(p)
     : 0;
   const size = sizeFor(p.ratio, model, nativeLong);
   // v2 已经直出目标尺寸,就不该再做 sharp 插值放大(会白白重编码一次)。
