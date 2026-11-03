@@ -1,6 +1,5 @@
 import { NextResponse } from "next/server";
 import { toVisionDataUrl } from "@/lib/vision-image";
-import OpenAI from "openai";
 import {
   dbEnabled,
   reserveCredits,
@@ -12,8 +11,7 @@ import {
 import { clientIp } from "@/lib/ip";
 import { rateLimit } from "@/lib/rate-limit";
 import { resolveUserEmail } from "@/lib/admin-auth";
-import { getOpenAISettings } from "@/lib/settings";
-import { getOpenAIBaseUrl } from "@/lib/openai-base";
+import { getChatLLM, parseJsonLoose } from "@/lib/chat-llm";
 import { safeError } from "@/lib/api-error";
 import { toolCost } from "@/lib/mock-data";
 import { loadPriceOverrides } from "@/lib/price-overrides";
@@ -72,15 +70,13 @@ export async function POST(req: Request) {
   }
 
   try {
-    const { apiKey } = await getOpenAISettings();
-    if (!apiKey) throw new Error("未配置 key");
-    const client = new OpenAI({
-      apiKey,
-      baseURL: (await getOpenAIBaseUrl()) || undefined,
-    });
-    const resp = await client.chat.completions.create({
-      model: "gpt-4o-mini",
-      response_format: { type: "json_object" },
+    // 走后台「识图/文案模型」(与 AI帮写/套图规划同一套)。原来写死用生图主 Key 调 gpt-4o-mini,
+    // 生图换成只有出图模型的第三方中转后,侵权检测就会失效。
+    // 不传 response_format:部分国产模型不支持 json_object,改用 parseJsonLoose 宽松解析。
+    const llm = await getChatLLM({ timeout: 60_000 });
+    if (!llm) throw new Error("未配置 key");
+    const resp = await llm.client.chat.completions.create({
+      model: llm.model,
       messages: [
         { role: "system", content: SYS },
         {
@@ -95,12 +91,9 @@ export async function POST(req: Request) {
       max_tokens: 600,
     });
     const raw = resp.choices[0]?.message?.content ?? "{}";
-    let data: Record<string, unknown>;
-    try {
-      data = JSON.parse(raw);
-    } catch {
-      data = { risk: "low", riskLabel: "低风险", summary: "未识别到明显风险", items: [], advice: "" };
-    }
+    const data: Record<string, unknown> =
+      parseJsonLoose<Record<string, unknown>>(raw) ??
+      { risk: "low", riskLabel: "低风险", summary: "未识别到明显风险", items: [], advice: "" };
     if (useDb) {
       await addLedgerEntry(email, -cost, "侵权检测").catch(() => {});
     }
