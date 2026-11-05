@@ -6,19 +6,19 @@
 
 Open-source AI e-commerce visual studio — generate, batch-suite, cut out, try on and canvas-compose production-ready product images.
 
-[2.0 即将上线](#-20-全新版本--即将上线--coming-soon) · [快速开始](#-快速开始--quick-start) · [功能](#-功能--features) · [版本](#-版本--editions) · [License](#-license)
+[Ultra 旗舰版](#-novaryns-ultra-旗舰版--即将上线--coming-soon) · [快速开始](#-快速开始--quick-start) · [功能](#-功能--features) · [版本](#-版本--editions) · [License](#-license)
 
 </div>
 
 ---
 
-## 🚀 2.0 全新版本 · 即将上线 / Coming soon
+## 🚀 Novaryns Ultra 旗舰版 · 即将上线 / Coming soon
 
 <p align="center">
-  <img src="docs/screenshots/v2/banner.webp" width="840" alt="Novaryns 2.0" />
+  <img src="docs/screenshots/v2/banner.webp" width="840" alt="Novaryns Ultra" />
 </p>
 
-**界面全部重做,功能全面升级。** 2.0 面向 Pro / 云端付费用户提供,开源版保持不变。
+**比 Pro 更高一档的全新版本。** 界面全部重做、功能全面升级,为 **Ultra 旗舰版**独享;开源版与 Pro 保持不变。
 
 - **按电商任务出图** — 一键套图、详情图、主副图、白底图、单图、营销物料、爆款复刻、自由创作,外加商品视频、口播视频
 - **选平台自动套规范** — 国内 10 个、跨境 22 个电商平台,图中文字支持 16 种语言
@@ -48,7 +48,7 @@ Open-source AI e-commerce visual studio — generate, batch-suite, cut out, try 
   </tr>
 </table>
 
-> 📮 **想第一时间用上 2.0?** 加作者微信 **xingze063**,备注「2.0」,上线第一时间通知你。
+> 📮 **想第一时间用上 Ultra 旗舰版?** 加作者微信 **xingze063**,备注「Ultra」,上线第一时间通知你。
 
 ## ✨ 功能 / Features
 
@@ -243,20 +243,21 @@ docker run -d --name openai-relay --restart always -p 80:80 -p 443:443 -v caddy_
 
 ## 📦 版本 / Editions
 
-| | 开源版 Community | Pro 自托管 | 云端托管 Cloud |
-|---|---|---|---|
-| 价格 | **¥0**(AGPL-3.0) | **¥1,999/年起** | **¥3,999/年起** |
-| 全部生成与图像工具 | ✅ | ✅ | ✅ |
-| 创作画布 / 对话生图 | ✅ | ✅ | ✅ |
-| 自带 API Key · 单机自用 | ✅ | ✅ | 含算力积分 |
-| 白标(自有品牌/去署名) | — | ✅ | ✅ |
-| 多用户注册 / 团队 | — | ✅ | ✅ |
-| 收银台(支付宝/微信直收) | — | ✅ | ✅ |
-| 运营后台高阶(用户/发卡/流水) | — | ✅ | ✅ |
-| 商业授权(可闭源自用) | AGPL 义务 | ✅ | ✅ |
-| 部署 | 自部署 | 自部署 + License Key | **免运维,专属实例 + 自有域名** |
+| | 开源版 Community | Pro 自托管 | 云端托管 Cloud | **Ultra 旗舰版** 🆕 |
+|---|---|---|---|---|
+| 价格 | **¥0**(AGPL-3.0) | **¥1,999/年起** | **¥3,999/年起** | 即将公布 |
+| 全部生成与图像工具 | ✅ | ✅ | ✅ | ✅ |
+| 创作画布 / 对话生图 | ✅ | ✅ | ✅ | ✅ |
+| 自带 API Key · 单机自用 | ✅ | ✅ | 含算力积分 | ✅ |
+| 白标(自有品牌/去署名) | — | ✅ | ✅ | ✅ |
+| 多用户注册 / 团队 | — | ✅ | ✅ | ✅ |
+| 收银台(支付宝/微信直收) | — | ✅ | ✅ | ✅ |
+| 运营后台高阶(用户/发卡/流水) | — | ✅ | ✅ | ✅ |
+| 商业授权(可闭源自用) | AGPL 义务 | ✅ | ✅ | ✅ |
+| 部署 | 自部署 | 自部署 + License Key | **免运维,专属实例 + 自有域名** | 自部署 / 托管均可 |
+| **全新界面 + 新功能**(按任务出图、营销物料批量、任务队列、新运营后台、手机端) | — | — | — | ✅ |
 
-购买 Pro 授权 / 开通云端托管:加作者微信 **xingze063**。
+购买 Pro 授权 / 开通云端托管 / 预约 Ultra 旗舰版:加作者微信 **xingze063**。
 
 ## 🧱 技术栈 / Stack
 
