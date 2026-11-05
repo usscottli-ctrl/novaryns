@@ -6,11 +6,49 @@
 
 Open-source AI e-commerce visual studio — generate, batch-suite, cut out, try on and canvas-compose production-ready product images.
 
-[快速开始](#-快速开始--quick-start) · [功能](#-功能--features) · [版本](#-版本--editions) · [License](#-license)
+[2.0 即将上线](#-20-全新版本--即将上线--coming-soon) · [快速开始](#-快速开始--quick-start) · [功能](#-功能--features) · [版本](#-版本--editions) · [License](#-license)
 
 </div>
 
 ---
+
+## 🚀 2.0 全新版本 · 即将上线 / Coming soon
+
+<p align="center">
+  <img src="docs/screenshots/v2/banner.webp" width="840" alt="Novaryns 2.0" />
+</p>
+
+**界面全部重做,功能全面升级。** 2.0 面向 Pro / 云端付费用户提供,开源版保持不变。
+
+- **按电商任务出图** — 一键套图、详情图、主副图、白底图、单图、营销物料、爆款复刻、自由创作,外加商品视频、口播视频
+- **选平台自动套规范** — 国内 10 个、跨境 22 个电商平台,图中文字支持 16 种语言
+- **营销物料批量出** — 店铺装修、大促、社媒种草、直播、广告投放、线下物料,一次最多 15 种
+- **统一模特 / 包含文案** — 整套图同一个模特;可选在图上自动排卖点文字
+- **任务队列** — 关掉页面也继续生成;失败的图自动退还积分,单张一键重做
+- **全新运营后台** — 经营概览、生成任务监控、作品审核、套餐与并发、兑换码、财务对账、操作日志
+- **手机端适配** — 手机上也能下单出图、看进度、下载
+- **5 套主题配色**,后台一键切换
+
+<table>
+  <tr>
+    <td align="center" width="50%"><img src="docs/screenshots/v2/home.webp" alt="首页" /><br /><b>首页 · 按任务出图</b></td>
+    <td align="center" width="50%"><img src="docs/screenshots/v2/generate.webp" alt="生成页" /><br /><b>生成页 · 时间线与单张重做</b></td>
+  </tr>
+  <tr>
+    <td align="center"><img src="docs/screenshots/v2/marketing.webp" alt="营销物料" /><br /><b>营销物料 · 批量选择</b></td>
+    <td align="center"><img src="docs/screenshots/v2/tools.webp" alt="工具箱" /><br /><b>AI 工具箱</b></td>
+  </tr>
+  <tr>
+    <td align="center"><img src="docs/screenshots/v2/assets.webp" alt="资产" /><br /><b>资产 · 按任务归档</b></td>
+    <td align="center"><img src="docs/screenshots/v2/admin.webp" alt="后台" /><br /><b>运营后台(图中为示例数据)</b></td>
+  </tr>
+  <tr>
+    <td align="center"><img src="docs/screenshots/v2/mobile.webp" width="260" alt="手机端" /><br /><b>手机端</b></td>
+    <td align="center"><img src="docs/screenshots/v2/mascot.webp" alt="吉祥物星仔" /><br /><b>吉祥物「星仔」贯穿等待、成功、失败等状态</b></td>
+  </tr>
+</table>
+
+> 📮 **想第一时间用上 2.0?** 加作者微信 **xingze063**,备注「2.0」,上线第一时间通知你。
 
 ## ✨ 功能 / Features
 
